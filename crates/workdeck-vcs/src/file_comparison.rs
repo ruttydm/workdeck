@@ -41,6 +41,48 @@ fn load_comparison(
     requested_display_path: Option<&Path>,
     kind: ComparisonKind,
 ) -> Result<Changeset, VcsError> {
+    let left_bytes = read_comparison_file(&absolute_or_join(cwd, left))?;
+    let right_bytes = read_comparison_file(&absolute_or_join(cwd, right))?;
+    comparison_from_bytes(
+        cwd,
+        left,
+        right,
+        requested_display_path,
+        kind,
+        &left_bytes,
+        &right_bytes,
+    )
+}
+
+/// Build a comparison from bytes already read by a source-bound adapter. The
+/// paths identify the snapshots; this function never opens them again.
+pub fn load_file_comparison_from_bytes(
+    cwd: &Path,
+    left: &Path,
+    right: &Path,
+    left_bytes: &[u8],
+    right_bytes: &[u8],
+) -> Result<Changeset, VcsError> {
+    comparison_from_bytes(
+        cwd,
+        left,
+        right,
+        None,
+        ComparisonKind::Files,
+        left_bytes,
+        right_bytes,
+    )
+}
+
+fn comparison_from_bytes(
+    cwd: &Path,
+    left: &Path,
+    right: &Path,
+    requested_display_path: Option<&Path>,
+    kind: ComparisonKind,
+    left_bytes: &[u8],
+    right_bytes: &[u8],
+) -> Result<Changeset, VcsError> {
     let left_path = absolute_or_join(cwd, left);
     let right_path = absolute_or_join(cwd, right);
     let display_path = match (kind, requested_display_path) {
@@ -61,11 +103,9 @@ fn load_comparison(
         ),
     };
 
-    let left_bytes = read_comparison_file(&left_path)?;
-    let right_bytes = read_comparison_file(&right_path)?;
-    let binary = is_probably_binary(&left_bytes) || is_probably_binary(&right_bytes);
-    let left_text = String::from_utf8_lossy(&left_bytes).into_owned();
-    let right_text = String::from_utf8_lossy(&right_bytes).into_owned();
+    let binary = is_probably_binary(left_bytes) || is_probably_binary(right_bytes);
+    let left_text = String::from_utf8_lossy(left_bytes).into_owned();
+    let right_text = String::from_utf8_lossy(right_bytes).into_owned();
     let previous_path = display_basename(&left.to_string_lossy());
     let mut file = if binary {
         binary_file(

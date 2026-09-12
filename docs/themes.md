@@ -2,7 +2,7 @@
 
 Choose a built-in theme, let Workdeck select one from your terminal background,
 or define custom themes in `~/.config/workdeck/config.toml` or
-`.agents/workdeck/config.toml`. Workdeck keeps the selected theme in its existing
+`.workdeck/config.toml`. Workdeck keeps the selected theme in its existing
 `[ui]` table:
 
 ```toml
@@ -11,6 +11,19 @@ theme = "github-dark-default"
 ```
 
 While reviewing, press `t` or choose `View -> Themes…`.
+
+An existing `.agents/workdeck/config.toml` remains a read-only compatibility source
+when no native override is selected. Run `workdeck config init` to copy those
+preferences deliberately into `.workdeck/config.toml`, preserving the old file;
+`workdeck config set KEY VALUE` also makes that explicit move before publishing a
+valid edit. Saving review preferences against a legacy repository layer reports
+that migration step instead of modifying the legacy file or falling back to global
+settings. Global preference saves retain their existing behavior.
+
+Creating the native root also selects `.workdeck/extensions/` for automatic repository
+extension discovery. If existing extensions remain in the legacy directory, Workdeck
+reports a migration notice; move them or declare their retained paths explicitly in
+repository `[extensions].paths`. The repository trust decision still applies.
 
 ## Automatic theme selection
 

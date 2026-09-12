@@ -9,7 +9,7 @@
       "source_bytes": 20690,
       "source_lines": 326,
       "destination_path": "skills/workdeck-extensions/SKILL.md",
-      "destination_sha256": "d67f96ecc654b7d49b6ea0daba9d89436054c7d80dfbf75468b3dbecadc15f19",
+      "destination_sha256": "ce7167410468ff2eb5cb9fd42d21325f4c3326bccc9b875219fea94c78464c4d",
       "sections": [
         {
           "source_lines": [1, 24],
@@ -30,7 +30,7 @@
           "source_bytes": [2817, 5387],
           "source_semantics": "discovery origins, trust, installation, manifests, IDs, namespaces, and API compatibility",
           "destination_headings": ["## Where extensions live"],
-          "adaptation": "manifest directories and prebuilt executable installs replace inferred script entries and dependency installation"
+          "adaptation": "manifest directories and prebuilt executable installs replace inferred script entries and dependency installation; canonical .workdeck discovery and read-only legacy discovery retain explicit repository trust and configured-path precedence"
         },
         {
           "source_lines": [94, 117],
@@ -87,6 +87,8 @@
         "crates/workdeck-extension-api/src/authoring.rs",
         "crates/workdeck-extension-host/src/lib.rs",
         "crates/workdeck-extension-host/src/extension_discovery.rs",
+        "crates/workdeck-cli/tests/pm_config_cutover.rs",
+        "docs/project-management-compatibility.md",
         "docs/native-extension-runtime-boundary.md",
         "docs/native-extension-events-and-pane-actions.md",
         "docs/native-interactive-file-views.md",

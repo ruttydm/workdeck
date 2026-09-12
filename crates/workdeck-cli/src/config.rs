@@ -396,9 +396,18 @@ pub struct Config {
     /// Existing repository config, otherwise the global config path, for view persistence.
     #[serde(skip)]
     pub view_preferences_config_path: Option<PathBuf>,
+    /// Host-selected write admission; legacy repository layers require explicit migration.
+    #[serde(skip)]
+    pub view_preferences_write_policy: workdeck_core::ViewPreferenceWritePolicy,
     /// A VCS id named by configuration, distinct from the detected/default adapter.
     #[serde(skip)]
     pub explicit_vcs_id: Option<String>,
+    /// Config path intent and the planning source chosen at repository load.
+    /// Direct `load_from_paths` callers remain responsible for source selection.
+    #[serde(skip)]
+    pub explicit_data_dir: bool,
+    #[serde(skip)]
+    pub resolved_data_dir: Option<PathBuf>,
 }
 
 impl Default for Config {
@@ -418,7 +427,10 @@ impl Default for Config {
             keybinding_notices: Vec::new(),
             custom_themes: Vec::new(),
             view_preferences_config_path: None,
+            view_preferences_write_policy: workdeck_core::ViewPreferenceWritePolicy::Writable,
             explicit_vcs_id: None,
+            explicit_data_dir: false,
+            resolved_data_dir: None,
         }
     }
 }
@@ -687,12 +699,7 @@ impl Default for KeyConfig {
 
 impl Config {
     pub fn load(repo_root: &Path) -> Result<Self> {
-        Self::load_from_paths_with_review_context(
-            &repo_root.join(default_data_dir()).join("config.toml"),
-            user_config_path().as_deref(),
-            None,
-            false,
-        )
+        Self::load_repository_with_context(repo_root, user_config_path().as_deref(), None, false)
     }
 
     /// Load configuration for one review input. Within each user/repository
@@ -703,12 +710,28 @@ impl Config {
         command_section: Option<&str>,
         pager: bool,
     ) -> Result<Self> {
-        Self::load_from_paths_with_review_context(
-            &repo_root.join(default_data_dir()).join("config.toml"),
+        Self::load_repository_with_context(
+            repo_root,
             user_config_path().as_deref(),
             command_section,
             pager,
         )
+    }
+
+    fn load_repository_with_context(
+        repo_root: &Path,
+        user_config: Option<&Path>,
+        command_section: Option<&str>,
+        pager: bool,
+    ) -> Result<Self> {
+        let source = repository_config_source(repo_root)?;
+        let config = Self::load_from_paths_with_review_context(
+            &source.path,
+            user_config,
+            command_section,
+            pager,
+        )?;
+        apply_repository_source(config, repo_root, &source)
     }
 
     pub fn load_from_paths(
@@ -738,6 +761,22 @@ impl Config {
         command_section: Option<&str>,
         pager: bool,
     ) -> Result<Self> {
+        Self::load_with_repo_candidate(
+            repo_config_path,
+            user_config_path,
+            command_section,
+            pager,
+            None,
+        )
+    }
+
+    fn load_with_repo_candidate(
+        repo_config_path: &Path,
+        user_config_path: Option<&Path>,
+        command_section: Option<&str>,
+        pager: bool,
+        candidate: Option<&toml::Value>,
+    ) -> Result<Self> {
         let mut merged = toml::Value::Table(Default::default());
         set_config_preference(
             merged
@@ -765,7 +804,7 @@ impl Config {
 
         if let Some(path) = user_config_path.filter(|path| path.exists()) {
             (keybindings, keybinding_notices) = read_user_keybindings(path)?;
-            let mut user = read_config_value(path)?;
+            let mut user = read_config_value(&path.canonicalize()?)?;
             apply_layered_review_preferences(&mut user, command_section, pager)?;
             user_extensions = read_extensions_layer(&user)?;
             let themes = read_custom_themes(&user)?;
@@ -775,8 +814,11 @@ impl Config {
             merge_toml_values(&mut merged, user);
         }
 
-        if repo_config_path.exists() {
-            let mut repo = read_config_value(repo_config_path)?;
+        if candidate.is_some() || repo_config_path.exists() {
+            let mut repo = match candidate {
+                Some(value) => value.clone(),
+                None => read_config_value(repo_config_path)?,
+            };
             apply_layered_review_preferences(&mut repo, command_section, pager)?;
             repo_extensions = read_extensions_layer(&repo)?;
             let themes = read_custom_themes(&repo)?;
@@ -807,6 +849,10 @@ impl Config {
             .and_then(|review| review.get("vcs"))
             .and_then(toml::Value::as_str)
             .map(str::to_owned);
+        config.explicit_data_dir = merged
+            .get("paths")
+            .and_then(|paths| paths.get("data_dir"))
+            .is_some();
         config.keybindings = keybindings;
         config.keybinding_notices = keybinding_notices;
         config.custom_themes = custom_themes;
@@ -850,25 +896,37 @@ impl Config {
     /// validation is intentionally skipped so an extension-owned CLI command
     /// can bootstrap even when unrelated review configuration is incomplete.
     pub fn load_extension_bootstrap(repo_root: &Path) -> Result<Self> {
-        Self::load_extension_bootstrap_from_paths(
-            &repo_root.join(default_data_dir()).join("config.toml"),
-            user_config_path().as_deref(),
-        )
+        let source = repository_config_source(repo_root)?;
+        let config =
+            Self::load_extension_bootstrap_from_paths(&source.path, user_config_path().as_deref())?;
+        apply_repository_source(config, repo_root, &source)
     }
 
     pub fn load_extension_bootstrap_from_paths(
         repo_config_path: &Path,
         user_config_path: Option<&Path>,
     ) -> Result<Self> {
-        let user_extensions = match user_config_path.filter(|path| path.exists()) {
-            Some(path) => read_extensions_layer(&read_config_value(path)?)?,
-            None => ExtensionsLayer::default(),
+        let user_value = match user_config_path.filter(|path| path.exists()) {
+            Some(path) => read_config_value(&path.canonicalize()?)?,
+            None => toml::Value::Table(Default::default()),
         };
-        let repo_extensions = if repo_config_path.exists() {
-            read_extensions_layer(&read_config_value(repo_config_path)?)?
+        let repo_value = if repo_config_path.exists() {
+            read_config_value(repo_config_path)?
         } else {
-            ExtensionsLayer::default()
+            toml::Value::Table(Default::default())
         };
+        let user_extensions = read_extensions_layer(&user_value)?;
+        let repo_extensions = read_extensions_layer(&repo_value)?;
+        let mut path_layer = toml::Value::Table(Default::default());
+        for layer in [&user_value, &repo_value] {
+            if let Some(paths) = layer.get("paths") {
+                merge_toml_values(&mut path_layer, paths.clone());
+            }
+        }
+        let explicit_data_dir = path_layer.get("data_dir").is_some();
+        let paths: PathConfig = path_layer
+            .try_into()
+            .with_context(|| "invalid configured planning path")?;
         let extension_configs = merge_extension_configs(
             &user_extensions.extension_configs,
             &repo_extensions.extension_configs,
@@ -878,6 +936,8 @@ impl Config {
             .map(|(id, value)| (id.clone(), toml_value_as_json(value)))
             .collect::<BTreeMap<_, _>>();
         let mut config = Self {
+            paths,
+            explicit_data_dir,
             extension: resolved_extension_configs.clone(),
             resolved_extensions: ExtensionsConfig {
                 enabled: repo_extensions
@@ -902,6 +962,9 @@ impl Config {
     }
 
     pub fn data_dir(&self, repo_root: &Path) -> PathBuf {
+        if let Some(resolved) = &self.resolved_data_dir {
+            return resolved.clone();
+        }
         if self.paths.data_dir.is_absolute() {
             self.paths.data_dir.clone()
         } else {
@@ -1438,8 +1501,9 @@ fn repo_extension_config_notice(
 }
 
 fn read_user_keybindings(path: &Path) -> Result<(Vec<UserKeyBindingEntry>, Vec<String>)> {
-    let raw = fs::read_to_string(path)
-        .with_context(|| format!("failed to read config at {}", path.display()))?;
+    // User-selected configuration may be a dotfiles symlink. Resolve that
+    // explicit user source, then still require a bounded regular descriptor.
+    let raw = read_app_config_text(&path.canonicalize()?)?;
     let document = raw
         .parse::<toml_edit::DocumentMut>()
         .with_context(|| format!("failed to parse {}", path.display()))?;
@@ -1487,9 +1551,40 @@ fn read_user_keybindings(path: &Path) -> Result<(Vec<UserKeyBindingEntry>, Vec<S
 }
 
 fn read_config_value(path: &Path) -> Result<toml::Value> {
-    let raw = fs::read_to_string(path)
-        .with_context(|| format!("failed to read config at {}", path.display()))?;
+    let raw = read_app_config_text(path)?;
     toml::from_str(&raw).with_context(|| format!("failed to parse {}", path.display()))
+}
+
+/// Read the selected repository layer without following a leaf symlink or
+/// blocking on a special file. Used by config inspection as well as startup.
+pub fn read_repository_config_value(path: &Path) -> Result<toml::Value> {
+    match fs::symlink_metadata(path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Ok(toml::Value::Table(Default::default()))
+        }
+        Err(error) => Err(error.into()),
+        Ok(_) => read_config_value(path),
+    }
+}
+
+fn read_app_config_text(path: &Path) -> Result<String> {
+    let parent = path
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let name = path
+        .file_name()
+        .context("application config has no filename")?;
+    let read = crate::bounded_files::read(parent, Path::new(name), 2 * 1024 * 1024)
+        .with_context(|| format!("failed to read config at {}", path.display()))?;
+    if read.truncated {
+        bail!(
+            "application configuration exceeds 2 MiB: {}",
+            path.display()
+        );
+    }
+    String::from_utf8(read.bytes)
+        .with_context(|| format!("configuration must be UTF-8: {}", path.display()))
 }
 
 fn merge_toml_values(base: &mut toml::Value, overlay: toml::Value) {
@@ -1581,6 +1676,199 @@ pub fn resolve_repo_data_dir(repo_root: &Path) -> PathBuf {
     repo_root.join(default_data_dir())
 }
 
+struct RepositoryConfigSource {
+    path: PathBuf,
+    native_pm: bool,
+    legacy_pm: bool,
+    legacy_config: bool,
+    planning_diagnostic: Option<String>,
+}
+
+/// One repository app-settings resolver for reads and explicit config commands.
+/// Application preferences remain usable when PM records need repair/recovery;
+/// PM commands independently enforce full Repository admission.
+pub fn resolve_repo_config_path(repo_root: &Path) -> Result<PathBuf> {
+    Ok(repository_config_source(repo_root)?.path)
+}
+
+/// Validate the proposed repository layer using the same global/repository
+/// merge, preference semantics, extension provenance, and source pin as load.
+/// The candidate never needs to be written to the filesystem for validation.
+pub fn validate_repo_config_candidate(repo_root: &Path, candidate: &toml::Value) -> Result<()> {
+    validate_repo_config_candidate_with_user(repo_root, candidate, user_config_path().as_deref())
+}
+
+fn validate_repo_config_candidate_with_user(
+    repo_root: &Path,
+    candidate: &toml::Value,
+    user_config: Option<&Path>,
+) -> Result<()> {
+    let source = repository_config_source(repo_root)?;
+    let config =
+        Config::load_with_repo_candidate(&source.path, user_config, None, false, Some(candidate))?;
+    apply_repository_source(config, repo_root, &source)?;
+    Ok(())
+}
+
+fn path_present(path: &Path) -> Result<bool> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error).with_context(|| format!("failed to inspect {}", path.display())),
+    }
+}
+
+fn has_native_record_evidence(root: &Path) -> Result<bool> {
+    for namespace in [
+        "restore.yml",
+        "users.yml",
+        "schema.yml",
+        "issues",
+        "initiatives",
+        "projects",
+        "milestones",
+        "targets",
+        "cycles",
+        "features",
+        "gates",
+        "relations",
+        "wiki",
+        "labels.yml",
+        "operations",
+        "tombstones",
+        "imported-sessions",
+        "imported-history",
+        "imported-handoffs",
+        "claims",
+        "runs",
+        "commands",
+        "checks",
+        "check-profiles",
+        "claims",
+        "coordination.yml",
+        "evidence",
+        "questions",
+        "templates",
+        "views",
+        "migrations",
+    ] {
+        let path = root.join(namespace);
+        match fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
+                if let Some(entry) = fs::read_dir(&path)
+                    .with_context(|| format!("failed to inspect {}", path.display()))?
+                    .next()
+                {
+                    entry?;
+                    return Ok(true);
+                }
+            }
+            Ok(_) => return Ok(true),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(error).with_context(|| format!("failed to inspect {}", path.display()));
+            }
+        }
+    }
+    Ok(false)
+}
+
+fn repository_config_source(repo_root: &Path) -> Result<RepositoryConfigSource> {
+    let native = repo_root.join(".workdeck");
+    let legacy = repo_root.join(".agents/workdeck");
+    let marker = path_present(&native.join("migration.yml"))?;
+    let native_pm =
+        marker || path_present(&native.join("config.yml"))? || has_native_record_evidence(&native)?;
+    let mut legacy_pm = false;
+    for relative in ["issues", "projects.toml", "cycles.toml", "labels.toml"] {
+        legacy_pm |= path_present(&legacy.join(relative))?;
+    }
+    if native_pm && legacy_pm && !marker {
+        return Err(workdeck_pm::PmError::new(workdeck_pm::ErrorCode::AmbiguousSource,"native and legacy planning sources coexist without an accepted migration marker; select or migrate the source explicitly").at(&native).into());
+    }
+    let planning_diagnostic = if native_pm {
+        workdeck_pm::Repository::open_source(&native)
+            .err()
+            .map(|error| error.to_string())
+    } else {
+        None
+    };
+    let native_config = native.join("config.toml");
+    let legacy_config = legacy.join("config.toml");
+    let use_legacy = !native_pm && !path_present(&native_config)? && path_present(&legacy_config)?;
+    Ok(RepositoryConfigSource {
+        path: if use_legacy {
+            legacy_config
+        } else {
+            native_config
+        },
+        native_pm,
+        legacy_pm,
+        legacy_config: use_legacy,
+        planning_diagnostic,
+    })
+}
+
+fn apply_repository_source(
+    mut config: Config,
+    repo_root: &Path,
+    source: &RepositoryConfigSource,
+) -> Result<Config> {
+    config.view_preferences_write_policy = if source.legacy_config {
+        workdeck_core::ViewPreferenceWritePolicy::LegacyReadOnly
+    } else {
+        workdeck_core::ViewPreferenceWritePolicy::Writable
+    };
+    let selected = if source.native_pm {
+        Some(repo_root.join(".workdeck"))
+    } else if source.legacy_pm {
+        Some(repo_root.join(".agents/workdeck"))
+    } else {
+        None
+    };
+    if let Some(selected) = selected {
+        if config.explicit_data_dir
+            && workdeck_core::resolve_canonical_path(config.data_dir(repo_root))?
+                != workdeck_core::resolve_canonical_path(&selected)?
+        {
+            bail!(
+                "paths.data_dir conflicts with the selected planning source at {}; preserve the configured path and migrate or select its source explicitly",
+                selected.display()
+            );
+        }
+        // `config show` should describe the effective compatibility default,
+        // while explicitly authored path spelling remains intact.
+        if !config.explicit_data_dir && source.legacy_pm && !source.native_pm {
+            config.paths.data_dir = PathBuf::from(".agents/workdeck");
+        }
+        config.resolved_data_dir = Some(selected);
+    }
+    if source.legacy_config || (source.legacy_pm && !source.native_pm) {
+        config.startup_notices.push(StartupNotice::new("migration:legacy-source","Using existing .agents/workdeck compatibility source; run workdeck migrate legacy to review migration into .workdeck."));
+    }
+    if let Some(diagnostic) = &source.planning_diagnostic {
+        config.startup_notices.push(StartupNotice::new(
+            "planning:source-unavailable",
+            format!(
+                "Project management unavailable: {}",
+                sanitize_terminal_line(diagnostic)
+            ),
+        ));
+    }
+    let extension_directory = workdeck_extension_host::repository_extension_directory(repo_root);
+    if extension_directory == repo_root.join(".agents/workdeck/extensions")
+        && extension_directory.exists()
+    {
+        config.startup_notices.push(StartupNotice::new("migration:legacy-extensions","Repository extensions use the legacy .agents/workdeck/extensions directory with existing repository trust; migrate or configure the native .workdeck directory explicitly."));
+    } else if repo_root.join(".agents/workdeck/extensions").exists() {
+        config.startup_notices.push(StartupNotice::new(
+            "migration:legacy-extension-paths",
+            "Canonical extension discovery uses .workdeck/extensions. Legacy files remain in .agents/workdeck/extensions; move them into the canonical directory or retain their paths explicitly in repository [extensions].paths. Configured repository paths still require repository trust.",
+        ));
+    }
+    Ok(config)
+}
+
 fn default_true() -> bool {
     true
 }
@@ -1610,7 +1898,7 @@ fn default_file_gap() -> u16 {
 }
 
 fn default_data_dir() -> PathBuf {
-    PathBuf::from(".agents/workdeck")
+    PathBuf::from(".workdeck")
 }
 
 fn default_recent_commits() -> usize {
@@ -1844,11 +2132,412 @@ mod tests {
     }
 
     #[test]
-    fn defaults_to_agents_workdeck() {
+    fn defaults_to_root_workdeck() {
         let root = Path::new("/tmp/repo");
         assert_eq!(
             Config::default().data_dir(root),
-            PathBuf::from("/tmp/repo/.agents/workdeck")
+            PathBuf::from("/tmp/repo/.workdeck")
+        );
+    }
+
+    #[test]
+    fn cutover_config_only_preserves_layers_and_does_not_initialize_pm() {
+        let temp = tempfile::tempdir().unwrap();
+        let native = temp.path().join(".workdeck");
+        fs::create_dir(&native).unwrap();
+        let user = temp.path().join("user.toml");
+        fs::write(&user, "file_gap=2\n[review]\nline_numbers=false\n").unwrap();
+        fs::write(
+            native.join("config.toml"),
+            "file_gap=3\n[diff]\nfile_gap=4\n[pager]\nfile_gap=5\n",
+        )
+        .unwrap();
+        let config =
+            Config::load_repository_with_context(temp.path(), Some(&user), Some("diff"), true)
+                .unwrap();
+        assert_eq!(config.review.file_gap, 5);
+        assert!(!config.review.line_numbers);
+        assert_eq!(
+            config.view_preferences_config_path,
+            Some(native.join("config.toml"))
+        );
+        assert_eq!(config.data_dir(temp.path()), native);
+        assert!(!native.join("config.yml").exists());
+        assert!(!native.join(".tmp").exists());
+    }
+
+    #[test]
+    fn cutover_extension_bootstrap_checks_path_intent_without_validating_review_theme() {
+        let temp = tempfile::tempdir().unwrap();
+        workdeck_pm::Repository::init(temp.path(), "WD").unwrap();
+        let path = temp.path().join(".workdeck/config.toml");
+        fs::write(&path,"[ui]\ntheme='missing-custom-theme'\n[paths]\ndata_dir='../external'\n[extensions]\npaths=['repo-tools']\n").unwrap();
+        let config = Config::load_extension_bootstrap_from_paths(&path, None).unwrap();
+        assert_eq!(
+            config.resolved_extensions.repo_paths,
+            [PathBuf::from("repo-tools")]
+        );
+        let source = repository_config_source(temp.path()).unwrap();
+        assert!(
+            apply_repository_source(config, temp.path(), &source)
+                .unwrap_err()
+                .to_string()
+                .contains("paths.data_dir conflicts")
+        );
+        fs::write(
+            &path,
+            "[ui]\ntheme='missing-custom-theme'\n[extensions]\npaths=['repo-tools']\n",
+        )
+        .unwrap();
+        let config = Config::load_extension_bootstrap_from_paths(&path, None).unwrap();
+        assert!(apply_repository_source(config, temp.path(), &source).is_ok());
+    }
+
+    #[test]
+    fn cutover_sole_legacy_pm_remains_selected_with_native_app_preferences() {
+        let temp = tempfile::tempdir().unwrap();
+        let legacy = temp.path().join(".agents/workdeck");
+        fs::create_dir_all(legacy.join("issues")).unwrap();
+        fs::write(legacy.join("config.toml"), "file_gap=6\n").unwrap();
+        let old = Config::load_repository_with_context(temp.path(), None, None, false).unwrap();
+        assert_eq!(old.data_dir(temp.path()), legacy);
+        assert_eq!(old.paths.data_dir, Path::new(".agents/workdeck"));
+        assert_eq!(
+            old.view_preferences_config_path,
+            Some(legacy.join("config.toml"))
+        );
+        assert_eq!(old.review.file_gap, 6);
+        assert_eq!(
+            old.view_preferences_write_policy,
+            workdeck_core::ViewPreferenceWritePolicy::LegacyReadOnly
+        );
+        let native = temp.path().join(".workdeck");
+        fs::create_dir(&native).unwrap();
+        fs::write(native.join("config.toml"), "file_gap=7\n").unwrap();
+        let config = Config::load_repository_with_context(temp.path(), None, None, false).unwrap();
+        assert_eq!(config.review.file_gap, 7);
+        assert_eq!(
+            config.view_preferences_write_policy,
+            workdeck_core::ViewPreferenceWritePolicy::Writable
+        );
+        assert_eq!(config.data_dir(temp.path()), legacy);
+        assert_eq!(config.paths.data_dir, Path::new(".agents/workdeck"));
+        assert_eq!(
+            config.view_preferences_config_path,
+            Some(native.join("config.toml"))
+        );
+        assert!(
+            config
+                .startup_notices
+                .iter()
+                .any(|notice| notice.key == "migration:legacy-source")
+        );
+        assert!(!native.join("config.yml").exists());
+    }
+
+    #[test]
+    fn cutover_custom_path_intent_is_preserved_or_reports_a_source_conflict() {
+        let temp = tempfile::tempdir().unwrap();
+        let native = temp.path().join(".workdeck");
+        fs::create_dir(&native).unwrap();
+        fs::write(
+            native.join("config.toml"),
+            "[paths]\ndata_dir='../external-planning'\n",
+        )
+        .unwrap();
+        let config = Config::load_repository_with_context(temp.path(), None, None, false).unwrap();
+        assert_eq!(
+            config.data_dir(temp.path()),
+            temp.path().join("../external-planning")
+        );
+        assert!(!temp.path().join("../external-planning").exists());
+        workdeck_pm::Repository::init(temp.path(), "WD").unwrap();
+        let error =
+            Config::load_repository_with_context(temp.path(), None, None, false).unwrap_err();
+        assert!(error.to_string().contains("paths.data_dir conflicts"));
+        fs::write(
+            native.join("config.toml"),
+            "[paths]\ndata_dir='.agents/workdeck'\n",
+        )
+        .unwrap();
+        assert!(
+            Config::load_repository_with_context(temp.path(), None, None, false)
+                .unwrap_err()
+                .to_string()
+                .contains("paths.data_dir conflicts")
+        );
+    }
+
+    #[test]
+    fn explicit_preference_move_reports_changed_extension_discovery_and_preserves_trust() {
+        use workdeck_extension_host::{
+            ManifestOrigin, TrustDecision, TrustStore, discover_manifests_with_config,
+        };
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        let legacy = root.join(".agents/workdeck");
+        let manifest = legacy.join("extensions/example/workdeck-extension.toml");
+        fs::create_dir_all(manifest.parent().unwrap()).unwrap();
+        fs::write(&manifest, "id='example'\nname='Example'\nversion='1.0.0'\napi_version=1\nexecutable='never-executed'\n").unwrap();
+        let original = "# untouched legacy preferences\nmode='split'\n";
+        fs::write(legacy.join("config.toml"), original).unwrap();
+        let discover = |trust: &TrustStore, config: &Config| {
+            discover_manifests_with_config(
+                None,
+                Some(&root),
+                trust,
+                &[],
+                &[],
+                &config.resolved_extensions.repo_paths,
+                &root,
+            )
+            .unwrap()
+        };
+        let before = Config::load_repository_with_context(&root, None, None, false).unwrap();
+        assert!(
+            discover(&TrustStore::default(), &before)
+                .manifests
+                .is_empty()
+        );
+        let mut trust = TrustStore::default();
+        trust.grant(&root, TrustDecision::Trusted);
+        assert_eq!(
+            discover(&trust, &before).manifests,
+            std::slice::from_ref(&manifest)
+        );
+        assert!(crate::config_edit::set(&root, "tab_width", "0").is_err());
+        assert!(
+            !root.join(".workdeck").exists(),
+            "invalid preferences must not suppress legacy extension discovery"
+        );
+        let rejected = Config::load_repository_with_context(&root, None, None, false).unwrap();
+        assert_eq!(
+            rejected.view_preferences_config_path,
+            Some(legacy.join("config.toml"))
+        );
+        assert_eq!(
+            discover(&trust, &rejected).manifests,
+            std::slice::from_ref(&manifest)
+        );
+        crate::config_edit::initialize(&root).unwrap();
+        let after = Config::load_repository_with_context(&root, None, None, false).unwrap();
+        assert!(discover(&trust, &after).manifests.is_empty());
+        let notice = after
+            .startup_notices
+            .iter()
+            .find(|notice| notice.key == "migration:legacy-extension-paths")
+            .expect("explicit preference migration must explain the extension discovery change");
+        assert!(notice.message.contains(".workdeck/extensions"));
+        assert!(notice.message.contains("[extensions].paths"));
+        crate::config_edit::set(&root, "extensions.paths", "['.agents/workdeck/extensions']")
+            .unwrap();
+        let retained = Config::load_repository_with_context(&root, None, None, false).unwrap();
+        let trusted = discover(&trust, &retained);
+        assert_eq!(trusted.manifests, std::slice::from_ref(&manifest));
+        assert_eq!(trusted.origin(&manifest), Some(ManifestOrigin::Repository));
+        let untrusted = discover(&TrustStore::default(), &retained);
+        assert!(untrusted.manifests.is_empty());
+        assert_eq!(untrusted.pending_trust_repo_root, Some(root));
+        assert_eq!(
+            fs::read_to_string(legacy.join("config.toml")).unwrap(),
+            original
+        );
+    }
+
+    #[test]
+    fn preference_write_policy_follows_selected_layer_and_cannot_be_configured() {
+        let temp = tempfile::tempdir().unwrap();
+        let user = temp.path().join("user.toml");
+        fs::write(&user, "mode='stack'\n").unwrap();
+        let global =
+            Config::load_repository_with_context(temp.path(), Some(&user), None, false).unwrap();
+        assert_eq!(global.view_preferences_config_path, Some(user.clone()));
+        assert_eq!(
+            global.view_preferences_write_policy,
+            workdeck_core::ViewPreferenceWritePolicy::Writable
+        );
+        let legacy = temp.path().join(".agents/workdeck/config.toml");
+        fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+        fs::write(
+            &legacy,
+            "mode='split'\nview_preferences_write_policy='Writable'\n",
+        )
+        .unwrap();
+        let old =
+            Config::load_repository_with_context(temp.path(), Some(&user), None, false).unwrap();
+        assert_eq!(old.view_preferences_config_path, Some(legacy));
+        assert_eq!(
+            old.view_preferences_write_policy,
+            workdeck_core::ViewPreferenceWritePolicy::LegacyReadOnly
+        );
+        assert!(
+            !serde_json::to_value(old)
+                .unwrap()
+                .as_object()
+                .unwrap()
+                .contains_key("view_preferences_write_policy")
+        );
+    }
+
+    #[test]
+    fn cutover_candidate_validation_checks_settings_layers_and_source_before_publication() {
+        let temp = tempfile::tempdir().unwrap();
+        workdeck_pm::Repository::init(temp.path(), "WD").unwrap();
+        let path = temp.path().join(".workdeck/config.toml");
+        let original = "file_gap=2\n";
+        fs::write(&path, original).unwrap();
+        let user = temp.path().join("user.toml");
+        fs::write(
+            &user,
+            "[review]\ntab_width=4\n[extension.demo]\nuser_value=1\n",
+        )
+        .unwrap();
+        for candidate in [
+            "[review]\ntab_width=0\n",
+            "[paths]\ndata_dir='../conflicting-root'\n",
+        ] {
+            let candidate: toml::Value = toml::from_str(candidate).unwrap();
+            assert!(
+                validate_repo_config_candidate_with_user(temp.path(), &candidate, Some(&user))
+                    .is_err()
+            );
+            assert_eq!(fs::read_to_string(&path).unwrap(), original);
+        }
+        let candidate: toml::Value = toml::from_str("[extension.demo]\nrepo_value=2\n").unwrap();
+        validate_repo_config_candidate_with_user(temp.path(), &candidate, Some(&user)).unwrap();
+        let source = repository_config_source(temp.path()).unwrap();
+        let loaded = Config::load_with_repo_candidate(
+            &source.path,
+            Some(&user),
+            None,
+            false,
+            Some(&candidate),
+        )
+        .unwrap();
+        assert_eq!(loaded.review.tab_width, 4);
+        assert_eq!(
+            loaded.extension_config("demo"),
+            serde_json::json!({"user_value":1,"repo_value":2})
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+        assert!(!temp.path().join("../conflicting-root").exists());
+    }
+
+    #[test]
+    fn cutover_ambiguous_authorities_error_while_malformed_pm_keeps_review_usable() {
+        let temp = tempfile::tempdir().unwrap();
+        let native = temp.path().join(".workdeck");
+        fs::create_dir(&native).unwrap();
+        fs::write(native.join("config.toml"), "file_gap=8\n").unwrap();
+        fs::write(native.join("config.yml"), "malformed: [\n").unwrap();
+        let config = Config::load_repository_with_context(temp.path(), None, None, false).unwrap();
+        assert_eq!(config.review.file_gap, 8);
+        assert_eq!(config.data_dir(temp.path()), native);
+        assert!(
+            config
+                .startup_notices
+                .iter()
+                .any(|notice| notice.key == "planning:source-unavailable")
+        );
+        fs::create_dir_all(temp.path().join(".agents/workdeck/issues")).unwrap();
+        assert!(
+            resolve_repo_config_path(temp.path())
+                .unwrap_err()
+                .to_string()
+                .contains("native and legacy")
+        );
+    }
+
+    #[test]
+    fn cutover_orphan_native_records_are_diagnosed_and_cannot_fall_back_to_legacy() {
+        let temp = tempfile::tempdir().unwrap();
+        let native = temp.path().join(".workdeck");
+        fs::create_dir_all(native.join("issues/WD-1")).unwrap();
+        fs::write(native.join("issues/WD-1/item.md"), "orphan native record").unwrap();
+        let config = Config::load_repository_with_context(temp.path(), None, None, false).unwrap();
+        assert_eq!(config.data_dir(temp.path()), native);
+        assert!(
+            config
+                .startup_notices
+                .iter()
+                .any(|notice| notice.key == "planning:source-unavailable")
+        );
+        fs::create_dir_all(temp.path().join(".agents/workdeck/issues")).unwrap();
+        assert!(
+            resolve_repo_config_path(temp.path())
+                .unwrap_err()
+                .to_string()
+                .contains("native and legacy")
+        );
+        assert!(!native.join("config.yml").exists());
+    }
+
+    #[test]
+    fn cutover_pending_and_completed_markers_never_restore_retained_legacy_settings() {
+        use workdeck_pm::{
+            RequestId, Timestamp,
+            migration::{MigrationFault, PreviewOptions, apply_with_faults, preview, resume},
+        };
+        let temp = tempfile::tempdir().unwrap();
+        fs::create_dir(temp.path().join(".git")).unwrap();
+        let legacy = temp.path().join(".agents/workdeck");
+        fs::create_dir_all(&legacy).unwrap();
+        fs::write(
+            legacy.join("config.toml"),
+            "file_gap=6\n[paths]\ndata_dir='.agents/workdeck'\n",
+        )
+        .unwrap();
+        let native = temp.path().join(".workdeck");
+        let context = PreviewOptions {
+            config: workdeck_pm::Config::new("WD").unwrap(),
+            imported_at: "2026-09-09T00:00:00Z".parse::<Timestamp>().unwrap(),
+        };
+        let plan = preview(&legacy, &native, &context).unwrap();
+        assert!(plan.complete, "{:?}", plan.blockers);
+        let request = RequestId::new();
+        apply_with_faults(&plan, &request, |point| {
+            if point == MigrationFault::AfterBootstrap {
+                Err(workdeck_pm::PmError::new(
+                    workdeck_pm::ErrorCode::Canceled,
+                    "test stop",
+                ))
+            } else {
+                Ok(())
+            }
+        })
+        .unwrap_err();
+        assert_eq!(
+            resolve_repo_config_path(temp.path()).unwrap(),
+            native.join("config.toml")
+        );
+        let pending = Config::load_repository_with_context(temp.path(), None, None, false).unwrap();
+        assert_ne!(pending.review.file_gap, 6);
+        assert_eq!(pending.data_dir(temp.path()), native);
+        assert!(
+            pending
+                .startup_notices
+                .iter()
+                .any(|notice| notice.key == "planning:source-unavailable")
+        );
+        resume(&native, &request).unwrap();
+        fs::write(
+            legacy.join("config.toml"),
+            "file_gap=10\n[paths]\ndata_dir='../external'\n",
+        )
+        .unwrap();
+        let complete =
+            Config::load_repository_with_context(temp.path(), None, None, false).unwrap();
+        assert_eq!(complete.review.file_gap, 6);
+        assert_eq!(complete.data_dir(temp.path()), native);
+        assert!(
+            !complete
+                .startup_notices
+                .iter()
+                .any(|notice| notice.key == "planning:source-unavailable")
+        );
+        assert_eq!(
+            complete.view_preferences_config_path,
+            Some(native.join("config.toml"))
         );
     }
 
@@ -1870,7 +2559,7 @@ mod tests {
         assert!(config.refresh.auto);
         assert_eq!(config.refresh.interval_ms, 1500);
         assert_eq!(config.refresh.debounce_ms, 250);
-        assert_eq!(config.paths.data_dir, PathBuf::from(".agents/workdeck"));
+        assert_eq!(config.paths.data_dir, PathBuf::from(".workdeck"));
         assert_eq!(config.review.mode, "auto");
         assert_eq!(config.review.tab_width, 4);
         assert!(config.review.line_numbers);

@@ -31,6 +31,8 @@ jobs:
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - name: Test
         run: cargo xtask test
+      - name: Workdeck project-management release readiness
+        run: cargo xtask pm release-check --profile standalone
       - name: Dependency license policy
         uses: EmbarkStudios/cargo-deny-action@v2
       - name: Dependency security audit

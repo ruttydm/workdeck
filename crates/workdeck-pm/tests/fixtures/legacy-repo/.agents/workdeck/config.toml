@@ -1,0 +1,28 @@
+[ui]
+theme = "github-dark-default"
+preview = false
+
+[paths]
+data_dir = ".agents/workdeck"
+
+[git]
+base_branch = "main"
+recent_commits = 17
+
+[refresh]
+auto = false
+interval_ms = 2500
+debounce_ms = 300
+
+[keys]
+issues = "i"
+new_issue = "n"
+edit_issue = "e"
+status = "s"
+priority = "p"
+
+[extension.fixture]
+message = "Synthetic inert configuration; no executable is included."
+
+[fixture_custom]
+keep = "Preserve unrecognized app configuration in raw migration."

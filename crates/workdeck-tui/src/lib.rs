@@ -1,5 +1,7 @@
 //! Ratatui review canvas.
 
+pub mod workbench;
+
 mod agent_annotations;
 mod agent_card_view;
 #[cfg(test)]
@@ -308,6 +310,10 @@ use crate::extension_runtime_bridge::{
 
 #[derive(Debug, Clone)]
 pub struct ReviewOptions {
+    /// Persistent planning access for normal startup only.
+    pub workbench: Option<workbench::WorkbenchOptions>,
+    /// Repository-bound read queries for the native workbench browser pages.
+    pub repository_panels: Option<Arc<dyn workbench::RepositoryPanelProvider>>,
     /// Non-serialized provider authority supplied by the composition root.
     pub source_capabilities: Option<workdeck_vcs::VcsSourceCapabilities>,
     /// Identity-bound load presentation; executable source readers remain host-owned.
@@ -337,6 +343,7 @@ pub struct ReviewOptions {
     pub copy_decorations: bool,
     /// Existing repository config, otherwise the global config path, for view persistence.
     pub view_preferences_config_path: Option<PathBuf>,
+    pub view_preferences_write_policy: workdeck_core::ViewPreferenceWritePolicy,
     /// Whether changed persistent view settings require a decision before quitting.
     pub prompt_save_view_preferences: bool,
     /// Extension-owned sessions may explicitly prevent persistence of their temporary view.
@@ -360,15 +367,21 @@ pub struct ReviewOptions {
     pub extension_notifications: Option<ExtensionNotificationHub>,
     /// Repository whose native extensions are waiting on an explicit trust decision.
     pub pending_extension_trust_repo_root: Option<PathBuf>,
+    /// Actual discovery directory selected by the composition root, shown in the trust prompt.
+    pub pending_extension_trust_directory: Option<PathBuf>,
     /// Composition-root authority for persisting a decision and loading newly trusted code.
     pub extension_trust_handler: Option<ExtensionTrustHandler>,
     /// Process/session cancellation projected into the renderer without transferring signal ownership.
     pub external_quit_signal: Option<Arc<AtomicBool>>,
+    /// Active foreground checks consume cancellation signals before terminal quit.
+    pub foreground_run_signal: Option<Arc<workbench::ForegroundRunSignal>>,
 }
 
 impl Default for ReviewOptions {
     fn default() -> Self {
         Self {
+            workbench: None,
+            repository_panels: None,
             source_presentation: source_presentation::ReviewSourcePresentation::default(),
             source_capabilities: None,
             layout: LayoutMode::Auto,
@@ -392,6 +405,7 @@ impl Default for ReviewOptions {
             show_menu_bar: true,
             copy_decorations: false,
             view_preferences_config_path: None,
+            view_preferences_write_policy: workdeck_core::ViewPreferenceWritePolicy::Writable,
             prompt_save_view_preferences: true,
             transient_view_preferences: false,
             view_preferences_home_directory: std::env::var_os("HOME").map(PathBuf::from),
@@ -406,8 +420,10 @@ impl Default for ReviewOptions {
             extension_panes: Vec::new(),
             extension_notifications: None,
             pending_extension_trust_repo_root: None,
+            pending_extension_trust_directory: None,
             extension_trust_handler: None,
             external_quit_signal: None,
+            foreground_run_signal: None,
         }
     }
 }
@@ -1183,6 +1199,8 @@ impl Drop for ProvisionalExtensionPaneRuntime {
 
 #[derive(Debug)]
 pub struct ReviewApp {
+    workbench: Option<Mutex<workbench::WorkbenchShell>>,
+    workbench_checkouts: workbench::checkouts::CheckoutContexts,
     source_requests: workdeck_review::ReviewSourceRequests,
     pending_source_reveal: Option<source_controller::PendingSourceReveal>,
     source_loaders: BTreeMap<String, source_controller::SourceLoaderBinding>,
@@ -1447,7 +1465,7 @@ impl ReviewApp {
                 CursorLineMode::Off => InputCursorLine::Off,
             },
         };
-        let view_preference_quit = ViewPreferenceQuitController::new(
+        let mut view_preference_quit = ViewPreferenceQuitController::new(
             initial_view_preferences,
             options.view_preferences_config_path.clone(),
             options.pager,
@@ -1455,6 +1473,7 @@ impl ReviewApp {
             options.transient_view_preferences,
             options.view_preferences_home_directory.clone(),
         );
+        view_preference_quit.set_write_policy(options.view_preferences_write_policy);
         let mut extension_trust_controller = ExtensionTrustController::default();
         extension_trust_controller.reconcile(
             options.pager,
@@ -1533,7 +1552,20 @@ impl ReviewApp {
             selected_file_id: initial_selected_file_id,
             commands: ExtensionCommandAvailability::default(),
         });
+        let workbench = options
+            .workbench
+            .clone()
+            .filter(|_| !options.pager)
+            .map(|config| {
+                let mut shell =
+                    workbench::WorkbenchShell::open(config, state.changeset().files.is_empty());
+                shell.attach_panels(options.repository_panels.clone());
+                shell.attach_run_signal(options.foreground_run_signal.clone());
+                Mutex::new(shell)
+            });
         let mut app = Self {
+            workbench,
+            workbench_checkouts: Default::default(),
             deferred_file_view_keys: std::collections::VecDeque::new(),
             replaying_file_view_key: false,
             state: Arc::new(Mutex::new(state)),
@@ -1808,6 +1840,9 @@ impl ReviewApp {
     }
 
     fn request_quit(&mut self) {
+        if self.defer_publication_exit() {
+            return;
+        }
         let current = self.current_view_preferences();
         match self.view_preference_quit.request_quit(&current) {
             QuitRequestOutcome::Locked => {}
@@ -1904,7 +1939,7 @@ impl ReviewApp {
 
     /// Replace the optimistic source-compatible notice when the host copy fails.
     pub fn report_clipboard_copy_failure(&mut self, error: impl std::fmt::Display) {
-        self.status = Some(format!("Clipboard copy failed: {error}"));
+        self.workbench_clipboard_notice(format!("Clipboard copy failed: {error}"));
     }
 
     /// Replace the discovery result without remounting the review application.
@@ -2875,8 +2910,40 @@ impl ReviewApp {
             return;
         }
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+            if self.interrupt_foreground_run() {
+                return;
+            }
             self.request_quit();
             return;
+        }
+        if self.workbench.is_some() && !self.show_help && !self.show_agent_skill {
+            // F-key bindings and extension claims retain priority over the
+            // shell's F-key panel navigation; on the Issues tab the shell
+            // owns the plain alphabet for its own actions.
+            if matches!(key.code, KeyCode::F(2..=9) | KeyCode::F(11..=12)) {
+                let commands = self.builtin_commands();
+                if let Some(dispatch) =
+                    dispatch_app_command(&commands, &to_live_extension_key_event(&key))
+                {
+                    if dispatch.closes_menu {
+                        self.close_app_menu();
+                    }
+                    let command_id = dispatch.command_id;
+                    self.apply_builtin_command_action(dispatch.action);
+                    self.publish_extension_lifecycle_event(
+                        ExtensionLifecycleEvent::CommandExecuted {
+                            command_id: command_id.into(),
+                        },
+                    );
+                    return;
+                }
+                if self.invoke_extension_command(&key) {
+                    return;
+                }
+            }
+            if self.handle_workbench_key(key) {
+                return;
+            }
         }
         let live_key = to_live_extension_key_event(&key);
         let commands = self.builtin_commands();
@@ -3023,6 +3090,9 @@ impl ReviewApp {
     }
 
     fn handle_paste(&mut self, text: &str) {
+        if self.note_composer.is_none() && self.handle_workbench_paste(text) {
+            return;
+        }
         let Some(composer) = self.note_composer.as_mut() else {
             return;
         };
@@ -9606,6 +9676,11 @@ impl ReviewApp {
             }
             return;
         }
+        if self.note_composer.is_none()
+            && (self.handle_app_menu_mouse(&event) || self.handle_workbench_mouse(&event))
+        {
+            return;
+        }
         if self.handle_note_mouse(&event, now) {
             return;
         }
@@ -11061,13 +11136,16 @@ fn run_review_inner(
             &mut dynamic_reloader,
             &mut watch_vcs_catalog,
         );
+        // Every normal return, disconnect and I/O error joins owned check
+        // cleanup before terminal/session authority is torn down.
+        let cleanup_result = app.shutdown_foreground_run().map_err(anyhow::Error::msg);
         drop(session);
         drop(watched_input);
         app_host.retire();
         app.retire_interactive_authority();
         session_broker.stop();
         app.dispose_highlight_worker();
-        result
+        result.and(cleanup_result)
     })();
     session_broker.stop();
     drop(terminal);
@@ -11103,17 +11181,25 @@ fn run_loop(
                 let coordinator = app_host_reload.as_mut().ok_or_else(|| {
                     "This Workdeck review does not have a reloadable launch input.".to_owned()
                 })?;
-                let plan = coordinator.plan(next_input, options)?;
+                let mut checkout_coordinator = app
+                    .pending_workbench_checkout()
+                    .map(|checkout| coordinator.for_native_checkout(next_input, checkout))
+                    .transpose()?;
+                let selected_coordinator = checkout_coordinator.as_mut().unwrap_or(coordinator);
+                let plan = selected_coordinator.plan(next_input, options)?;
                 let loader = dynamic_reloader.as_deref_mut().ok_or_else(|| {
                     "This Workdeck review input does not expose a dynamic reload loader.".to_owned()
                 })?;
                 let result = commit_dynamic_review_reload(
                     app,
-                    coordinator,
+                    selected_coordinator,
                     plan,
                     loader,
                     watch_vcs_catalog,
                 )?;
+                if let Some(selected) = checkout_coordinator {
+                    *coordinator = selected;
+                }
                 replace_watched_input(
                     app,
                     watched_input,
@@ -11124,6 +11210,25 @@ fn run_loop(
                 Ok(result)
             };
         app_host.process_pending(app, &mut session_reload_handler);
+        app.process_workbench_effect(&mut |app, input, root| {
+            // Planning emits a core review target. Only the composition shell
+            // translates it into the existing session transport/reload gate.
+            let value =
+                serde_json::to_value(workdeck_session::core_cli_input_to_daemon(input.clone()))
+                    .map_err(|error| error.to_string())?;
+            session_reload_handler(
+                app,
+                &value,
+                workdeck_session::ReloadSessionOptions {
+                    reset_app: Some(false),
+                    source_path: Some(root.to_string_lossy().into_owned()),
+                    reason: Some(workdeck_session::SessionReloadReason::Manual),
+                    reload_extensions: None,
+                },
+            )
+            .map(|_| ())
+        });
+        app.poll_workbench();
         app.poll_extension_commands();
         app.poll_source_requests();
         app.tick_extension_notifications(Instant::now());
@@ -11142,9 +11247,10 @@ fn run_loop(
                         area.width,
                         u16::from(area.height > 0),
                     );
-                    if let Some(position) = app
-                        .extension_pane_input_cursor_position()
-                        .or_else(|| app.status_filter_cursor_position(footer))
+                    if !app.workbench_issues_visible()
+                        && let Some(position) = app
+                            .extension_pane_input_cursor_position()
+                            .or_else(|| app.status_filter_cursor_position(footer))
                     {
                         frame.set_cursor_position(position);
                     }
@@ -11171,9 +11277,15 @@ fn run_loop(
             match event {
                 Event::Key(key) => {
                     match job_control.action(key, JobControlPlatform::current(), false) {
-                        Some(JobControlAction::Interrupt) => app.should_quit = true,
+                        Some(JobControlAction::Interrupt) => {
+                            if !app.interrupt_foreground_run() {
+                                app.should_quit = true;
+                            }
+                        }
                         Some(JobControlAction::Suspend) => {
-                            terminal.suspend_foreground_process_group()?;
+                            if !app.defer_foreground_run_suspend() {
+                                terminal.suspend_foreground_process_group()?;
+                            }
                         }
                         None => {
                             app.handle_key(key);
@@ -11322,7 +11434,7 @@ fn commit_dynamic_review_reload(
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .extensions
         .clone();
-    let loaded = loader(
+    let mut loaded = loader(
         &plan.input,
         &plan.cwd,
         reload_extensions,
@@ -11330,6 +11442,7 @@ fn commit_dynamic_review_reload(
         &current_extensions,
     )
     .map_err(|error| format!("Failed to load session review input: {error:#}"))?;
+    app.prepare_workbench_source_view(&loaded.input, &mut loaded.changeset)?;
     let mut committed_plan = plan;
     committed_plan.input = loaded.input.clone();
     let replacement_catalog = loaded.replacement_vcs_catalog.clone();
@@ -11498,6 +11611,7 @@ pub fn render(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
     Block::default()
         .style(Style::default().bg(background))
         .render(area, buffer);
+    let area = app.render_workbench_nav(area, buffer);
     let menu_bar_visible = app.show_menu_bar;
     let footer_visible = app.status_line_row_visible();
     let toast_visible = app.active_extension_notification().is_some();
@@ -11511,7 +11625,9 @@ pub fn render(area: Rect, buffer: &mut Buffer, app: &ReviewApp) {
         ])
         .split(area);
     render_app_menu_bar(outer[0], buffer, app);
-    render_body(outer[1], buffer, app);
+    if !app.render_workbench_body(outer[1], buffer) {
+        render_body(outer[1], buffer, app);
+    }
     render_extension_toast(outer[2], buffer, app);
     render_footer(outer[3], buffer, app);
     render_app_menu_dropdown(area, buffer, app);
@@ -11752,7 +11868,22 @@ pub fn render_extension_trust_prompt(area: Rect, buffer: &mut Buffer, app: &Revi
         .alignment(Alignment::Right)
         .render(close, buffer);
     Paragraph::new(Line::styled(
-        "Repository extensions: .agents/workdeck/extensions.",
+        format!(
+            "Repository extensions: {}",
+            workdeck_diff::sanitize_terminal_line(
+                &app.options
+                    .pending_extension_trust_directory
+                    .as_deref()
+                    .map(|directory| directory
+                        .strip_prefix(repo_root)
+                        .ok()
+                        .filter(|relative| !relative.as_os_str().is_empty())
+                        .unwrap_or(directory))
+                    .unwrap_or(repo_root)
+                    .display()
+                    .to_string()
+            )
+        ),
         Style::default().fg(muted),
     ))
     .render(row(2), buffer);
@@ -19487,7 +19618,7 @@ mod tests {
         let initial = rendered_review_text(&mut terminal, &app);
         assert!(initial.contains("Run this repository's extensions?"));
         assert!(initial.contains("/repo/alpha"));
-        assert!(initial.contains(".agents/workdeck/extensions"));
+        assert!(initial.contains("Repository extensions: /repo/alpha"));
 
         app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert!(
@@ -31013,6 +31144,41 @@ mod tests {
         app.handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
         assert!(app.take_quit_requested());
         assert!(!config.exists());
+    }
+
+    #[test]
+    fn legacy_review_preference_save_reports_migration_and_keeps_authored_bytes() {
+        let directory = tempfile::TempDir::new().unwrap();
+        let config_path = directory.path().join("legacy-settings.toml");
+        let original = "# legacy stays intact\nmode = 'split'\n";
+        std::fs::write(&config_path, original).unwrap();
+        let mut app = ReviewApp::new(
+            changeset(),
+            ReviewOptions {
+                view_preferences_config_path: Some(config_path.clone()),
+                view_preferences_write_policy:
+                    workdeck_core::ViewPreferenceWritePolicy::LegacyReadOnly,
+                ..ReviewOptions::default()
+            },
+        );
+        app.apply_builtin_command_action(AppCommandAction::ToggleLineWrap);
+        app.request_quit();
+        app.save_view_preferences_and_quit(Instant::now());
+        assert!(
+            app.status
+                .as_deref()
+                .unwrap()
+                .contains("workdeck config init")
+        );
+        assert!(app.save_config_prompt_open());
+        assert!(!app.take_quit_requested());
+        app.never_ask_to_save_view_preferences_and_quit(Instant::now());
+        assert!(app.status.as_deref().unwrap().contains("read-only"));
+        assert!(!app.take_quit_requested());
+        assert_eq!(std::fs::read_to_string(config_path).unwrap(), original);
+        assert_eq!(app.changed_view_preferences().len(), 1);
+        app.discard_view_preferences_and_quit();
+        assert!(app.take_quit_requested());
     }
 
     #[test]

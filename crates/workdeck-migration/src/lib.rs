@@ -150,7 +150,7 @@ pub fn plan_with_roots(repo: &Path, config_root: &Path) -> Result<MigrationPlan,
         .transpose()?;
     let repository = repo_source
         .is_file()
-        .then(|| inspect_config(&repo_source, &repo.join(".agents/workdeck/config.toml")))
+        .then(|| inspect_config(&repo_source, &repo.join(".workdeck/config.toml")))
         .transpose()?;
     let legacy_state = hunk_root
         .join("state.json")
@@ -539,6 +539,43 @@ mod tests {
         assert!(second.global.as_ref().unwrap().already_imported);
         assert!(second.repository.as_ref().unwrap().already_imported);
         assert!(apply(&second).unwrap().changed.is_empty());
+    }
+
+    #[test]
+    fn cutover_hunk_repository_import_uses_native_settings_and_preserves_existing_values() {
+        let temp = TempDir::new().unwrap();
+        let repo = temp.path().join("repo");
+        let config = temp.path().join("global");
+        fs::create_dir_all(repo.join(".hunk")).unwrap();
+        fs::create_dir_all(repo.join(".workdeck")).unwrap();
+        fs::create_dir_all(repo.join(".agents/workdeck")).unwrap();
+        fs::write(
+            repo.join(".hunk/config.toml"),
+            "file_gap=2\nline_numbers=false\n",
+        )
+        .unwrap();
+        fs::write(repo.join(".workdeck/config.toml"), "[review]\nfile_gap=7\n").unwrap();
+        fs::write(repo.join(".agents/workdeck/config.toml"), "file_gap=99\n").unwrap();
+        let plan = plan_with_roots(&repo, &config).unwrap();
+        assert_eq!(
+            plan.repository.as_ref().unwrap().destination,
+            repo.join(".workdeck/config.toml")
+        );
+        let result = apply(&plan).unwrap();
+        assert_eq!(result.changed, [repo.join(".workdeck/config.toml")]);
+        assert_eq!(result.backups.len(), 1);
+        assert_eq!(
+            fs::read_to_string(&result.backups[0]).unwrap(),
+            "[review]\nfile_gap=7\n"
+        );
+        let current = read_toml(&repo.join(".workdeck/config.toml")).unwrap();
+        assert_eq!(current["review"]["file_gap"].as_integer(), Some(7));
+        assert_eq!(current["review"]["line_numbers"].as_bool(), Some(false));
+        assert_eq!(
+            fs::read_to_string(repo.join(".agents/workdeck/config.toml")).unwrap(),
+            "file_gap=99\n"
+        );
+        assert!(!repo.join(".workdeck/config.yml").exists());
     }
 
     #[test]

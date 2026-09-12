@@ -1,3 +1,5 @@
+#[path = "support/legacy.rs"]
+mod legacy_fixture;
 use assert_cmd::prelude::*;
 use predicates::prelude::*;
 use serde_json::Value;
@@ -1377,9 +1379,12 @@ fn invalid_show_ref_is_friendly_and_has_no_runtime_backtrace() {
 }
 
 #[test]
-fn init_creates_agents_workdeck_store() {
+fn init_flag_initializes_native_root_without_replacing_app_preferences() {
     let dir = tempdir().unwrap();
     git(dir.path(), &["init"]);
+    fs::create_dir_all(dir.path().join(".workdeck")).unwrap();
+    let preferences = "[ui]\ntheme = \"github-dark-default\"\n";
+    fs::write(dir.path().join(".workdeck/config.toml"), preferences).unwrap();
 
     workdeck()
         .arg("--cwd")
@@ -1387,19 +1392,26 @@ fn init_creates_agents_workdeck_store() {
         .arg("--init")
         .assert()
         .success()
-        .stdout(predicate::str::contains(".agents/workdeck"));
+        .stdout(predicate::str::contains("initialized"))
+        .stdout(predicate::str::contains(".workdeck"));
 
-    assert!(dir.path().join(".agents/workdeck/config.toml").exists());
-    assert!(dir.path().join(".agents/workdeck/issues").is_dir());
-    assert!(dir.path().join(".agents/workdeck/agents").is_dir());
-    let config = fs::read_to_string(dir.path().join(".agents/workdeck/config.toml")).unwrap();
-    assert!(config.contains("group_changes = \"g\""));
-    assert!(config.contains("toggle_dirstat = \"w\""));
-    assert!(config.contains("[git]"));
-    assert!(config.contains("[refresh]"));
-    assert!(config.contains("git = \"G\""));
-    assert!(config.contains("recent_commits = 30"));
-    assert!(config.contains("interval_ms = 1500"));
+    assert!(dir.path().join(".workdeck/config.yml").exists());
+    assert!(!dir.path().join(".agents/workdeck").exists());
+    assert_eq!(
+        fs::read_to_string(dir.path().join(".workdeck/config.toml")).unwrap(),
+        preferences
+    );
+    let first = fs::read(dir.path().join(".workdeck/config.yml")).unwrap();
+    workdeck()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("--init")
+        .assert()
+        .success();
+    assert_eq!(
+        fs::read(dir.path().join(".workdeck/config.yml")).unwrap(),
+        first
+    );
 }
 
 #[test]
@@ -1528,11 +1540,13 @@ fn doctor_reports_corrupt_store_data_as_failed_checks() {
 fn issue_commands_manage_file_backed_issues() {
     let dir = tempdir().unwrap();
     git(dir.path(), &["init"]);
-
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args([
+    migrated_planning_store(dir.path());
+    for label in ["git", "mvp"] {
+        native_json(dir.path(), &["label", "create", label, "--id", label]);
+    }
+    let created = native_json(
+        dir.path(),
+        &[
             "issue",
             "create",
             "Render changes",
@@ -1548,77 +1562,77 @@ fn issue_commands_manage_file_backed_issues() {
             "abc123",
             "--file",
             "src/main.rs",
-            "--json",
-        ])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("\"key\": \"WD-1\""))
-        .stdout(predicate::str::contains("\"status\": \"in-progress\""))
-        .stdout(predicate::str::contains("\"due_at\": \"2026-05-31\""))
-        .stdout(predicate::str::contains("\"abc123\""))
-        .stdout(predicate::str::contains("\"src/main.rs\""));
-
+        ],
+    );
+    let id = created["result"]["metadata"]["id"].as_str().unwrap();
+    assert!(id.starts_with("WD-"));
+    assert_eq!(created["result"]["metadata"]["status"], "in_progress");
+    assert_eq!(created["result"]["metadata"]["due_at"], "2026-05-31");
+    assert!(created.to_string().contains("abc123"));
+    assert!(created.to_string().contains("src/main.rs"));
     assert!(
         dir.path()
-            .join(".agents/workdeck/issues/WD-1.toml")
+            .join(format!(".workdeck/issues/{id}/item.md"))
             .exists()
     );
-
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args([
+    let changed = native_json(
+        dir.path(),
+        &[
             "issue",
             "update",
-            "WD-1",
+            id,
             "--title",
             "Render nested changes",
             "--priority",
             "urgent",
             "--commit",
             "def456,abc123",
-            "--json",
-        ])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Render nested changes"))
-        .stdout(predicate::str::contains("\"priority\": \"urgent\""))
-        .stdout(predicate::str::contains("\"def456\""));
-
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args(["issue", "link", "WD-1", "src/lib.rs", "--json"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("\"src/lib.rs\""));
-
+        ],
+    );
+    assert_eq!(
+        changed["result"]["metadata"]["title"],
+        "Render nested changes"
+    );
+    assert_eq!(changed["result"]["metadata"]["priority"], "urgent");
+    assert!(changed.to_string().contains("def456"));
+    assert!(
+        native_json(dir.path(), &["issue", "link", id, "src/lib.rs"])
+            .to_string()
+            .contains("src/lib.rs")
+    );
     workdeck()
         .arg("--cwd")
         .arg(dir.path())
         .args(["issue", "list"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("WD-1"))
+        .stdout(predicate::str::contains(id))
         .stdout(predicate::str::contains("Render nested changes"));
-
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args(["issue", "show", "WD-1", "--json"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("\"key\": \"WD-1\""))
-        .stdout(predicate::str::contains("\"src/main.rs\""))
-        .stdout(predicate::str::contains("\"src/lib.rs\""))
-        .stdout(predicate::str::contains("\"abc123\""))
-        .stdout(predicate::str::contains("\"def456\""));
+    let shown = native_json(dir.path(), &["issue", "show", id]);
+    assert_eq!(shown["result"]["metadata"]["id"], id);
+    // Repeating a link cannot duplicate the stored file identity.
+    let repeated = native_json(dir.path(), &["issue", "link", id, "src/lib.rs"]);
+    assert_eq!(
+        repeated["result"]["metadata"]["files"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(
+        shown["result"]["metadata"]["commits"],
+        serde_json::json!(["abc123", "def456"])
+    );
+    for link in ["src/main.rs", "src/lib.rs", "abc123", "def456"] {
+        assert!(shown.to_string().contains(link));
+    }
 }
 
 #[test]
 fn issue_command_rejects_invalid_status() {
     let dir = tempdir().unwrap();
     git(dir.path(), &["init"]);
+    migrated_planning_store(dir.path());
 
     workdeck()
         .arg("--cwd")
@@ -1626,34 +1640,29 @@ fn issue_command_rejects_invalid_status() {
         .args(["issue", "create", "Bad status", "--status", "wat"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("unknown status"));
+        .stderr(predicate::str::contains("unknown workflow state"));
 }
 
 #[test]
 fn reference_commands_manage_projects_cycles_and_labels() {
     let dir = tempdir().unwrap();
     git(dir.path(), &["init"]);
-
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args([
+    migrated_planning_store(dir.path());
+    let project = native_json(
+        dir.path(),
+        &[
             "project",
             "save",
             "Workdeck MVP",
             "--description",
             "Initial local release",
-            "--json",
-        ])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("\"id\": \"workdeck-mvp\""))
-        .stdout(predicate::str::contains("Initial local release"));
-
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args([
+        ],
+    );
+    assert_eq!(project["result"]["metadata"]["id"], "workdeck-mvp");
+    assert_eq!(project["result"]["body"], "Initial local release");
+    let cycle = native_json(
+        dir.path(),
+        &[
             "cycle",
             "save",
             "MVP",
@@ -1661,21 +1670,12 @@ fn reference_commands_manage_projects_cycles_and_labels() {
             "mvp",
             "--starts-at",
             "2026-05-24",
-            "--json",
-        ])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("\"starts_at\": \"2026-05-24\""));
-
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args(["label", "save", "Git", "--color", "green", "--json"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("\"id\": \"git\""))
-        .stdout(predicate::str::contains("\"color\": \"green\""));
-
+        ],
+    );
+    assert_eq!(cycle["result"]["metadata"]["starts_at"], "2026-05-24");
+    let label = native_json(dir.path(), &["label", "save", "Git", "--color", "green"]);
+    assert_eq!(label["result"]["metadata"]["id"], "git");
+    assert_eq!(label["result"]["metadata"]["color"], "green");
     workdeck()
         .arg("--cwd")
         .arg(dir.path())
@@ -1683,31 +1683,27 @@ fn reference_commands_manage_projects_cycles_and_labels() {
         .assert()
         .success()
         .stdout(predicate::str::contains("workdeck-mvp"));
-
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args(["doctor", "--json"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains(
-            "1 project(s), 1 cycle(s), 1 label(s)",
-        ));
-
-    assert!(dir.path().join(".agents/workdeck/projects.toml").exists());
-    assert!(dir.path().join(".agents/workdeck/cycles.toml").exists());
-    assert!(dir.path().join(".agents/workdeck/labels.toml").exists());
+    let doctor = native_json(dir.path(), &["doctor"]);
+    assert_eq!(doctor["result"]["valid"], true);
+    // Three references plus the preserved historical event collection.
+    assert_eq!(doctor["result"]["checked_records"], 4);
+    assert!(
+        dir.path()
+            .join(".workdeck/projects/workdeck-mvp/item.md")
+            .exists()
+    );
+    assert!(dir.path().join(".workdeck/cycles/mvp/item.md").exists());
+    assert!(dir.path().join(".workdeck/labels.yml").exists());
 }
 
 #[test]
 fn agent_commands_record_list_and_show_sessions() {
     let dir = tempdir().unwrap();
     git(dir.path(), &["init"]);
-
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args([
+    migrated_planning_store(dir.path());
+    let recorded = native_json(
+        dir.path(),
+        &[
             "agent",
             "record",
             "Implement shell",
@@ -1733,20 +1729,20 @@ fn agent_commands_record_list_and_show_sessions() {
             "cargo test",
             "--note",
             "Continue with previews",
-            "--json",
-        ])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("\"id\": \"session-1\""))
-        .stdout(predicate::str::contains("\"src/main.rs\""))
-        .stdout(predicate::str::contains("Inspect repo"));
-
+        ],
+    );
+    let session = &recorded["result"]["session"];
+    assert_eq!(session["id"], "session-1");
+    assert_eq!(
+        session["plan"],
+        serde_json::json!(["Inspect repo", "Build shell"])
+    );
+    assert_eq!(session["touched_files"][0]["path"], "src/main.rs");
     assert!(
         dir.path()
-            .join(".agents/workdeck/agents/session-1.toml")
+            .join(".workdeck/imported-sessions/session-1.toml")
             .exists()
     );
-
     workdeck()
         .arg("--cwd")
         .arg(dir.path())
@@ -1755,21 +1751,20 @@ fn agent_commands_record_list_and_show_sessions() {
         .success()
         .stdout(predicate::str::contains("session-1"))
         .stdout(predicate::str::contains("Implement shell"));
-
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args(["agent", "show", "session-1", "--json"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("\"agent\": \"codex\""))
-        .stdout(predicate::str::contains("Continue with previews"));
+    let shown = native_json(dir.path(), &["agent", "show", "session-1"]);
+    assert_eq!(shown["result"]["session"]["agent"], "codex");
+    assert_eq!(
+        shown["result"]["session"]["handoff_notes"][0],
+        "Continue with previews"
+    );
+    assert_eq!(shown["result"]["evidence"], "historical_annotation");
 }
 
 #[test]
 fn agent_import_reads_jsonl_sessions() {
     let dir = tempdir().unwrap();
     git(dir.path(), &["init"]);
+    migrated_planning_store(dir.path());
     let jsonl = dir.path().join("sessions.jsonl");
     fs::write(
         &jsonl,
@@ -1787,13 +1782,13 @@ fn agent_import_reads_jsonl_sessions() {
         .arg("--json")
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"id\": \"session-jsonl-1\""))
-        .stdout(predicate::str::contains("\"id\": \"session-jsonl-2\""))
+        .stdout(predicate::str::contains("\"id\":\"session-jsonl-1\""))
+        .stdout(predicate::str::contains("\"id\":\"session-jsonl-2\""))
         .stdout(predicate::str::contains("parse jsonl"));
 
     assert!(
         dir.path()
-            .join(".agents/workdeck/agents/session-jsonl-1.toml")
+            .join(".workdeck/imported-sessions/session-jsonl-1.toml")
             .exists()
     );
 
@@ -1822,6 +1817,11 @@ fn export_emits_json_and_jsonl_without_mutating_empty_store() {
         .stdout(predicate::str::contains("\"agent_sessions\": []"));
 
     assert!(!dir.path().join(".agents/workdeck").exists());
+    migrated_planning_store(dir.path());
+    native_json(
+        dir.path(),
+        &["project", "create", "Workdeck", "--id", "workdeck"],
+    );
 
     workdeck()
         .arg("--cwd")
@@ -1843,15 +1843,38 @@ fn export_emits_json_and_jsonl_without_mutating_empty_store() {
         .assert()
         .success();
 
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args(["export", "--jsonl"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("\"kind\":\"issue\""))
-        .stdout(predicate::str::contains("\"kind\":\"agent_session\""))
-        .stdout(predicate::str::contains("\"kind\":\"event\""));
+    for format in ["--json", "--jsonl"] {
+        let output = workdeck()
+            .arg("--cwd")
+            .arg(dir.path())
+            .args(["export", format])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let workdeck_pm::ImportSource::Native(snapshot) =
+            workdeck_pm::decode_transfer(&output.stdout).unwrap()
+        else {
+            panic!("expected native snapshot");
+        };
+        assert!(
+            snapshot
+                .files
+                .iter()
+                .any(|file| file.kind == workdeck_pm::SnapshotKind::Issue)
+        );
+        assert!(
+            snapshot
+                .files
+                .iter()
+                .any(|file| file.path == std::path::Path::new("imported-sessions/export-run.toml"))
+        );
+        assert!(
+            snapshot
+                .files
+                .iter()
+                .any(|file| file.kind == workdeck_pm::SnapshotKind::Operation)
+        );
+    }
 }
 
 #[test]
@@ -1917,6 +1940,7 @@ fn repo_read_only_commands_do_not_create_store() {
 fn json_commands_use_success_and_error_envelopes() {
     let dir = tempdir().unwrap();
     git(dir.path(), &["init"]);
+    migrated_planning_store(dir.path());
     fs::write(dir.path().join("README.md"), "hello\n").unwrap();
 
     let status = workdeck()
@@ -1940,9 +1964,15 @@ fn json_commands_use_success_and_error_envelopes() {
     assert!(created.status.success());
     let created_json: Value = serde_json::from_slice(&created.stdout).unwrap();
     assert_eq!(created_json["ok"], true);
-    assert_eq!(created_json["kind"], "issue");
-    assert_eq!(created_json["action"], "create");
-    assert_eq!(created_json["data"]["key"], "WD-1");
+    assert_eq!(created_json["kind"], "issue_create");
+    assert_eq!(created_json["api_version"], 1);
+    assert!(
+        created_json["result"]["metadata"]["id"]
+            .as_str()
+            .unwrap()
+            .starts_with("WD-")
+    );
+    assert_eq!(created_json["receipt"]["operation"], "issue.create");
 
     let missing = workdeck()
         .arg("--cwd")
@@ -1967,118 +1997,97 @@ fn json_commands_use_success_and_error_envelopes() {
 fn issue_commands_cover_headless_lifecycle() {
     let dir = tempdir().unwrap();
     git(dir.path(), &["init"]);
-
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args(["issue", "create", "Ship CLI", "--file", "src/main.rs"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("WD-1"));
-
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args(["issue", "assign", "WD-1", "rutger"])
-        .assert()
-        .success();
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args(["issue", "label", "add", "WD-1", "cli"])
-        .assert()
-        .success();
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args(["issue", "link-commit", "WD-1", "abc123"])
-        .assert()
-        .success();
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args(["issue", "close", "WD-1"])
-        .assert()
-        .success();
-
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args([
-            "issue", "list", "--status", "done", "--label", "cli", "--json",
-        ])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("\"key\": \"WD-1\""));
-
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args(["issue", "unlink-file", "WD-1", "src/main.rs"])
-        .assert()
-        .success();
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args(["issue", "unlink-commit", "WD-1", "abc123"])
-        .assert()
-        .success();
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args(["issue", "reopen", "WD-1"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("WD-1"));
-
+    migrated_planning_store(dir.path());
+    for label in ["cli", "json"] {
+        native_json(dir.path(), &["label", "create", label, "--id", label]);
+    }
+    let created = native_json(
+        dir.path(),
+        &["issue", "create", "Ship CLI", "--file", "src/main.rs"],
+    );
+    let id = created["result"]["metadata"]["id"].as_str().unwrap();
+    assert!(id.starts_with("WD-"));
+    for args in [
+        vec!["issue", "assign", id, "rutger"],
+        vec!["issue", "label", "add", id, "cli"],
+        vec!["issue", "link-commit", id, "abc123"],
+        vec!["issue", "close", id],
+    ] {
+        native_json(dir.path(), &args);
+    }
+    let listed = native_json(
+        dir.path(),
+        &["issue", "list", "--status", "done", "--label", "cli"],
+    );
+    assert!(listed.to_string().contains(id));
+    for args in [
+        vec!["issue", "reopen", id],
+        vec!["issue", "unlink-file", id, "src/main.rs"],
+        vec!["issue", "unlink-commit", id, "abc123"],
+    ] {
+        assert_eq!(
+            native_json(dir.path(), &args)["result"]["metadata"]["id"],
+            id
+        );
+    }
+    let shown = native_json(dir.path(), &["issue", "show", id]);
+    assert_eq!(shown["result"]["metadata"]["status"], "ready");
+    assert!(!shown["result"].to_string().contains("src/main.rs"));
+    assert!(!shown["result"].to_string().contains("abc123"));
     let issue_json = dir.path().join("issue.json");
-    fs::write(
-        &issue_json,
-        r#"{
-          "title": "JSON issue",
-          "description": "Created without shell quoting",
-          "status": "todo",
-          "labels": ["json"],
-          "linked_files": ["src/json.rs"]
-        }"#,
-    )
-    .unwrap();
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args([
+    fs::write(&issue_json, r#"{"title":"JSON issue","description":"Created without shell quoting","status":"todo","labels":["json"],"linked_files":["src/json.rs"]}"#).unwrap();
+    let from_json = native_json(
+        dir.path(),
+        &[
             "issue",
             "create",
             "--from-json",
             issue_json.to_str().unwrap(),
-            "--json",
-        ])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("\"title\": \"JSON issue\""))
-        .stdout(predicate::str::contains("src/json.rs"));
-
+        ],
+    );
+    assert_eq!(from_json["result"]["metadata"]["title"], "JSON issue");
+    assert_eq!(from_json["result"]["body"], "Created without shell quoting");
+    assert!(from_json.to_string().contains("src/json.rs"));
     workdeck()
         .arg("--cwd")
         .arg(dir.path())
         .args(["issue", "show", "WD-404"])
         .assert()
         .code(3)
-        .stderr(predicate::str::contains("issue WD-404 does not exist"));
-
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args(["issue", "delete", "WD-1", "--yes"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("deleted WD-1"));
+        .stderr(predicate::str::contains("WD-404"));
+    let deleted = native_json(dir.path(), &["issue", "delete", id, "--yes"]);
+    assert_eq!(deleted["receipt"]["operation"], "record.retire");
+    // Native delete retires the record while preserving reviewable history.
+    assert!(
+        dir.path()
+            .join(format!(".workdeck/issues/{id}/item.md"))
+            .exists()
+    );
+    assert_eq!(
+        native_json(dir.path(), &["issue", "show", id])["result"]["metadata"]["archived"],
+        true
+    );
+    let listing = native_json(dir.path(), &["issue", "list"]);
+    let retired = listing["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|issue| issue["metadata"]["id"] == id)
+        .unwrap();
+    assert_eq!(retired["metadata"]["archived"], true);
+    assert_eq!(retired["retirement"]["target"]["id"], id);
+    assert!(
+        dir.path()
+            .join(format!(".workdeck/tombstones/issues/{id}.yml"))
+            .exists()
+    );
 }
 
 #[test]
 fn reference_agent_config_events_and_import_commands_are_headless() {
     let dir = tempdir().unwrap();
     git(dir.path(), &["init"]);
+    migrated_planning_store(dir.path());
 
     workdeck()
         .arg("--cwd")
@@ -2105,14 +2114,14 @@ fn reference_agent_config_events_and_import_commands_are_headless() {
         .args(["project", "show", "workdeck", "--json"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"id\": \"workdeck\""));
+        .stdout(predicate::str::contains("\"id\":\"workdeck\""));
     workdeck()
         .arg("--cwd")
         .arg(dir.path())
         .args(["label", "list", "--color", "green", "--json"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"id\": \"cli\""));
+        .stdout(predicate::str::contains("\"id\":\"cli\""));
 
     workdeck()
         .arg("--cwd")
@@ -2138,7 +2147,7 @@ fn reference_agent_config_events_and_import_commands_are_headless() {
         .args(["agent", "finish", "run-cli", "--summary", "Done", "--json"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"status\": \"done\""));
+        .stdout(predicate::str::contains("\"status\":\"done\""));
 
     workdeck()
         .arg("--cwd")
@@ -2174,7 +2183,7 @@ fn reference_agent_config_events_and_import_commands_are_headless() {
         .args(["events", "list", "--json"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("agent_session_saved"));
+        .stdout(predicate::str::contains("history.session.create"));
 
     let export = workdeck()
         .arg("--cwd")
@@ -2188,24 +2197,45 @@ fn reference_agent_config_events_and_import_commands_are_headless() {
 
     let import_dir = tempdir().unwrap();
     git(import_dir.path(), &["init"]);
-    workdeck()
-        .arg("--cwd")
-        .arg(import_dir.path())
-        .args([
+    // A fresh destination restores the same native identity; subsequent --replace
+    // verifies the matching-record import route without replacing unrelated data.
+    let preview = native_json(
+        import_dir.path(),
+        &[
             "import",
             export_path.to_str().unwrap(),
+            "--restore",
             "--dry-run",
-            "--json",
-        ])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("\"projects\": 1"));
-    workdeck()
-        .arg("--cwd")
-        .arg(import_dir.path())
-        .args(["import", export_path.to_str().unwrap(), "--replace"])
-        .assert()
-        .success();
+        ],
+    );
+    assert_eq!(preview["result"]["allowed"], true, "{preview}");
+    assert!(
+        preview["result"]["changes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|change| change["path"] == "projects/workdeck/item.md")
+    );
+    native_json(
+        import_dir.path(),
+        &[
+            "import",
+            export_path.to_str().unwrap(),
+            "--restore",
+            "--request-id",
+            "restore-headless",
+        ],
+    );
+    native_json(
+        import_dir.path(),
+        &[
+            "import",
+            export_path.to_str().unwrap(),
+            "--replace",
+            "--request-id",
+            "replace-headless",
+        ],
+    );
     workdeck()
         .arg("--cwd")
         .arg(import_dir.path())
@@ -2213,6 +2243,46 @@ fn reference_agent_config_events_and_import_commands_are_headless() {
         .assert()
         .success()
         .stdout(predicate::str::contains("Run CLI"));
+}
+
+// PM03 intentionally closes prototype writes. These command scenarios now
+// migrate real legacy configuration/history, then exercise native authority.
+// Legacy reader and no-write compatibility live in pm_legacy_admission.rs.
+fn migrated_planning_store(root: &std::path::Path) {
+    let legacy = root.join(".agents/workdeck");
+    legacy_fixture::init(&legacy);
+    fs::write(
+        legacy.join("events.jsonl"),
+        "{\"kind\":\"fixture_created\",\"created_at\":\"2026-09-01T00:00:00Z\"}\n",
+    )
+    .unwrap();
+    let options = workdeck_pm::migration::PreviewOptions {
+        config: workdeck_pm::Config::new("WD").unwrap(),
+        imported_at: "2026-09-09T00:00:00Z".parse().unwrap(),
+    };
+    let plan = workdeck_pm::migration::preview(&legacy, &root.join(".workdeck"), &options).unwrap();
+    assert!(plan.complete, "{:?}", plan.blockers);
+    workdeck_pm::migration::apply(&plan, &workdeck_pm::RequestId::new()).unwrap();
+}
+
+fn native_json(root: &std::path::Path, args: &[&str]) -> Value {
+    let output = workdeck()
+        .arg("--cwd")
+        .arg(root)
+        .args(args)
+        .arg("--json")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{args:?}: {} {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(result["api_version"], 1);
+    assert_eq!(result["ok"], true);
+    result
 }
 
 fn git(cwd: &std::path::Path, args: &[&str]) {

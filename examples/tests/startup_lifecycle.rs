@@ -117,7 +117,7 @@ fn extends_a_provisional_prefix_without_starting_its_process_again() {
     let root = TempDir::new().unwrap();
     let global = root.path().join("global");
     let repo = root.path().join("repo");
-    let repo_extensions = repo.join(".agents/workdeck/extensions");
+    let repo_extensions = repo.join(".workdeck/extensions");
     fs::create_dir_all(&repo_extensions).unwrap();
     install_extension(&global, "global");
     install_extension(&repo_extensions, "local");

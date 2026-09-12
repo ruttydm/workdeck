@@ -68,7 +68,7 @@ fn inspect_archive(path: &Path) -> Result<(usize, u64)> {
     Ok((names.len(), bytes))
 }
 
-fn verify_package_paths(names: &BTreeMap<String, bool>) -> Result<()> {
+pub fn verify_package_paths(names: &BTreeMap<String, bool>) -> Result<()> {
     let mut roots = std::collections::BTreeSet::new();
     for (name, directory) in names {
         if !directory && !name.contains('/') {
@@ -98,7 +98,7 @@ fn verify_package_paths(names: &BTreeMap<String, bool>) -> Result<()> {
     Ok(())
 }
 
-fn inspect_archive_entries(path: &Path) -> Result<(BTreeMap<String, bool>, u64)> {
+pub fn inspect_archive_entries(path: &Path) -> Result<(BTreeMap<String, bool>, u64)> {
     validate_archive_input(&std::fs::metadata(path)?)?;
     inspect_archive_file(
         open_archive_input(path)?,
@@ -199,7 +199,7 @@ fn inspect_archive_file(file: std::fs::File, zip: bool) -> Result<(BTreeMap<Stri
     Ok((original_names, total))
 }
 
-fn open_archive_input(path: &Path) -> Result<std::fs::File> {
+pub fn open_archive_input(path: &Path) -> Result<std::fs::File> {
     let mut options = std::fs::OpenOptions::new();
     options.read(true);
     #[cfg(unix)]
@@ -223,6 +223,15 @@ fn validate_archive_input(metadata: &std::fs::Metadata) -> Result<()> {
     Ok(())
 }
 
+/// Inspect a release archive using the same package-layout gate exposed by the read-only
+/// installer command. The release packager calls this after writing an archive so its output
+/// cannot bypass the installer-side structural checks.
+pub fn inspect_package_archive(path: &Path) -> Result<(usize, u64)> {
+    let (names, bytes) = inspect_archive_entries(path)?;
+    verify_package_paths(&names)?;
+    Ok((names.len(), bytes))
+}
+
 pub fn inspect(mut args: impl Iterator<Item = String>) -> Result<()> {
     let path = args
         .next()
@@ -235,11 +244,12 @@ pub fn inspect(mut args: impl Iterator<Item = String>) -> Result<()> {
     if args.next().is_some() {
         bail!("install-inspect accepts ARCHIVE [--package]");
     }
-    let (names, bytes) = inspect_archive_entries(Path::new(&path))?;
-    if require_package {
-        verify_package_paths(&names)?;
-    }
-    let entries = names.len();
+    let (entries, bytes) = if require_package {
+        inspect_package_archive(Path::new(&path))?
+    } else {
+        let (names, bytes) = inspect_archive_entries(Path::new(&path))?;
+        (names.len(), bytes)
+    };
     println!(
         "{}",
         serde_json::to_string(
@@ -249,7 +259,7 @@ pub fn inspect(mut args: impl Iterator<Item = String>) -> Result<()> {
     Ok(())
 }
 
-fn expected_checksum(contents: &str, archive_name: &str) -> Result<String> {
+pub fn expected_checksum(contents: &str, archive_name: &str) -> Result<String> {
     let mut selected = None;
     for line in contents.lines() {
         let mut fields = line.split_ascii_whitespace();
@@ -279,7 +289,7 @@ fn expected_checksum(contents: &str, archive_name: &str) -> Result<String> {
     })
 }
 
-fn read_checksum_manifest(path: &Path) -> Result<String> {
+pub fn read_checksum_manifest(path: &Path) -> Result<String> {
     use std::io::Read;
     const MAX_BYTES: u64 = 1024 * 1024;
     let file = open_archive_input(path)?;
@@ -291,7 +301,7 @@ fn read_checksum_manifest(path: &Path) -> Result<String> {
     Ok(String::from_utf8(bytes)?)
 }
 
-fn hash_archive_bytes(reader: impl std::io::Read, expected: u64) -> Result<String> {
+pub fn hash_archive_bytes(reader: impl std::io::Read, expected: u64) -> Result<String> {
     use sha2::{Digest, Sha256};
     use std::io::Read;
     if expected > 2 * 1024 * 1024 * 1024 {
@@ -318,6 +328,22 @@ fn hash_archive_bytes(reader: impl std::io::Read, expected: u64) -> Result<Strin
     Ok(format!("{:x}", hash.finalize()))
 }
 
+/// Verify one archive against the exact, unique entry for its file name in a checksum manifest.
+/// This returns the digest so callers can include the result in their own structured output.
+pub fn verify_checksum_manifest(archive: &Path, checksums: &Path) -> Result<String> {
+    let name = archive
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| anyhow::anyhow!("Archive name is not valid UTF-8"))?;
+    let expected = expected_checksum(&read_checksum_manifest(checksums)?, name)?;
+    let file = open_archive_input(archive)?;
+    let actual = hash_archive_bytes(&file, file.metadata()?.len())?;
+    if actual != expected {
+        bail!("Checksum verification failed for {name}; refusing a corrupted or tampered archive");
+    }
+    Ok(actual)
+}
+
 pub fn verify(mut args: impl Iterator<Item = String>) -> Result<()> {
     let archive = args
         .next()
@@ -329,16 +355,7 @@ pub fn verify(mut args: impl Iterator<Item = String>) -> Result<()> {
         bail!("install-verify accepts exactly ARCHIVE CHECKSUM_FILE");
     }
     let archive = Path::new(&archive);
-    let name = archive
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(|| anyhow::anyhow!("Archive name is not valid UTF-8"))?;
-    let expected = expected_checksum(&read_checksum_manifest(Path::new(&checksums))?, name)?;
-    let file = open_archive_input(archive)?;
-    let actual = hash_archive_bytes(&file, file.metadata()?.len())?;
-    if actual != expected {
-        bail!("Checksum verification failed for {name}; refusing a corrupted or tampered archive");
-    }
+    let actual = verify_checksum_manifest(archive, Path::new(&checksums))?;
     println!(
         "{}",
         serde_json::to_string(

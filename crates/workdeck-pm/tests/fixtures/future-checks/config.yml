@@ -1,0 +1,7 @@
+schema: 1
+repository: repo-01ARZ3NDEKTSV4RRFFQ69G5FAV
+prefix: WD
+acceptance:
+  require_all_criteria: true
+  required_checks: [unit-tests]
+  required_profiles: [presubmit]

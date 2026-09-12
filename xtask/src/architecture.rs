@@ -287,6 +287,7 @@ fn allowed_dependencies() -> BTreeMap<&'static str, BTreeSet<&'static str>> {
         ("workdeck-markup", BTreeSet::new()),
         ("workdeck-migration", BTreeSet::new()),
         ("workdeck-store", BTreeSet::new()),
+        ("workdeck-pm", BTreeSet::new()),
         (
             "workdeck-tui",
             BTreeSet::from([
@@ -295,6 +296,7 @@ fn allowed_dependencies() -> BTreeMap<&'static str, BTreeSet<&'static str>> {
                 "workdeck-extension-api",
                 "workdeck-extension-host",
                 "workdeck-markup",
+                "workdeck-pm",
                 "workdeck-review",
                 "workdeck-session",
                 "workdeck-vcs",
@@ -309,6 +311,7 @@ fn allowed_dependencies() -> BTreeMap<&'static str, BTreeSet<&'static str>> {
                 "workdeck-extension-host",
                 "workdeck-markup",
                 "workdeck-migration",
+                "workdeck-pm",
                 "workdeck-review",
                 "workdeck-session",
                 "workdeck-store",
@@ -406,6 +409,7 @@ fn boundary_rule(package: &str) -> &'static str {
         "workdeck-review" => "review-stays-below-host",
         "workdeck-session" => "session-stays-below-cli-and-ui",
         "workdeck-store" => "store-is-independent",
+        "workdeck-pm" => "project-management-is-independent",
         "workdeck-tui" => "ui-stays-below-composition-root",
         "workdeck-vcs" => "vcs-stays-provider-neutral",
         _ => "workspace-boundary",

@@ -1,5 +1,12 @@
 //! Tooling entry points delegate to the native product implementation.
-pub(super) use workdeck_cli::install::{inspect, run, stage, verify};
+#[cfg(test)]
+use workdeck_cli::install::{
+    expected_checksum, hash_archive_bytes, inspect_archive_entries, open_archive_input,
+    read_checksum_manifest, verify_package_paths,
+};
+pub(super) use workdeck_cli::install::{
+    inspect, inspect_package_archive, run, stage, verify, verify_checksum_manifest,
+};
 
 /// Verify the native archive-installation workflow replacing Hunk's POSIX
 /// install.sh E2E. The source workflow is read from Git; its download, PATH,
@@ -231,5 +238,175 @@ mod tests {
     fn native_vm_install_workflow_replaces_the_complete_privileged_suite() {
         let repo = super::super::repo_root().unwrap();
         super::verify_vm_workflow(&repo).unwrap();
+    }
+
+    #[test]
+    fn release_package_archives_pass_structural_checksum_and_provenance_inspection() {
+        use super::*;
+        use sha2::{Digest, Sha256};
+        use std::{fs, io::Read};
+
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("source");
+        fs::create_dir_all(root.join("third_party/themes")).unwrap();
+        fs::create_dir_all(root.join("third_party/grammars")).unwrap();
+        fs::write(root.join("LICENSE"), b"license\n").unwrap();
+        fs::write(root.join("THIRD_PARTY_NOTICES"), b"notices\n").unwrap();
+        for notice in [
+            "tm-themes-LICENSE",
+            "tm-themes-NOTICE",
+            "pierre-theme-LICENSE",
+            "pierre-theme-NOTICE.md",
+        ] {
+            fs::write(root.join("third_party/themes").join(notice), notice).unwrap();
+        }
+        fs::write(
+            root.join("third_party/grammars/shikijs-langs-LICENSE"),
+            b"shiki license\n",
+        )
+        .unwrap();
+        for skill in [
+            "workdeck-review",
+            "workdeck-extensions",
+            "workdeck-release",
+            "workdeck-launch-video",
+        ] {
+            fs::create_dir_all(root.join("skills").join(skill)).unwrap();
+            fs::write(
+                root.join("skills").join(skill).join("SKILL.md"),
+                format!("name: {skill}\n"),
+            )
+            .unwrap();
+        }
+
+        let binary = root.join("workdeck");
+        let binary_bytes = b"synthetic release executable\n".to_vec();
+        fs::write(&binary, &binary_bytes).unwrap();
+        let binary_sha256 = format!("{:x}", Sha256::digest(&binary_bytes));
+        let provenance = serde_json::to_vec_pretty(&serde_json::json!({
+            "_type": "https://in-toto.io/Statement/v1",
+            "predicateType": "https://slsa.dev/provenance/v1",
+            "subject": [{"name": "workdeck", "digest": {"sha256": binary_sha256}}],
+            "predicate": {
+                "buildDefinition": {
+                    "buildType": "https://example.invalid/workdeck-test",
+                    "externalParameters": {}
+                },
+                "runDetails": {
+                    "builder": {"id": "https://example.invalid/synthetic-builder"}
+                }
+            }
+        }))
+        .unwrap();
+        let mut entries = super::super::release_entries(
+            "workdeck-aarch64-apple-darwin",
+            &binary,
+            "workdeck",
+            &root,
+            br#"{"schema_version":1}"#,
+            br#"{"bomFormat":"CycloneDX","specVersion":"1.5"}"#,
+        )
+        .unwrap();
+        super::super::attach_release_provenance(
+            &mut entries,
+            "workdeck-aarch64-apple-darwin",
+            "workdeck",
+            provenance.clone(),
+        )
+        .unwrap();
+
+        let archive_specs = [("tar.gz", false), ("zip", true)];
+        for (extension, zip) in archive_specs {
+            let archive = directory
+                .path()
+                .join(format!("workdeck-aarch64-apple-darwin.{extension}"));
+            if zip {
+                super::super::write_zip_archive(&archive, &entries).unwrap();
+            } else {
+                super::super::write_tar_archive(&archive, &entries).unwrap();
+            }
+
+            let (names, declared_bytes) = inspect_archive_entries(&archive).unwrap();
+            verify_package_paths(&names).unwrap();
+            assert!(declared_bytes >= binary_bytes.len() as u64);
+            let (checked_entries, checked_bytes) = inspect_package_archive(&archive).unwrap();
+            assert_eq!(checked_entries, names.len());
+            assert_eq!(checked_bytes, declared_bytes);
+
+            let archive_bytes = fs::metadata(&archive).unwrap().len();
+            let archive_sha256 =
+                hash_archive_bytes(open_archive_input(&archive).unwrap(), archive_bytes).unwrap();
+            let checksum_path = directory
+                .path()
+                .join(format!("workdeck-aarch64-apple-darwin.{extension}.sha256"));
+            fs::write(
+                &checksum_path,
+                format!(
+                    "{archive_sha256}  {}\n",
+                    archive.file_name().unwrap().to_string_lossy()
+                ),
+            )
+            .unwrap();
+            assert_eq!(
+                expected_checksum(
+                    &read_checksum_manifest(&checksum_path).unwrap(),
+                    archive.file_name().unwrap().to_str().unwrap(),
+                )
+                .unwrap(),
+                archive_sha256,
+            );
+            assert_eq!(
+                verify_checksum_manifest(&archive, &checksum_path).unwrap(),
+                archive_sha256
+            );
+
+            let mut extracted_provenance = None;
+            let mut extracted_binary = None;
+            if zip {
+                let mut archive_reader =
+                    zip::ZipArchive::new(fs::File::open(&archive).unwrap()).unwrap();
+                for name in [
+                    "workdeck-aarch64-apple-darwin/workdeck",
+                    "workdeck-aarch64-apple-darwin/provenance.json",
+                ] {
+                    let mut bytes = Vec::new();
+                    archive_reader
+                        .by_name(name)
+                        .unwrap()
+                        .read_to_end(&mut bytes)
+                        .unwrap();
+                    if name.ends_with("/workdeck") {
+                        extracted_binary = Some(bytes);
+                    } else {
+                        extracted_provenance = Some(bytes);
+                    }
+                }
+            } else {
+                let file = fs::File::open(&archive).unwrap();
+                let decoder = flate2::read::GzDecoder::new(file);
+                let mut archive_reader = tar::Archive::new(decoder);
+                for item in archive_reader.entries().unwrap() {
+                    let mut item = item.unwrap();
+                    let name = item.path().unwrap().to_string_lossy().into_owned();
+                    if name.ends_with("/workdeck") || name.ends_with("/provenance.json") {
+                        let mut bytes = Vec::new();
+                        item.read_to_end(&mut bytes).unwrap();
+                        if name.ends_with("/workdeck") {
+                            extracted_binary = Some(bytes);
+                        } else {
+                            extracted_provenance = Some(bytes);
+                        }
+                    }
+                }
+            }
+            assert_eq!(extracted_binary.as_deref(), Some(binary_bytes.as_slice()));
+            assert_eq!(extracted_provenance.as_deref(), Some(provenance.as_slice()));
+            super::super::provenance::check_binary_subject(
+                extracted_provenance.as_deref().unwrap(),
+                "workdeck",
+                &binary_sha256,
+            )
+            .unwrap();
+        }
     }
 }

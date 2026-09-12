@@ -109,6 +109,10 @@ jobs:
       - name: Test terminal workspace
         run: cargo xtask test
 
+      - name: Verify Workdeck project-management contracts
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: cargo xtask pm check --profile standalone
+
       - name: Clippy
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
 

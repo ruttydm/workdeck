@@ -9,6 +9,21 @@ use workdeck_core::INSTALLED_EXTENSIONS_DIR_NAME;
 
 const MANIFEST_NAME: &str = "workdeck-extension.toml";
 
+/// Select exactly one automatic repository directory. A native Workdeck root
+/// always wins, including pending/invalid PM state; higher-level composition
+/// reports its PM diagnostics. Legacy-only repositories retain compatibility
+/// discovery, still gated by repository trust and reported by app configuration.
+#[must_use]
+pub fn repository_extension_directory(repo: &Path) -> PathBuf {
+    let native = repo.join(".workdeck");
+    let legacy = repo.join(".agents/workdeck/extensions");
+    if fs::symlink_metadata(&native).is_ok() || !legacy.exists() {
+        native.join("extensions")
+    } else {
+        legacy
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ManifestOrigin {
     Bundled,
@@ -161,7 +176,7 @@ pub fn discover_manifests_with_config(
     }
 
     if let Some(repo) = repo_root {
-        let repository_directory = repo.join(".agents/workdeck/extensions");
+        let repository_directory = repository_extension_directory(repo);
         let has_repository_sources = repository_directory.exists() || !repo_config_paths.is_empty();
         match trust.decision(repo) {
             Some(TrustDecision::Trusted) => {
@@ -605,6 +620,55 @@ mod tests {
         .unwrap();
         assert!(discovery.manifests.is_empty());
         assert!(discovery.pending_trust_repo_root.is_none());
+    }
+
+    #[test]
+    fn cutover_defaults_choose_one_directory_and_keep_trust_and_explicit_legacy_paths() {
+        let temp = TempDir::new().unwrap();
+        let repo = temp.path().join("repo");
+        let legacy = manifest(&repo.join(".agents/workdeck/extensions/legacy"), "legacy");
+        let mut trust = TrustStore::default();
+        let pending = discover_manifests_with_status(None, Some(&repo), &trust, &[]).unwrap();
+        assert!(pending.manifests.is_empty());
+        assert_eq!(pending.pending_trust_repo_root, Some(repo.clone()));
+        trust.grant(&repo, TrustDecision::Trusted);
+        let old = discover_manifests(None, Some(&repo), &trust, &[]).unwrap();
+        assert_eq!(old, std::slice::from_ref(&legacy));
+        let native = manifest(&repo.join(".workdeck/extensions/native"), "native");
+        assert_eq!(
+            repository_extension_directory(&repo),
+            repo.join(".workdeck/extensions")
+        );
+        // A pending marker must never revive the legacy automatic directory;
+        // PM admission and its diagnostic belong to application composition.
+        fs::write(repo.join(".workdeck/migration.yml"), "completion: null\n").unwrap();
+        assert_eq!(
+            discover_manifests(None, Some(&repo), &trust, &[]).unwrap(),
+            std::slice::from_ref(&native)
+        );
+        let selected = discover_manifests_with_config(
+            None,
+            Some(&repo),
+            &trust,
+            &[],
+            &[],
+            &[
+                legacy.parent().unwrap().to_owned(),
+                native.parent().unwrap().to_owned(),
+            ],
+            &repo,
+        )
+        .unwrap();
+        assert_eq!(selected.manifests.len(), 2);
+        assert!(selected.manifests.contains(&legacy));
+        assert!(selected.manifests.contains(&native));
+        trust.grant(&repo, TrustDecision::Denied);
+        assert!(
+            discover_manifests_with_config(None, Some(&repo), &trust, &[], &[], &[legacy], &repo)
+                .unwrap()
+                .manifests
+                .is_empty()
+        );
     }
 
     #[test]

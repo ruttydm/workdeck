@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use workdeck_core::{
     PersistedViewPreferences, ViewPreferenceChange, ViewPreferencePersistenceError,
-    diff_persisted_view_preferences, save_global_view_preferences,
+    ViewPreferenceWritePolicy, diff_persisted_view_preferences, save_global_view_preferences,
     save_view_preferences_prompt_preference,
 };
 
@@ -34,6 +34,7 @@ pub enum QuitRequestOutcome {
 pub struct ViewPreferenceQuitController {
     saved_preferences: PersistedViewPreferences,
     config_path: Option<PathBuf>,
+    write_policy: ViewPreferenceWritePolicy,
     pager_mode: bool,
     prompt_save_view_preferences: bool,
     transient_view_preferences: bool,
@@ -55,6 +56,7 @@ impl ViewPreferenceQuitController {
         Self {
             saved_preferences: current_preferences,
             config_path,
+            write_policy: ViewPreferenceWritePolicy::Writable,
             pager_mode,
             prompt_save_view_preferences,
             transient_view_preferences,
@@ -62,6 +64,11 @@ impl ViewPreferenceQuitController {
             save_config_prompt_open: false,
             pending_quit_deadline: None,
         }
+    }
+
+    /// Install the host's resolved source policy, including on soft reload.
+    pub fn set_write_policy(&mut self, policy: ViewPreferenceWritePolicy) {
+        self.write_policy = policy;
     }
 
     /// Replace soft-bootstrap facts without replacing the baseline captured at mount.
@@ -173,6 +180,7 @@ impl ViewPreferenceQuitController {
         if self.quit_pending() {
             return Ok(None);
         }
+        self.write_policy.ensure_writable()?;
         let path = save_global_view_preferences(current, self.config_path.as_deref())?;
         self.saved_preferences.clone_from(current);
         self.schedule_quit(now);
@@ -195,6 +203,7 @@ impl ViewPreferenceQuitController {
         if self.quit_pending() {
             return Ok(None);
         }
+        self.write_policy.ensure_writable()?;
         let path = save_view_preferences_prompt_preference(false, self.config_path.as_deref())?;
         self.schedule_quit(now);
         Ok(Some(path))
@@ -493,6 +502,79 @@ mod tests {
         assert_eq!(controller.changed_view_preferences(&current).len(), 1);
         assert!(controller.save_config_prompt_open());
         assert!(!controller.quit_pending());
+    }
+
+    #[test]
+    fn legacy_preference_saves_and_never_ask_are_read_only_without_global_fallback() {
+        let directory = tempfile::TempDir::new().unwrap();
+        // The policy, not a magic directory name, controls write admission.
+        let path = directory.path().join("old-preferences.toml");
+        let global = directory.path().join("global/config.toml");
+        std::fs::create_dir_all(global.parent().unwrap()).unwrap();
+        std::fs::write(&global, "# global settings\nmode = 'stack'\n").unwrap();
+        let original = "# legacy settings\nmode = 'split'\n";
+        std::fs::write(&path, original).unwrap();
+        let current = PersistedViewPreferences {
+            wrap_lines: true,
+            ..preferences()
+        };
+        let mut controller = controller(preferences(), Some(path.clone()));
+        controller.home_directory = Some(directory.path().to_owned());
+        controller.set_write_policy(ViewPreferenceWritePolicy::LegacyReadOnly);
+        assert_eq!(
+            controller.request_quit(&current),
+            QuitRequestOutcome::PromptOpened
+        );
+        let save = controller
+            .save_view_preferences_and_schedule_quit(&current, Instant::now())
+            .unwrap_err();
+        assert!(matches!(
+            save,
+            ViewPreferencePersistenceError::LegacyReadOnly
+        ));
+        assert!(save.to_string().contains("workdeck config init"));
+        let never = controller
+            .never_ask_and_schedule_quit(Instant::now())
+            .unwrap_err();
+        assert!(matches!(
+            never,
+            ViewPreferencePersistenceError::LegacyReadOnly
+        ));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+        assert_eq!(
+            std::fs::read_to_string(global).unwrap(),
+            "# global settings\nmode = 'stack'\n"
+        );
+        assert!(controller.save_config_prompt_open());
+        assert!(!controller.quit_pending());
+        assert_eq!(controller.changed_view_preferences(&current).len(), 1);
+        assert!(controller.discard_view_preferences_and_quit());
+    }
+
+    #[test]
+    fn explicit_native_and_global_targets_remain_writable() {
+        let directory = tempfile::TempDir::new().unwrap();
+        for relative in [".workdeck/config.toml", "global/config.toml"] {
+            let path = directory.path().join(relative);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, "# preserved\n[future]\nvalue = 42\n").unwrap();
+            let current = PersistedViewPreferences {
+                wrap_lines: true,
+                ..preferences()
+            };
+            let mut controller = controller(preferences(), Some(path.clone()));
+            controller.set_write_policy(ViewPreferenceWritePolicy::Writable);
+            assert_eq!(
+                controller
+                    .save_view_preferences_and_schedule_quit(&current, Instant::now())
+                    .unwrap(),
+                Some(path.clone())
+            );
+            let raw = std::fs::read_to_string(path).unwrap();
+            assert!(raw.contains("wrap_lines = true"));
+            assert!(raw.contains("# preserved"));
+            assert!(raw.contains("[future]\nvalue = 42"));
+        }
     }
 
     #[test]

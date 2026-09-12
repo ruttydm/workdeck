@@ -1,5 +1,42 @@
 mod extension_cli_commands;
 mod extension_manage;
+mod pm_carryover;
+mod pm_catalog;
+mod pm_checks;
+mod pm_ci;
+mod pm_ci_auth;
+mod pm_ci_checks;
+mod pm_ci_coverage;
+mod pm_ci_import;
+mod pm_ci_red_green;
+mod pm_ci_retained_review;
+mod pm_ci_review;
+mod pm_claims;
+mod pm_cli;
+mod pm_context;
+mod pm_continuity;
+mod pm_diagnostics;
+mod pm_doctor;
+mod pm_evidence;
+mod pm_feature;
+mod pm_gate;
+mod pm_graph;
+mod pm_history;
+mod pm_hooks;
+mod pm_index;
+mod pm_migration;
+mod pm_organization;
+mod pm_proposals;
+mod pm_protocol;
+mod pm_protocol_install;
+mod pm_read;
+mod pm_reference;
+mod pm_registry;
+mod pm_sources;
+mod pm_time;
+mod pm_transfer;
+mod pm_views;
+mod pm_wiki;
 mod process_signals;
 
 use anyhow::{Context, Result, bail};
@@ -11,22 +48,18 @@ use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::fs::File;
-use std::io::{BufRead, BufReader, IsTerminal, Read, Write};
+use std::io::{IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use workdeck_cli::app::App;
 use workdeck_cli::config::Config;
 use workdeck_cli::git;
 use workdeck_cli::payload::{
     changes_grouped_by_status, file_preview_payload, search_target_group, search_target_payload,
     status_payload,
 };
-use workdeck_cli::store::{
-    AgentSession, AgentTouchedFile, Cycle, Issue, IssueStatus, IssueUpdate, Label, Priority,
-    Project, ReferenceData, StoreEvent, WorkdeckStore,
-};
+use workdeck_cli::store::{AgentSession, IssueStatus, Priority, ReferenceData, WorkdeckStore};
 #[cfg(test)]
 use workdeck_core::ChangesetSource;
 use workdeck_core::{
@@ -95,7 +128,7 @@ struct Args {
     #[arg(long, value_name = "PATH", default_value = ".")]
     cwd: PathBuf,
 
-    #[arg(long, help = "Initialize .agents/workdeck without opening the TUI")]
+    #[arg(long, help = "Initialize .workdeck without opening the TUI")]
     init: bool,
 
     #[arg(long, help = "Print a JSON status snapshot without opening the TUI")]
@@ -130,6 +163,185 @@ struct Args {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    #[command(
+        about = "Explicitly refresh disposable planning indexes or inspect cached source-bound queries"
+    )]
+    Index {
+        #[command(flatten)]
+        options: pm_claims::Options,
+        #[command(flatten)]
+        source: pm_index::Source,
+        #[command(subcommand)]
+        command: pm_index::IndexCommand,
+    },
+    #[command(about = "Inspect and explicitly register local repository checkout mappings")]
+    Repository {
+        #[command(flatten)]
+        options: pm_claims::Options,
+        #[command(subcommand)]
+        command: pm_registry::RegistryCommand,
+    },
+    #[command(about = "Inspect planning source identities and explicitly fetch or sync")]
+    Source {
+        #[command(flatten)]
+        options: pm_claims::Options,
+        #[command(subcommand)]
+        command: pm_sources::SourceCommand,
+    },
+    #[command(about = "Acquire and maintain cooperative work claims with exact ownership tokens")]
+    Claim {
+        #[command(flatten)]
+        options: pm_claims::Options,
+        #[command(subcommand)]
+        command: pm_claims::ClaimCommand,
+    },
+    #[command(about = "Preview and explicitly manage the local planning validation hook")]
+    Hooks {
+        #[command(flatten)]
+        options: pm_hooks::HookOptions,
+        #[command(subcommand)]
+        command: pm_hooks::HookCommand,
+    },
+    #[command(
+        name = "command",
+        about = "Discover repository recipes and explicitly run reviewed local plans"
+    )]
+    Recipe {
+        #[command(flatten)]
+        options: Box<pm_checks::Options>,
+        #[command(subcommand)]
+        command: pm_checks::NamedCommand,
+    },
+    #[command(about = "Plan local verification and inspect source-bound results")]
+    Check {
+        #[command(flatten)]
+        options: Box<pm_checks::Options>,
+        #[command(subcommand)]
+        command: pm_checks::CheckCommand,
+    },
+    #[command(about = "Author native capabilities and inspect their work coverage")]
+    Feature {
+        #[command(flatten)]
+        options: pm_cli::NativeOptions,
+        #[command(subcommand)]
+        command: pm_feature::FeatureCommand,
+    },
+    #[command(about = "Author gates, resolve criteria and assess exact subjects")]
+    Gate {
+        #[command(flatten)]
+        options: pm_cli::NativeOptions,
+        #[command(subcommand)]
+        command: pm_gate::GateCommand,
+    },
+    #[command(about = "Declare immutable evidence references with explicit provenance")]
+    Evidence {
+        #[command(flatten)]
+        options: pm_cli::NativeOptions,
+        #[command(subcommand)]
+        command: pm_evidence::EvidenceCommand,
+    },
+    #[command(about = "Manage repository user, agent and service identities")]
+    User {
+        #[command(flatten)]
+        options: pm_organization::Options,
+        #[command(subcommand)]
+        command: pm_organization::UserCommand,
+    },
+    #[command(about = "Manage custom-field policy and inspect estimates and compliance")]
+    Organization {
+        #[command(flatten)]
+        options: pm_organization::Options,
+        #[command(subcommand)]
+        command: pm_organization::OrganizationCommand,
+    },
+    #[command(about = "Author and evaluate versioned issue views")]
+    View {
+        #[command(flatten)]
+        options: pm_views::ViewOptions,
+        #[command(subcommand)]
+        command: pm_views::ViewCommand,
+    },
+    #[command(about = "Record and report issue time with explicit amendment history")]
+    Time {
+        #[command(flatten)]
+        options: pm_time::TimeOptions,
+        #[command(subcommand)]
+        command: pm_time::TimeCommand,
+    },
+    #[command(about = "Author plain Markdown in the repository wiki")]
+    Wiki {
+        #[command(flatten)]
+        options: pm_wiki::WikiOptions,
+        #[command(subcommand)]
+        command: pm_wiki::WikiCommand,
+    },
+    #[command(about = "Inspect the generated project-management protocol")]
+    Protocol {
+        #[command(flatten)]
+        options: pm_protocol::ProtocolOptions,
+        #[command(subcommand)]
+        command: pm_protocol::ProtocolCommand,
+    },
+    #[command(about = "Record source-bound questions and explicit answers or supersession")]
+    Question {
+        #[command(flatten)]
+        options: Box<pm_continuity::ContinuityOptions>,
+        #[command(subcommand)]
+        command: pm_continuity::QuestionCommand,
+    },
+    #[command(about = "Create and inspect immutable source-bound task continuity declarations")]
+    Handoff {
+        #[command(flatten)]
+        options: Box<pm_continuity::ContinuityOptions>,
+        #[command(subcommand)]
+        command: pm_continuity::HandoffCommand,
+    },
+    #[command(about = "Obtain bounded source-bound task context without conversation history")]
+    Context {
+        #[command(flatten)]
+        options: Box<pm_context::ContextOptions>,
+    },
+    #[command(about = "Explain suggested actions and their current source preconditions")]
+    Next {
+        #[command(flatten)]
+        options: Box<pm_context::NextOptions>,
+    },
+    #[command(about = "Discover supported commands, schemas, and planning source availability")]
+    Capabilities {
+        #[arg(long)]
+        json: bool,
+        #[arg(long)]
+        no_input: bool,
+        #[command(flatten)]
+        output: pm_context::OutputOptions,
+    },
+    #[command(about = "Inspect generated project-management data schemas")]
+    Schema {
+        name: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Inspect and recover interrupted planning operations")]
+    Operation {
+        #[arg(
+            long,
+            global = true,
+            value_name = "WORKDECK_ROOT",
+            help = "Explicit planning source directory"
+        )]
+        source: Option<PathBuf>,
+        #[arg(long, global = true)]
+        json: bool,
+        #[command(subcommand)]
+        command: pm_cli::OperationCommand,
+    },
+    #[command(about = "Initialize repository project management in .workdeck")]
+    Init {
+        #[arg(long, default_value = "WD")]
+        prefix: String,
+        #[arg(long)]
+        json: bool,
+    },
     #[command(
         about = "review diffs or compare two concrete files",
         after_help = "Two positional arguments always name revision endpoints, even when matching files exist on disk.\nUse `--files <left> <right>` for concrete-file comparison."
@@ -286,15 +498,21 @@ enum Command {
         #[command(subcommand)]
         command: EventsCommand,
     },
-    #[command(about = "Import Workdeck export JSON")]
+    #[command(
+        about = "Import a Workdeck snapshot",
+        after_help = "Ordinary import merges into initialized planning: native snapshots require matching authority; legacy JSON/JSONL converts with preserved provenance. Use --restore to restore a native repository identity and missing original receipts without overwriting conflicting authority. Preview with --dry-run; resume a pending restore with --restore --resume --request-id ID."
+    )]
     Import {
-        path: PathBuf,
+        #[command(flatten)]
+        options: pm_transfer::ImportOptions,
+        #[arg(required_unless_present = "resume")]
+        path: Option<PathBuf>,
         #[arg(long, conflicts_with = "replace", help = "Merge imported data")]
         merge: bool,
         #[arg(
             long,
             conflicts_with = "merge",
-            help = "Replace local Workdeck data before import"
+            help = "Native: replace eligible matching records, retain unrelated records; legacy: replace legacy data"
         )]
         replace: bool,
         #[arg(long, help = "Validate without writing")]
@@ -302,8 +520,17 @@ enum Command {
         #[arg(long, help = "Print import result as JSON")]
         json: bool,
     },
+    #[command(about = "Validate immutable planning revisions for CI")]
+    Ci {
+        #[command(flatten)]
+        options: pm_ci::CiOptions,
+        #[command(subcommand)]
+        command: pm_ci::CiCommand,
+    },
     #[command(about = "Validate repo, config, and local Workdeck data")]
     Doctor {
+        #[command(flatten)]
+        options: pm_doctor::DoctorOptions,
         #[arg(long, help = "Print doctor results as JSON")]
         json: bool,
     },
@@ -316,26 +543,57 @@ enum Command {
     },
     #[command(about = "Manage local Workdeck issues")]
     Issue {
+        #[command(flatten)]
+        options: pm_cli::IssueOptions,
         #[command(subcommand)]
         command: IssueCommand,
     },
     #[command(about = "Manage local agent sessions")]
     Agent {
+        #[command(flatten)]
+        options: pm_history::HistoryOptions,
         #[command(subcommand)]
         command: AgentCommand,
     },
+    #[command(about = "Manage native initiatives spanning projects")]
+    Initiative {
+        #[command(flatten)]
+        options: pm_cli::IssueOptions,
+        #[command(subcommand)]
+        command: pm_reference::HierarchyCommand,
+    },
+    #[command(about = "Manage native project milestones")]
+    Milestone {
+        #[command(flatten)]
+        options: pm_cli::IssueOptions,
+        #[command(subcommand)]
+        command: pm_reference::HierarchyCommand,
+    },
+    #[command(about = "Manage native delivery targets")]
+    Target {
+        #[command(flatten)]
+        options: pm_cli::IssueOptions,
+        #[command(subcommand)]
+        command: pm_reference::HierarchyCommand,
+    },
     #[command(about = "Manage local Workdeck projects")]
     Project {
+        #[command(flatten)]
+        options: pm_cli::IssueOptions,
         #[command(subcommand)]
         command: ProjectCommand,
     },
     #[command(about = "Manage local Workdeck cycles")]
     Cycle {
+        #[command(flatten)]
+        options: pm_cli::IssueOptions,
         #[command(subcommand)]
         command: CycleCommand,
     },
     #[command(about = "Manage local Workdeck labels")]
     Label {
+        #[command(flatten)]
+        options: pm_cli::IssueOptions,
         #[command(subcommand)]
         command: LabelCommand,
     },
@@ -656,6 +914,11 @@ enum ExtensionCommand {
 
 #[derive(Debug, Subcommand)]
 enum MigrateCommand {
+    #[command(about = "Preview, apply, or resume migration of prototype planning files")]
+    Legacy {
+        #[command(flatten)]
+        options: pm_migration::Options,
+    },
     #[command(about = "Plan or apply one-time Hunk configuration migration")]
     Hunk {
         #[arg(long, conflicts_with = "apply")]
@@ -755,6 +1018,8 @@ enum CursorLineArg {
 #[derive(Debug, Clone, Default, ClapArgs)]
 struct ReviewCliOptions {
     #[arg(skip)]
+    workbench: Option<workdeck_tui::workbench::WorkbenchOptions>,
+    #[arg(skip)]
     config_command_section: Option<&'static str>,
     #[arg(skip)]
     experimental: bool,
@@ -847,6 +1112,8 @@ struct ReviewCliOptions {
     #[arg(skip)]
     view_preferences_config_path: Option<PathBuf>,
     #[arg(skip)]
+    view_preferences_write_policy: workdeck_core::ViewPreferenceWritePolicy,
+    #[arg(skip)]
     prompt_save_view_preferences: Option<bool>,
     #[arg(skip)]
     config_exclude_untracked: bool,
@@ -855,6 +1122,7 @@ struct ReviewCliOptions {
 impl ReviewCliOptions {
     fn from_config(config: &Config) -> Self {
         Self {
+            workbench: None,
             config_command_section: None,
             experimental: false,
             fast: false,
@@ -909,6 +1177,7 @@ impl ReviewCliOptions {
             repo_extension_paths: config.resolved_extensions.repo_paths.clone(),
             custom_themes: config.custom_themes.clone(),
             view_preferences_config_path: config.view_preferences_config_path.clone(),
+            view_preferences_write_policy: config.view_preferences_write_policy,
             prompt_save_view_preferences: Some(config.prompt_save_view_preferences),
             config_exclude_untracked: config.review.exclude_untracked,
         }
@@ -965,6 +1234,7 @@ impl ReviewCliOptions {
         self.repo_extension_paths = configured.repo_extension_paths;
         self.custom_themes = configured.custom_themes;
         self.view_preferences_config_path = configured.view_preferences_config_path;
+        self.view_preferences_write_policy = configured.view_preferences_write_policy;
         self.prompt_save_view_preferences = configured.prompt_save_view_preferences;
         self.config_exclude_untracked = configured.config_exclude_untracked;
         self.no_extensions |= configured.no_extensions;
@@ -991,6 +1261,8 @@ impl ReviewCliOptions {
             theme
         };
         ReviewOptions {
+            workbench: self.workbench.clone(),
+            repository_panels: None,
             source_presentation: workdeck_tui::ReviewSourcePresentation::default(),
             source_capabilities: None,
             layout: match self.mode.unwrap_or(ReviewLayoutArg::Auto) {
@@ -1022,6 +1294,7 @@ impl ReviewCliOptions {
             show_menu_bar: self.show_menu_bar,
             copy_decorations: self.copy_decorations,
             view_preferences_config_path: self.view_preferences_config_path.clone(),
+            view_preferences_write_policy: self.view_preferences_write_policy,
             prompt_save_view_preferences: self.prompt_save_view_preferences.unwrap_or(true),
             transient_view_preferences: false,
             view_preferences_home_directory: std::env::var_os("HOME").map(PathBuf::from),
@@ -1036,8 +1309,10 @@ impl ReviewCliOptions {
             extension_panes: Vec::new(),
             extension_notifications: None,
             pending_extension_trust_repo_root: None,
+            pending_extension_trust_directory: None,
             extension_trust_handler: None,
             external_quit_signal: None,
+            foreground_run_signal: None,
         }
     }
 
@@ -1977,6 +2252,8 @@ mod review_cli_option_tests {
             workdeck_tui::UserKeyBinding::Chord("]".into()),
         )];
         review.view_preferences_config_path = Some(PathBuf::from("/tmp/workdeck-config.toml"));
+        review.view_preferences_write_policy =
+            workdeck_core::ViewPreferenceWritePolicy::LegacyReadOnly;
         let input = CliInput::Vcs(VcsDiffCommandInput {
             range: None,
             range_endpoints: None,
@@ -2011,6 +2288,14 @@ mod review_cli_option_tests {
         assert_eq!(
             bootstrap.view_preferences_config_path.as_deref(),
             Some(Path::new("/tmp/workdeck-config.toml"))
+        );
+        assert_eq!(
+            bootstrap.view_preferences_write_policy,
+            workdeck_core::ViewPreferenceWritePolicy::LegacyReadOnly
+        );
+        assert_eq!(
+            review.tui_options().view_preferences_write_policy,
+            workdeck_core::ViewPreferenceWritePolicy::LegacyReadOnly
         );
         let prepared = bootstrap.extensions.as_mut().unwrap();
         assert_eq!(prepared.extensions[0].manifest.id, "custom-vcs");
@@ -3355,6 +3640,181 @@ mod review_cli_option_tests {
             loaded.input.options().extension_paths,
             ["must-not-be-executed"]
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn workbench_file_reload_rejects_symlinks_and_preserves_snapshot_sources() {
+        let directory = tempfile::tempdir().unwrap();
+        git2::Repository::init(directory.path()).unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("secret.rs"), "outside content\n").unwrap();
+        std::os::unix::fs::symlink(
+            outside.path().join("secret.rs"),
+            directory.path().join("link.rs"),
+        )
+        .unwrap();
+        let provider =
+            workdeck_cli::repository_panels::RepositoryPanels::new(directory.path(), None, 20)
+                .unwrap();
+        let input = |path: &str| {
+            CliInput::Files(FileCommandInput {
+                left: path.into(),
+                right: path.into(),
+                options: CommonOptions::default(),
+            })
+        };
+        assert!(
+            load_dynamic_review_input_with_workbench(
+                &input("link.rs"),
+                directory.path(),
+                None,
+                &[],
+                Some(&provider)
+            )
+            .is_err()
+        );
+        std::fs::write(
+            directory.path().join("main.rs"),
+            "fn captured_source() {}\n",
+        )
+        .unwrap();
+        let loaded = load_dynamic_review_input_with_workbench(
+            &input("main.rs"),
+            directory.path(),
+            None,
+            &[],
+            Some(&provider),
+        )
+        .unwrap();
+        assert!(format!("{:?}", loaded.changeset).contains("captured_source"));
+        assert!(!format!("{:?}", loaded.changeset).contains("outside content"));
+    }
+
+    #[test]
+    fn registered_checkout_file_reload_uses_the_selected_root_without_widening_the_original_provider()
+     {
+        use workdeck_pm::{Repository, RequestId, SourceSelector, registry::*};
+        use workdeck_tui::workbench::RepositoryPanelProvider;
+        let origin = tempfile::tempdir().unwrap();
+        let target = tempfile::tempdir().unwrap();
+        git2::Repository::init(origin.path()).unwrap();
+        git2::Repository::init(target.path()).unwrap();
+        let owner = Repository::init(origin.path(), "WD").unwrap();
+        Repository::init(target.path(), "WD").unwrap();
+        std::fs::write(origin.path().join("same.rs"), "original checkout source").unwrap();
+        std::fs::write(target.path().join("same.rs"), "registered checkout source").unwrap();
+        let provider =
+            workdeck_cli::repository_panels::RepositoryPanels::new(origin.path(), None, 20)
+                .unwrap();
+        let input = CliInput::Files(FileCommandInput {
+            left: "same.rs".into(),
+            right: "same.rs".into(),
+            options: CommonOptions::default(),
+        });
+        assert!(
+            load_dynamic_review_input_with_workbench(
+                &input,
+                target.path(),
+                None,
+                &[],
+                Some(&provider)
+            )
+            .is_err()
+        );
+        let registry = RegistryStore::open(&owner).unwrap();
+        let mapping =
+            inspect_checkout("secondary", target.path(), SourceSelector::WorkingTree).unwrap();
+        registry
+            .mutate(
+                &RegistryRequest {
+                    expected: registry.snapshot().unwrap().source,
+                    mutation: RegistryMutation::Register {
+                        checkout: mapping.clone(),
+                    },
+                },
+                &RequestId::new(),
+            )
+            .unwrap();
+        let loaded = load_dynamic_review_input_with_workbench(
+            &input,
+            target.path(),
+            None,
+            &[],
+            Some(&provider),
+        )
+        .unwrap();
+        assert!(format!("{:?}", loaded.changeset).contains("registered checkout source"));
+        assert!(!format!("{:?}", loaded.changeset).contains("original checkout source"));
+        assert_eq!(
+            loaded.host_options.repo_root,
+            Some(mapping.checkout.clone())
+        );
+        assert_eq!(
+            provider.source().root,
+            origin.path().canonicalize().unwrap()
+        );
+        assert!(
+            provider
+                .read_file_for_navigation(&mapping.checkout.join("same.rs"))
+                .is_err()
+        );
+        let navigation = loaded.host_options.registry_navigation.as_ref().unwrap();
+        assert_eq!(navigation.checkout(), &mapping);
+        assert_eq!(
+            loaded
+                .host_options
+                .repository_panels
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .source()
+                .root,
+            mapping.checkout
+        );
+        registry
+            .mutate(
+                &RegistryRequest {
+                    expected: registry.snapshot().unwrap().source,
+                    mutation: RegistryMutation::Remove {
+                        alias: mapping.alias,
+                    },
+                },
+                &RequestId::new(),
+            )
+            .unwrap();
+        assert!(
+            navigation.revalidate().is_err(),
+            "loaded navigation must carry the original registry guard to commit"
+        );
+    }
+
+    #[test]
+    fn workbench_nonfile_reload_preserves_unregistered_review_source_support() {
+        let origin = tempfile::tempdir().unwrap();
+        let target = tempfile::tempdir().unwrap();
+        git2::Repository::init(origin.path()).unwrap();
+        git2::Repository::init(target.path()).unwrap();
+        workdeck_pm::Repository::init(origin.path(), "WD").unwrap();
+        let provider =
+            workdeck_cli::repository_panels::RepositoryPanels::new(origin.path(), None, 20)
+                .unwrap();
+        let input = CliInput::Patch(workdeck_core::PatchCommandInput {
+            file: None,
+            text: Some("diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old\n+explicit review source\n".into()),
+            options: CommonOptions::default(),
+        });
+        let loaded = load_dynamic_review_input_with_workbench(
+            &input,
+            target.path(),
+            None,
+            &[],
+            Some(&provider),
+        )
+        .unwrap();
+        assert!(format!("{:?}", loaded.changeset).contains("explicit review source"));
+        assert!(loaded.host_options.registry_navigation.is_none());
     }
 
     #[test]
@@ -4817,8 +5277,37 @@ enum ChangesCommand {
 
 #[derive(Debug, Subcommand)]
 enum IssueCommand {
+    #[command(about = "Select ready work with source-bound eligibility and exclusion explanations")]
+    Next {
+        #[command(flatten)]
+        options: Box<pm_context::NextIssueOptions>,
+    },
+    #[command(flatten)]
+    Graph(pm_graph::GraphCommand),
+    #[command(about = "Patch individual custom fields without replacing unmentioned values")]
+    Custom {
+        key: String,
+        #[command(flatten)]
+        input: pm_organization::CustomOptions,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Set an exact estimate in an explicit unit, or clear the estimate")]
+    Estimate {
+        key: String,
+        #[arg(required_unless_present = "clear")]
+        value: Option<String>,
+        #[arg(long, requires = "value", required_unless_present = "clear")]
+        unit: Option<String>,
+        #[arg(long, conflicts_with_all = ["value", "unit"])]
+        clear: bool,
+        #[arg(long)]
+        json: bool,
+    },
     #[command(about = "List local issues")]
     List {
+        #[command(flatten)]
+        query_options: pm_cli::IssueListOptions,
         #[arg(long)]
         status: Option<String>,
         #[arg(long)]
@@ -4836,8 +5325,19 @@ enum IssueCommand {
         #[arg(long, help = "Print issues as JSON")]
         json: bool,
     },
+    #[command(about = "List repository issue templates")]
+    Templates {
+        #[arg(long)]
+        json: bool,
+    },
     #[command(about = "Create a local issue")]
     Create {
+        #[command(flatten)]
+        authoring: pm_cli::AuthoringOptions,
+        #[command(flatten)]
+        associations: pm_cli::IssueAssociationOptions,
+        #[arg(long, value_name = "ID", help = "Apply a repository issue template")]
+        template: Option<String>,
         title: Option<String>,
         #[arg(
             long,
@@ -4870,6 +5370,16 @@ enum IssueCommand {
     },
     #[command(about = "Update a local issue")]
     Update {
+        #[command(flatten)]
+        authoring: pm_cli::AuthoringOptions,
+        #[command(flatten)]
+        associations: pm_cli::IssueAssociationOptions,
+        #[arg(
+            long,
+            value_name = "PATH",
+            help = "Read update fields from JSON, or minus for stdin"
+        )]
+        from_json: Option<PathBuf>,
         key: String,
         #[arg(long)]
         title: Option<String>,
@@ -4892,6 +5402,22 @@ enum IssueCommand {
         #[arg(long = "commit", value_delimiter = ',')]
         linked_commit: Vec<String>,
         #[arg(long, help = "Print the updated issue as JSON")]
+        json: bool,
+    },
+    #[command(
+        about = "Edit issue Markdown in an external editor or from a draft file",
+        after_help = "Interactive editing uses EDITOR, then VISUAL, and captures the issue source before launch.
+Use --from-file for --no-input or caller-supplied --request-id retries."
+    )]
+    Edit {
+        key: String,
+        #[arg(
+            long,
+            value_name = "PATH",
+            help = "Apply a complete Markdown draft without launching an editor"
+        )]
+        from_file: Option<PathBuf>,
+        #[arg(long)]
         json: bool,
     },
     #[command(about = "Link a file path to an issue")]
@@ -4935,6 +5461,84 @@ enum IssueCommand {
         #[arg(long, help = "Print the updated issue as JSON")]
         json: bool,
     },
+    #[command(about = "Link an inert document path, URL, or stable reference")]
+    LinkDocument {
+        key: String,
+        reference: String,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Remove an issue document reference")]
+    UnlinkDocument {
+        key: String,
+        reference: String,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Cancel an issue using a configured canceled workflow state")]
+    Cancel {
+        key: String,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Complete an issue using its completion policy")]
+    Done {
+        key: String,
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        manual_actor: Option<String>,
+        #[arg(long)]
+        manual_reason: Option<String>,
+        #[arg(long, conflicts_with_all = ["manual_actor", "manual_reason"], help = "CompleteRedGreenIssue JSON with independent authority and original proof pins; supports --dry-run")]
+        verification_file: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Add an immutable issue comment")]
+    Comment {
+        key: String,
+        body: Option<String>,
+        #[arg(long)]
+        body_file: Option<PathBuf>,
+        #[arg(long)]
+        author: String,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Attach an inert file to an issue")]
+    Attach {
+        key: String,
+        path: PathBuf,
+        #[arg(long)]
+        author: String,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long)]
+        media_type: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "List issue attachment metadata")]
+    Attachments {
+        key: String,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "List issue comments")]
+    Comments {
+        key: String,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Archive an issue or restore it")]
+    Archive {
+        key: String,
+        #[arg(long)]
+        restore: bool,
+        #[arg(long)]
+        json: bool,
+    },
     #[command(about = "Close an issue")]
     Close {
         key: String,
@@ -4976,6 +5580,8 @@ enum IssueCommand {
     #[command(about = "Delete an issue")]
     Delete {
         key: String,
+        #[command(flatten)]
+        retirement: pm_cli::RetirementOptions,
         #[arg(long, help = "Confirm deletion")]
         yes: bool,
         #[arg(long, help = "Print deletion result as JSON")]
@@ -5130,6 +5736,58 @@ enum AgentCommand {
 
 #[derive(Debug, Subcommand)]
 enum ProjectCommand {
+    #[command(about = "Patch individual custom fields without replacing unmentioned values")]
+    Custom {
+        id: String,
+        #[command(flatten)]
+        input: pm_organization::CustomOptions,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Create a new native planning record")]
+    Create {
+        name: String,
+        #[arg(long)]
+        id: Option<String>,
+        #[command(flatten)]
+        input: pm_reference::Fields,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Update a native planning record")]
+    Update {
+        id: String,
+        #[arg(long)]
+        name: Option<String>,
+        #[command(flatten)]
+        input: pm_reference::Fields,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Archive or restore a native planning record, retaining references")]
+    Archive {
+        id: String,
+        #[arg(long)]
+        restore: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Assess project exit policy without writing")]
+    Assess {
+        id: String,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Complete a project after attributed manual acceptance")]
+    Complete {
+        id: String,
+        #[arg(long)]
+        actor: String,
+        #[arg(long)]
+        reason: String,
+        #[arg(long)]
+        json: bool,
+    },
     #[command(about = "List local projects")]
     List {
         #[arg(long)]
@@ -5152,15 +5810,22 @@ enum ProjectCommand {
     #[command(about = "Show one project")]
     Show {
         id: String,
+        #[command(flatten)]
+        membership: pm_reference::MembershipOptions,
         #[arg(long, help = "Print the project as JSON")]
         json: bool,
     },
     #[command(about = "Delete a project")]
     Delete {
         id: String,
+        #[command(flatten)]
+        retirement: pm_cli::RetirementOptions,
         #[arg(long, help = "Confirm deletion")]
         yes: bool,
-        #[arg(long, help = "Clear issue references")]
+        #[arg(
+            long,
+            help = "Preview association removal with --dry-run; apply requires --expected-preview"
+        )]
         force: bool,
         #[arg(long, help = "Print the deleted project as JSON")]
         json: bool,
@@ -5169,6 +5834,51 @@ enum ProjectCommand {
 
 #[derive(Debug, Subcommand)]
 enum CycleCommand {
+    #[command(
+        about = "Preview unfinished work for another cycle; apply only an exact reviewed fingerprint"
+    )]
+    Carryover {
+        #[command(flatten)]
+        input: pm_carryover::Input,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Patch individual custom fields without replacing unmentioned values")]
+    Custom {
+        id: String,
+        #[command(flatten)]
+        input: pm_organization::CustomOptions,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Create a new native planning record")]
+    Create {
+        name: String,
+        #[arg(long)]
+        id: Option<String>,
+        #[command(flatten)]
+        input: pm_reference::Fields,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Update a native planning record")]
+    Update {
+        id: String,
+        #[arg(long)]
+        name: Option<String>,
+        #[command(flatten)]
+        input: pm_reference::Fields,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Archive or restore a native planning record, retaining references")]
+    Archive {
+        id: String,
+        #[arg(long)]
+        restore: bool,
+        #[arg(long)]
+        json: bool,
+    },
     #[command(about = "List local cycles")]
     List {
         #[arg(long)]
@@ -5193,15 +5903,22 @@ enum CycleCommand {
     #[command(about = "Show one cycle")]
     Show {
         id: String,
+        #[command(flatten)]
+        membership: pm_reference::MembershipOptions,
         #[arg(long, help = "Print the cycle as JSON")]
         json: bool,
     },
     #[command(about = "Delete a cycle")]
     Delete {
         id: String,
+        #[command(flatten)]
+        retirement: pm_cli::RetirementOptions,
         #[arg(long, help = "Confirm deletion")]
         yes: bool,
-        #[arg(long, help = "Clear issue references")]
+        #[arg(
+            long,
+            help = "Preview association removal with --dry-run; apply requires --expected-preview"
+        )]
         force: bool,
         #[arg(long, help = "Print the deleted cycle as JSON")]
         json: bool,
@@ -5210,6 +5927,42 @@ enum CycleCommand {
 
 #[derive(Debug, Subcommand)]
 enum LabelCommand {
+    #[command(about = "Patch individual custom fields without replacing unmentioned values")]
+    Custom {
+        id: String,
+        #[command(flatten)]
+        input: pm_organization::CustomOptions,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Create a new native planning record")]
+    Create {
+        name: String,
+        #[arg(long)]
+        id: Option<String>,
+        #[command(flatten)]
+        input: pm_reference::Fields,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Update a native planning record")]
+    Update {
+        id: String,
+        #[arg(long)]
+        name: Option<String>,
+        #[command(flatten)]
+        input: pm_reference::Fields,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Archive or restore a native planning record, retaining references")]
+    Archive {
+        id: String,
+        #[arg(long)]
+        restore: bool,
+        #[arg(long)]
+        json: bool,
+    },
     #[command(about = "List local labels")]
     List {
         #[arg(long)]
@@ -5230,15 +5983,22 @@ enum LabelCommand {
     #[command(about = "Show one label")]
     Show {
         id: String,
+        #[command(flatten)]
+        membership: pm_reference::MembershipOptions,
         #[arg(long, help = "Print the label as JSON")]
         json: bool,
     },
     #[command(about = "Delete a label")]
     Delete {
         id: String,
+        #[command(flatten)]
+        retirement: pm_cli::RetirementOptions,
         #[arg(long, help = "Confirm deletion")]
         yes: bool,
-        #[arg(long, help = "Remove label from issues")]
+        #[arg(
+            long,
+            help = "Preview label removal with --dry-run; apply requires --expected-preview"
+        )]
         force: bool,
         #[arg(long, help = "Print the deleted label as JSON")]
         json: bool,
@@ -5328,9 +6088,13 @@ fn process_stdin_is_ready(source: &std::io::Stdin) -> std::io::Result<bool> {
 fn main() -> ExitCode {
     let argv = std::env::args_os().collect::<Vec<_>>();
     let hunk_compat_exit = uses_hunk_compat_exit_semantics(&argv);
-    let args = match parse_args_with_fast_shorthand(argv) {
+    let args = match parse_args_with_fast_shorthand(argv.iter().cloned()) {
         Ok(args) => args,
         Err(error) => {
+            if error.use_stderr() && pm_diagnostics::parser_machine_request(&argv) {
+                pm_diagnostics::print_parser(&error);
+                return ExitCode::from(2);
+            }
             let rendered = error.to_string();
             let code = if hunk_compat_exit && error.use_stderr() {
                 1
@@ -5348,7 +6112,9 @@ fn main() -> ExitCode {
     match run(args) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            if error.downcast_ref::<CommandExit>().is_some()
+            if let Some(failure) = error.downcast_ref::<pm_cli::CommandFailure>() {
+                failure.print(wants_json);
+            } else if error.downcast_ref::<CommandExit>().is_some()
                 || is_json_error_already_printed(&error)
             {
                 // The command printed a structured JSON error with command-specific details.
@@ -5536,7 +6302,13 @@ fn normalize_namespace_help(argv: &mut Vec<OsString>, command_index: usize) {
 fn is_builtin_cli_command_name(name: &str) -> bool {
     matches!(
         name,
-        "diff"
+        "init"
+            | "capabilities"
+            | "schema"
+            | "operation"
+            | "view"
+            | "wiki"
+            | "diff"
             | "show"
             | "stash"
             | "patch"
@@ -5606,6 +6378,22 @@ fn run_with_preloaded_extensions(
         review.no_extensions = args.no_extensions && !args.extensions;
         review.experimental = args.experimental;
         review.fast = args.fast;
+    }
+
+    if args.init {
+        let init = Command::Init {
+            prefix: "WD".into(),
+            json: false,
+        };
+        return pm_cli::try_run(&args.cwd, Some(&init))
+            .expect("native initialization is always handled");
+    }
+
+    if !args.init
+        && !args.status_json
+        && let Some(result) = pm_cli::try_run(&args.cwd, args.command.as_ref())
+    {
+        return result;
     }
 
     // Spool piped review input and attach the controlling terminal before config, theme, or
@@ -5707,19 +6495,25 @@ fn run_with_preloaded_extensions(
 
     let repo_root = git::discover_repo_root(&args.cwd)?;
 
-    if let Some(Command::Doctor { json }) = &args.command {
+    if let Some(Command::Doctor { json, .. }) = &args.command {
         handle_doctor(&repo_root, *json)?;
         return Ok(());
     }
 
-    let config = Config::load(&repo_root)?;
-    let store = WorkdeckStore::new(config.data_dir(&repo_root));
-
-    if args.init {
-        store.init()?;
-        println!("initialized {}", store.root().display());
-        return Ok(());
+    // Config inspection and repair must work even when the active preferences
+    // are invalid. Set validates the proposed complete layer before publishing.
+    if matches!(args.command, Some(Command::Config { .. })) {
+        let Some(Command::Config { command }) = args.command.take() else {
+            unreachable!()
+        };
+        return handle_config_command(&repo_root, command);
     }
+
+    let config = Config::load(&repo_root)?;
+    if let Some(command) = args.command.as_ref() {
+        pm_cli::guard_legacy_consumer(&repo_root, &config.data_dir(&repo_root), command)?;
+    }
+    let store = WorkdeckStore::new(config.data_dir(&repo_root));
 
     if args.status_json {
         print_status(&repo_root, true)?;
@@ -5757,22 +6551,72 @@ fn run_with_preloaded_extensions(
                 target,
                 json,
             } => handle_search_command(&repo_root, &config, &store, query, target, json)?,
-            Command::Config { command } => handle_config_command(&repo_root, &store, command)?,
+            Command::Config { command } => handle_config_command(&repo_root, command)?,
             Command::Events { command } => handle_events_command(&store, command)?,
             Command::Import {
+                options,
                 path,
                 merge,
                 replace,
                 dry_run,
                 json,
-            } => handle_import_command(&store, path, merge, replace, dry_run, json)?,
+            } => {
+                if options.is_native() {
+                    bail!("native import options require initialized planning or migration");
+                }
+                handle_import_command(
+                    &repo_root,
+                    &store,
+                    path.context("import requires a source path")?,
+                    merge,
+                    replace,
+                    dry_run,
+                    json,
+                )?;
+            }
+            Command::Init { .. } => unreachable!("init is handled before config load"),
+            Command::Initiative { .. } | Command::Milestone { .. } | Command::Target { .. } => {
+                unreachable!("native hierarchy is handled before config load")
+            }
+            Command::Protocol { .. } | Command::Capabilities { .. } | Command::Schema { .. } => {
+                unreachable!("introspection is handled before config load")
+            }
+            Command::View { .. } => unreachable!("view is handled before config load"),
+            Command::Wiki { .. } => unreachable!("wiki is handled before config load"),
+            Command::Time { .. } => unreachable!("time is handled before config load"),
+            Command::Hooks { .. }
+            | Command::Claim { .. }
+            | Command::Source { .. }
+            | Command::Repository { .. }
+            | Command::Index { .. }
+            | Command::Question { .. }
+            | Command::Handoff { .. }
+            | Command::Context { .. }
+            | Command::Recipe { .. }
+            | Command::Check { .. }
+            | Command::Next { .. }
+            | Command::Feature { .. }
+            | Command::Gate { .. }
+            | Command::Evidence { .. } => {
+                unreachable!("native capability domains are handled before config load")
+            }
+            Command::User { .. } | Command::Organization { .. } => {
+                unreachable!("organization is handled before config load")
+            }
+            Command::Operation { .. } => unreachable!("operations are handled before config load"),
+            Command::Ci { .. } => unreachable!("CI validation is handled before config load"),
             Command::Doctor { .. } => unreachable!("doctor is handled before config load"),
             Command::Export { json, jsonl } => handle_export(&repo_root, &store, json, jsonl)?,
-            Command::Issue { command } => handle_issue_command(&store, command)?,
-            Command::Agent { command } => handle_agent_command(&store, command)?,
-            Command::Project { command } => handle_project_command(&store, command)?,
-            Command::Cycle { command } => handle_cycle_command(&store, command)?,
-            Command::Label { command } => handle_label_command(&store, command)?,
+            Command::Issue { command, .. } => handle_issue_command(&store, command)?,
+            Command::Agent { options, command } => {
+                if options.is_native() {
+                    bail!("native annotation options require planning initialization or migration");
+                }
+                handle_agent_command(&store, command)?;
+            }
+            Command::Project { command, .. } => handle_project_command(&store, command)?,
+            Command::Cycle { command, .. } => handle_cycle_command(&store, command)?,
+            Command::Label { command, .. } => handle_label_command(&store, command)?,
             Command::External(_) => {
                 unreachable!("extension CLI commands are handled before repository discovery")
             }
@@ -5831,28 +6675,26 @@ fn run_with_preloaded_extensions(
     let initial_watch_signature =
         capture_initial_watch_signature(&review, &session_input, &args.cwd, Some(&catalog));
     let loaded = load_selected_vcs_changeset(&args.cwd, &adapter, &catalog, &vcs_input)?;
-    if !loaded.changeset.is_empty() {
-        let mut reload = || {
-            load_selected_vcs_changeset(&args.cwd, &adapter, &catalog, &vcs_input)
-                .map(|loaded| loaded.changeset)
-        };
-        run_review_with_preloaded_extensions(
-            &args.cwd,
-            LoadedReviewChangeset {
-                changeset: loaded.changeset,
-                source_capabilities: Some(loaded.source_capabilities),
-                repo_root: Some(loaded.repo_root),
-            },
-            review,
-            session_input,
-            initial_watch_signature,
-            Some(&mut reload),
-            prepared_extensions,
-        )
-    } else {
-        let app = App::new(&args.cwd)?;
-        workdeck_cli::tui::run(app)
-    }
+    review.workbench = Some(workdeck_tui::workbench::WorkbenchOptions::new(
+        &loaded.repo_root,
+    ));
+    let mut reload = || {
+        load_selected_vcs_changeset(&args.cwd, &adapter, &catalog, &vcs_input)
+            .map(|loaded| loaded.changeset)
+    };
+    run_review_with_preloaded_extensions(
+        &args.cwd,
+        LoadedReviewChangeset {
+            changeset: loaded.changeset,
+            source_capabilities: Some(loaded.source_capabilities),
+            repo_root: Some(loaded.repo_root),
+        },
+        review,
+        session_input,
+        initial_watch_signature,
+        Some(&mut reload),
+        prepared_extensions,
+    )
 }
 
 impl Args {
@@ -5974,13 +6816,42 @@ impl Command {
             Command::Config { command } => command.wants_json(),
             Command::Events { command } => command.wants_json(),
             Command::Import { json, .. } => *json,
-            Command::Doctor { json } => *json,
-            Command::Export { json, jsonl } => *json && !*jsonl,
-            Command::Issue { command } => command.wants_json(),
-            Command::Agent { command } => command.wants_json(),
-            Command::Project { command } => command.wants_json(),
-            Command::Cycle { command } => command.wants_json(),
-            Command::Label { command } => command.wants_json(),
+            Command::Init { json, .. }
+            | Command::Doctor { json, .. }
+            | Command::Operation { json, .. }
+            | Command::Schema { json, .. } => *json,
+            Command::Export { json, jsonl } => *json || *jsonl,
+            Command::Ci { options, .. } => options.json,
+            Command::Hooks { options, .. } => options.json,
+            Command::Claim { options, .. }
+            | Command::Source { options, .. }
+            | Command::Repository { options, .. }
+            | Command::Index { options, .. } => options.json,
+            Command::View { options, .. } => options.json,
+            Command::Wiki { options, .. } => options.json,
+            Command::Time { options, .. } => options.json,
+            Command::Protocol { options, .. } => options.json,
+            Command::Capabilities { json, output, .. } => *json || output.machine(),
+            Command::Question { options, .. } | Command::Handoff { options, .. } => {
+                options.native.json || options.output.machine()
+            }
+            Command::Context { options } => options.native.json || options.output.machine(),
+            Command::Recipe { options, .. } | Command::Check { options, .. } => {
+                options.native.json || options.output.machine()
+            }
+            Command::Next { options } => options.native.json || options.output.machine(),
+            Command::Feature { options, .. }
+            | Command::Gate { options, .. }
+            | Command::Evidence { options, .. } => options.json,
+            Command::User { options, .. } | Command::Organization { options, .. } => options.json,
+            Command::Issue { command, .. } => command.wants_json(),
+            Command::Agent { command, .. } => command.wants_json(),
+            Command::Project { command, .. } => command.wants_json(),
+            Command::Initiative { command, .. }
+            | Command::Milestone { command, .. }
+            | Command::Target { command, .. } => command.wants_json(),
+            Command::Cycle { command, .. } => command.wants_json(),
+            Command::Label { command, .. } => command.wants_json(),
             Command::External(_) => false,
         }
     }
@@ -6042,6 +6913,7 @@ impl ExtensionCommand {
 impl MigrateCommand {
     fn wants_json(&self) -> bool {
         match self {
+            Self::Legacy { options } => options.json,
             Self::Hunk { json, .. } => *json,
         }
     }
@@ -6341,11 +7213,22 @@ fn resolve_dynamic_review_input(
     Ok(resolved)
 }
 
+#[cfg(test)]
 fn load_dynamic_review_input(
     input: &CliInput,
     cwd: &Path,
     vcs_catalog: Option<&VcsCatalog>,
     current_extensions: &[LoadedExtension],
+) -> Result<workdeck_tui::DynamicReviewLoad> {
+    load_dynamic_review_input_with_workbench(input, cwd, vcs_catalog, current_extensions, None)
+}
+
+fn load_dynamic_review_input_with_workbench(
+    input: &CliInput,
+    cwd: &Path,
+    vcs_catalog: Option<&VcsCatalog>,
+    current_extensions: &[LoadedExtension],
+    workbench_panels: Option<&workdeck_cli::repository_panels::RepositoryPanels>,
 ) -> Result<workdeck_tui::DynamicReviewLoad> {
     let bundled;
     let catalog = match vcs_catalog {
@@ -6363,6 +7246,24 @@ fn load_dynamic_review_input(
     let session_themes = collect_review_custom_themes(&review, current_extensions);
     let mut startup_notices = review.startup_notices.clone();
     startup_notices.extend(session_themes.notices);
+    let prepared_panels = workbench_panels
+        .and_then(
+            |provider| match provider.prepare_review_root(&config_root) {
+                Ok(prepared) => Some(Ok(prepared)),
+                Err(error) if matches!(input, CliInput::Files(_)) => {
+                    Some(Err(anyhow::anyhow!(error.message)))
+                }
+                // Independent patch/VCS review retains its existing reload scope.
+                // Failure to admit PM navigation supplies no replacement provider
+                // or registry handle; it cannot authorize a planning-context switch.
+                Err(_) => None,
+            },
+        )
+        .transpose()?;
+    let (scoped_panels, registry_navigation) = match prepared_panels {
+        Some((provider, navigation)) => (Some(Arc::new(provider)), navigation),
+        None => (None, None),
+    };
     let mut repo_root = Some(config_root);
     let mut source_capabilities = workdeck_vcs::VcsSourceCapabilities::default();
     let mut input = resolve_dynamic_review_input(input, cwd, catalog)?;
@@ -6411,8 +7312,31 @@ fn load_dynamic_review_input(
             loaded.changeset
         }
         CliInput::Files(input) => {
-            load_file_comparison(cwd, Path::new(&input.left), Path::new(&input.right))
-                .map_err(anyhow::Error::from)?
+            if let Some(provider) = scoped_panels.as_deref() {
+                let resolved_cwd = cwd.canonicalize()?;
+                let left = resolve_input_path(&resolved_cwd, Path::new(&input.left));
+                let right = resolve_input_path(&resolved_cwd, Path::new(&input.right));
+                let read = |path: &Path| {
+                    provider
+                        .read_file_for_navigation(path)
+                        .map_err(|error| anyhow::anyhow!(error.message))
+                };
+                let left_bytes = read(&left)?;
+                let right_bytes = if left == right {
+                    left_bytes.clone()
+                } else {
+                    read(&right)?
+                };
+                workdeck_vcs::load_file_comparison_from_bytes(
+                    cwd,
+                    &left,
+                    &right,
+                    &left_bytes,
+                    &right_bytes,
+                )?
+            } else {
+                load_file_comparison(cwd, Path::new(&input.left), Path::new(&input.right))?
+            }
         }
         CliInput::Patch(input) => {
             let (patch, label) = match (&input.file, &input.text) {
@@ -6440,16 +7364,27 @@ fn load_dynamic_review_input(
         input.options().agent_context.as_deref().map(Path::new),
         &mut changeset,
     )?;
+    if let Some(provider) = &scoped_panels {
+        use workdeck_tui::workbench::RepositoryPanelProvider;
+        if repo_root.as_ref() != Some(&provider.source().root) {
+            bail!("Loaded review root does not match its registered panel provider");
+        }
+    }
     Ok(workdeck_tui::DynamicReviewLoad {
         host_options: workdeck_tui::DynamicReviewHostOptions {
             source_capabilities: Some(source_capabilities),
+            registry_navigation,
             command_cwd: cwd.to_owned(),
             repo_root,
+            repository_panels: scoped_panels.map(|provider| {
+                Some(provider as Arc<dyn workdeck_tui::workbench::RepositoryPanelProvider>)
+            }),
             startup_notices,
             custom_themes: session_themes.themes,
             keybindings: review.keybindings,
             keybinding_notices: review.keybinding_notices,
             view_preferences_config_path: review.view_preferences_config_path,
+            view_preferences_write_policy: review.view_preferences_write_policy,
             prompt_save_view_preferences: input
                 .options()
                 .prompt_save_view_preferences
@@ -6460,6 +7395,7 @@ fn load_dynamic_review_input(
                     .map(|extension| &extension.handshake),
             )),
             pending_extension_trust_repo_root: None,
+            pending_extension_trust_directory: None,
             extension_trust_handler: Some(review_extension_trust_handler()),
         },
         input,
@@ -6469,6 +7405,7 @@ fn load_dynamic_review_input(
     })
 }
 
+#[cfg(test)]
 fn load_dynamic_review_session(
     input: &CliInput,
     cwd: &Path,
@@ -6477,8 +7414,34 @@ fn load_dynamic_review_session(
     current_extensions: &[LoadedExtension],
     notifications: &ExtensionNotificationHub,
 ) -> Result<workdeck_tui::DynamicReviewLoad> {
+    load_dynamic_review_session_with_workbench(
+        input,
+        cwd,
+        reload_extensions,
+        current_catalog,
+        current_extensions,
+        notifications,
+        None,
+    )
+}
+
+fn load_dynamic_review_session_with_workbench(
+    input: &CliInput,
+    cwd: &Path,
+    reload_extensions: bool,
+    current_catalog: &VcsCatalog,
+    current_extensions: &[LoadedExtension],
+    notifications: &ExtensionNotificationHub,
+    workbench_panels: Option<&workdeck_cli::repository_panels::RepositoryPanels>,
+) -> Result<workdeck_tui::DynamicReviewLoad> {
     if !reload_extensions {
-        return load_dynamic_review_input(input, cwd, Some(current_catalog), current_extensions);
+        return load_dynamic_review_input_with_workbench(
+            input,
+            cwd,
+            Some(current_catalog),
+            current_extensions,
+            workbench_panels,
+        );
     }
 
     let config_root = find_project_root_candidate_with_catalog(cwd, Some(current_catalog))
@@ -6520,11 +7483,12 @@ fn load_dynamic_review_session(
     )?;
     let mut replacement = ProvisionalLoadedExtensions::new(prepared.extensions);
     let replacement_catalog = compose_review_vcs_catalog(replacement.extensions());
-    let mut loaded = load_dynamic_review_input(
+    let mut loaded = load_dynamic_review_input_with_workbench(
         input,
         cwd,
         Some(&replacement_catalog),
         replacement.extensions(),
+        workbench_panels,
     )?;
     let mut extension_notices = Vec::new();
     extension_notices.append(&mut prepared.application_notices);
@@ -6533,6 +7497,12 @@ fn load_dynamic_review_session(
         .host_options
         .startup_notices
         .extend(extension_notices);
+    loaded.host_options.pending_extension_trust_directory = Some(
+        prepared
+            .pending_trust_repo_root
+            .as_deref()
+            .map(workdeck_extension_host::repository_extension_directory),
+    );
     loaded.host_options.pending_extension_trust_repo_root = Some(prepared.pending_trust_repo_root);
     loaded.replacement_extensions = Some(replacement.adopt());
     loaded.replacement_vcs_catalog = Some(replacement_catalog);
@@ -7316,6 +8286,7 @@ fn build_app_bootstrap(
     bootstrap.custom_themes = session_themes.themes;
     bootstrap.startup_notices = startup_notices;
     bootstrap.view_preferences_config_path = review.view_preferences_config_path.clone();
+    bootstrap.view_preferences_write_policy = review.view_preferences_write_policy;
     bootstrap.keybindings = review.keybindings.clone();
     bootstrap.keybinding_notices = review.keybinding_notices.clone();
     bootstrap.extensions = Some(prepared_extensions);
@@ -7410,6 +8381,7 @@ fn run_app_bootstrap(
         initial_cursor_line,
         startup_notices,
         view_preferences_config_path,
+        view_preferences_write_policy,
         keybindings,
         keybinding_notices,
         extensions,
@@ -7472,9 +8444,13 @@ fn run_app_bootstrap(
     options.extension_notifications = Some(notifications.clone());
     options.startup_notices = startup_notices;
     options.view_preferences_config_path = view_preferences_config_path;
+    options.view_preferences_write_policy = view_preferences_write_policy;
     options.prompt_save_view_preferences =
         input.options().prompt_save_view_preferences.unwrap_or(true);
     options.transient_view_preferences = transient_view_preferences;
+    options.pending_extension_trust_directory = pending_trust_repo_root
+        .as_deref()
+        .map(workdeck_extension_host::repository_extension_directory);
     options.pending_extension_trust_repo_root = pending_trust_repo_root;
     options.extension_trust_handler = Some(review_extension_trust_handler());
     options.command_cwd = Some(cwd.clone());
@@ -7483,11 +8459,37 @@ fn run_app_bootstrap(
         review.preference(),
         reload_context.repo_root.as_deref(),
     ));
+    let workbench_root = review
+        .workbench
+        .as_ref()
+        .map(|workbench| workbench.root.clone());
+    let workbench_panels = if let Some(root) = &workbench_root {
+        let config = Config::load(root)?;
+        let base = (!config.git.base_branch.is_empty()).then_some(config.git.base_branch);
+        let provider = Arc::new(
+            workdeck_cli::repository_panels::RepositoryPanels::new(
+                root,
+                base,
+                config.git.recent_commits,
+            )
+            .map_err(|error| anyhow::anyhow!(error.message))?
+            .with_git_base_key(Some(config.keys.base.clone())),
+        );
+        options.repository_panels = Some(provider.clone());
+        Some(provider)
+    } else {
+        None
+    };
     let external_quit = Arc::new(std::sync::atomic::AtomicBool::new(false));
     options.external_quit_signal = Some(Arc::clone(&external_quit));
+    let foreground_run = Arc::new(workdeck_tui::workbench::ForegroundRunSignal::default());
+    options.foreground_run_signal = Some(Arc::clone(&foreground_run));
     let mut signal_registration = register_process_signal_callback({
         let external_quit = Arc::clone(&external_quit);
         move || {
+            if foreground_run.interrupt_active() {
+                return;
+            }
             if external_quit.swap(true, std::sync::atomic::Ordering::AcqRel) {
                 std::process::exit(130);
             }
@@ -7503,13 +8505,14 @@ fn run_app_bootstrap(
              reload_extensions: bool,
              current_catalog: &VcsCatalog,
              current_extensions: &[LoadedExtension]| {
-                load_dynamic_review_session(
+                load_dynamic_review_session_with_workbench(
                     next_input,
                     next_cwd,
                     reload_extensions,
                     current_catalog,
                     current_extensions,
                     &dynamic_notifications,
+                    workbench_panels.as_deref(),
                 )
             };
         workdeck_tui::run_review_with_dynamic_input_reload_with_signature(
@@ -8384,6 +9387,7 @@ const SKILL_OVERVIEW: &str = concat!(
     "Print or materialize a bundled Workdeck skill path.\n",
     "Load or symlink that file in your coding agent to keep it in sync across Workdeck upgrades.\n\n",
     "Skills:\n",
+    "  workdeck-pm (\"pm\")                    manage source-bound planning and task context\n",
     "  workdeck-review (default, \"review\")       review a live Workdeck session\n",
     "  workdeck-extensions (\"extensions\")        build native Workdeck extensions\n",
     "  workdeck-release (\"release\")              prepare native release artifacts\n",
@@ -8396,8 +9400,15 @@ fn handle_skill_command(command: Option<SkillCommand>) -> Result<()> {
         return Ok(());
     };
     let SkillCommand::Path { name, json } = command;
-    let name = workdeck_cli::skills::canonical_name(&name)?.to_owned();
-    if let Some(destination) = workdeck_cli::skills::find_path(&name, &[std::env::current_exe()?])?
+    let pm_skill = matches!(name.trim(), "pm" | "workdeck-pm");
+    let name = if pm_skill {
+        name
+    } else {
+        workdeck_cli::skills::canonical_name(&name)?.to_owned()
+    };
+    if !pm_skill
+        && let Some(destination) =
+            workdeck_cli::skills::find_path(&name, &[std::env::current_exe()?])?
     {
         if json {
             json_success(
@@ -8410,7 +9421,12 @@ fn handle_skill_command(command: Option<SkillCommand>) -> Result<()> {
         }
         return Ok(());
     }
+    let generated_pm;
     let source = match name.as_str() {
+        "workdeck-pm" | "pm" => {
+            generated_pm = pm_catalog::render_pm_skill();
+            generated_pm.as_str()
+        }
         "workdeck-review" | "review" => include_str!("../../../skills/workdeck-review/SKILL.md"),
         "workdeck-extensions" | "extensions" => {
             include_str!("../../../skills/workdeck-extensions/SKILL.md")
@@ -8422,7 +9438,7 @@ fn handle_skill_command(command: Option<SkillCommand>) -> Result<()> {
             include_str!("../../../skills/workdeck-launch-video/SKILL.md")
         }
         _ => bail!(
-            "unknown bundled skill {name:?}; expected workdeck-review, workdeck-extensions, workdeck-release, or workdeck-launch-video"
+            "unknown bundled skill {name:?}; expected workdeck-pm, workdeck-review, workdeck-extensions, workdeck-release, or workdeck-launch-video"
         ),
     };
     let canonical_name = source
@@ -9092,11 +10108,39 @@ fn review_command_input(command: Option<Command>) -> Result<CliInput> {
         | Some(Command::Config { .. })
         | Some(Command::Events { .. })
         | Some(Command::Import { .. })
+        | Some(Command::Init { .. })
+        | Some(Command::Protocol { .. })
+        | Some(Command::Capabilities { .. })
+        | Some(Command::Schema { .. })
+        | Some(Command::View { .. })
+        | Some(Command::Wiki { .. })
+        | Some(Command::Time { .. })
+        | Some(Command::Question { .. })
+        | Some(Command::Handoff { .. })
+        | Some(Command::Context { .. })
+        | Some(Command::Recipe { .. })
+        | Some(Command::Hooks { .. })
+        | Some(Command::Claim { .. })
+        | Some(Command::Source { .. })
+        | Some(Command::Repository { .. })
+        | Some(Command::Index { .. })
+        | Some(Command::Check { .. })
+        | Some(Command::Next { .. })
+        | Some(Command::Feature { .. })
+        | Some(Command::Gate { .. })
+        | Some(Command::Evidence { .. })
+        | Some(Command::User { .. })
+        | Some(Command::Organization { .. })
+        | Some(Command::Operation { .. })
+        | Some(Command::Ci { .. })
         | Some(Command::Doctor { .. })
         | Some(Command::Export { .. })
         | Some(Command::Issue { .. })
         | Some(Command::Agent { .. })
         | Some(Command::Project { .. })
+        | Some(Command::Initiative { .. })
+        | Some(Command::Milestone { .. })
+        | Some(Command::Target { .. })
         | Some(Command::Cycle { .. })
         | Some(Command::Label { .. })
         | Some(Command::External(_)) => bail!(
@@ -9682,6 +10726,9 @@ fn short_commit(commit: &str) -> &str {
 
 fn handle_migrate_command(cwd: &Path, command: MigrateCommand) -> Result<()> {
     match command {
+        MigrateCommand::Legacy { .. } => {
+            unreachable!("native migration is handled before discovery")
+        }
         MigrateCommand::Hunk {
             dry_run: _,
             apply,
@@ -9787,14 +10834,29 @@ impl EventsCommand {
 impl IssueCommand {
     fn wants_json(&self) -> bool {
         match self {
+            IssueCommand::Next { options } => options.json || options.output.machine(),
+            IssueCommand::Graph(command) => command.wants_json(),
             IssueCommand::List { json, .. }
+            | IssueCommand::Templates { json }
             | IssueCommand::Create { json, .. }
+            | IssueCommand::Custom { json, .. }
+            | IssueCommand::Estimate { json, .. }
             | IssueCommand::Update { json, .. }
+            | IssueCommand::Edit { json, .. }
             | IssueCommand::Link { json, .. }
             | IssueCommand::LinkFile { json, .. }
             | IssueCommand::UnlinkFile { json, .. }
             | IssueCommand::LinkCommit { json, .. }
             | IssueCommand::UnlinkCommit { json, .. }
+            | IssueCommand::LinkDocument { json, .. }
+            | IssueCommand::UnlinkDocument { json, .. }
+            | IssueCommand::Cancel { json, .. }
+            | IssueCommand::Done { json, .. }
+            | IssueCommand::Comment { json, .. }
+            | IssueCommand::Comments { json, .. }
+            | IssueCommand::Attach { json, .. }
+            | IssueCommand::Attachments { json, .. }
+            | IssueCommand::Archive { json, .. }
             | IssueCommand::Close { json, .. }
             | IssueCommand::Reopen { json, .. }
             | IssueCommand::Move { json, .. }
@@ -9802,7 +10864,7 @@ impl IssueCommand {
             | IssueCommand::Unassign { json, .. }
             | IssueCommand::Delete { json, .. }
             | IssueCommand::Show { json, .. } => *json,
-            IssueCommand::Label { command } => command.wants_json(),
+            IssueCommand::Label { command, .. } => command.wants_json(),
         }
     }
 }
@@ -9837,9 +10899,15 @@ impl AgentCommand {
 impl ProjectCommand {
     fn wants_json(&self) -> bool {
         match self {
-            ProjectCommand::List { json, .. }
+            ProjectCommand::Create { json, .. }
+            | ProjectCommand::Update { json, .. }
+            | ProjectCommand::Archive { json, .. }
+            | ProjectCommand::List { json, .. }
             | ProjectCommand::Save { json, .. }
             | ProjectCommand::Show { json, .. }
+            | ProjectCommand::Custom { json, .. }
+            | ProjectCommand::Assess { json, .. }
+            | ProjectCommand::Complete { json, .. }
             | ProjectCommand::Delete { json, .. } => *json,
         }
     }
@@ -9848,9 +10916,14 @@ impl ProjectCommand {
 impl CycleCommand {
     fn wants_json(&self) -> bool {
         match self {
-            CycleCommand::List { json, .. }
+            CycleCommand::Carryover { json, .. }
+            | CycleCommand::Create { json, .. }
+            | CycleCommand::Update { json, .. }
+            | CycleCommand::Archive { json, .. }
+            | CycleCommand::List { json, .. }
             | CycleCommand::Save { json, .. }
             | CycleCommand::Show { json, .. }
+            | CycleCommand::Custom { json, .. }
             | CycleCommand::Delete { json, .. } => *json,
         }
     }
@@ -9859,15 +10932,22 @@ impl CycleCommand {
 impl LabelCommand {
     fn wants_json(&self) -> bool {
         match self {
-            LabelCommand::List { json, .. }
+            LabelCommand::Create { json, .. }
+            | LabelCommand::Update { json, .. }
+            | LabelCommand::Archive { json, .. }
+            | LabelCommand::List { json, .. }
             | LabelCommand::Save { json, .. }
             | LabelCommand::Show { json, .. }
+            | LabelCommand::Custom { json, .. }
             | LabelCommand::Delete { json, .. } => *json,
         }
     }
 }
 
 fn classify_exit_code(error: &anyhow::Error) -> u8 {
+    if let Some(failure) = error.downcast_ref::<pm_cli::CommandFailure>() {
+        return failure.error.code.exit_code();
+    }
     if let Some(exit) = error.downcast_ref::<CommandExit>() {
         return u8::try_from(exit.0).unwrap_or(1).max(1);
     }
@@ -9940,58 +11020,77 @@ fn handle_export(
     json_output: bool,
     jsonl: bool,
 ) -> Result<()> {
-    let issues = store.load_issues()?;
-    let reference_data = store.load_reference_data()?;
-    let sessions = store.load_agent_sessions()?;
-    let events = store.load_events()?;
-
+    let mut payload = store.legacy_export_document()?;
+    payload["repo_root"] = json!(repo_root);
     if jsonl {
         print_jsonl_record("repo", json!({ "root": repo_root }))?;
-        for issue in issues {
-            print_jsonl_record("issue", serde_json::to_value(issue)?)?;
+        for (collection, kind) in [
+            ("issues", "issue"),
+            ("projects", "project"),
+            ("cycles", "cycle"),
+            ("labels", "label"),
+            ("agent_sessions", "agent_session"),
+            ("events", "event"),
+        ] {
+            for record in payload[collection]
+                .as_array()
+                .expect("validated collection")
+            {
+                print_jsonl_record(kind, record.clone())?;
+            }
         }
-        for project in reference_data.projects {
-            print_jsonl_record("project", serde_json::to_value(project)?)?;
-        }
-        for cycle in reference_data.cycles {
-            print_jsonl_record("cycle", serde_json::to_value(cycle)?)?;
-        }
-        for label in reference_data.labels {
-            print_jsonl_record("label", serde_json::to_value(label)?)?;
-        }
-        for session in sessions {
-            print_jsonl_record("agent_session", serde_json::to_value(session)?)?;
-        }
-        for event in events {
-            print_event_jsonl_record(event)?;
-        }
+    } else if json_output {
+        json_success("export", None, payload)?;
     } else {
-        let payload = json!({
-            "repo_root": repo_root,
-            "issues": issues,
-            "projects": reference_data.projects,
-            "cycles": reference_data.cycles,
-            "labels": reference_data.labels,
-            "agent_sessions": sessions,
-            "events": events,
-        });
-        if json_output {
-            json_success("export", None, payload)?;
-        } else {
-            println!("{}", serde_json::to_string_pretty(&payload)?);
-        }
+        println!("{}", serde_json::to_string_pretty(&payload)?);
     }
-
     Ok(())
 }
 
 fn print_status(repo_root: &Path, json_output: bool) -> Result<()> {
-    let snapshot = git::scan_repo(repo_root)?;
-    let payload = status_payload(&snapshot);
+    use workdeck_tui::workbench::RepositoryPanelProvider;
+    let provider = workdeck_cli::repository_panels::RepositoryPanels::new(repo_root, None, 1)
+        .map_err(|failure| anyhow::anyhow!(failure.message))?;
+    let read = provider
+        .change_snapshot()
+        .map_err(|failure| anyhow::anyhow!(failure.message))?;
+    let snapshot = read.snapshot;
+    let mut payload = status_payload(&snapshot);
+    payload["truncated"] = json!(read.truncated);
+    let source = provider.source();
+    payload["source"] = json!({"root":source.root,"identity":source.identity});
+    let qualify = |change: &mut Value| {
+        if let Some(path) = change["path"].as_str()
+            && let Some(old_path) = read.old_paths.get(Path::new(path))
+        {
+            change["old_path"] = json!(old_path);
+        }
+    };
+    if let Some(changes) = payload["changes"].as_array_mut() {
+        for change in changes {
+            qualify(change);
+        }
+    }
+    if let Some(groups) = payload["groups"].as_array_mut() {
+        for group in groups {
+            if let Some(changes) = group["changes"].as_array_mut() {
+                for change in changes {
+                    qualify(change);
+                }
+            }
+        }
+    }
     if json_output {
         json_success("status", None, payload)?;
     } else if snapshot.changes.is_empty() {
-        println!("clean worktree");
+        println!(
+            "{}",
+            if read.truncated {
+                "change inspection reached its coverage limit"
+            } else {
+                "clean worktree"
+            }
+        );
     } else {
         for change in &snapshot.changes {
             println!(
@@ -10000,20 +11099,62 @@ fn print_status(repo_root: &Path, json_output: bool) -> Result<()> {
                 change.stage_label(),
                 format!("+{}", change.additions),
                 format!("-{}", change.deletions),
-                change.path.display()
+                sanitize_terminal_line(&change.path.display().to_string())
             );
         }
+    }
+    if !json_output && read.truncated {
+        eprintln!("Change rows or line statistics reached their read limit.");
     }
     Ok(())
 }
 
 fn handle_files_command(repo_root: &Path, command: FilesCommand) -> Result<()> {
+    use workdeck_tui::workbench::{PanelPage, PanelRequest, PanelTarget, RepositoryPanelProvider};
+    let provider = workdeck_cli::repository_panels::RepositoryPanels::new(repo_root, None, 1)
+        .map_err(|failure| anyhow::anyhow!(failure.message))?;
     match command {
         FilesCommand::List { path, json } => {
-            let files = git::list_repo_files(repo_root, 20_000)?;
-            let entries = file_entries_for_path(&files, path.as_deref().unwrap_or(Path::new("")));
+            let selected = path.as_deref().unwrap_or(Path::new(""));
+            let selected = selected.strip_prefix(".").unwrap_or(selected);
+            let selected = if selected.is_absolute() {
+                selected.strip_prefix(&provider.source().root)?.to_owned()
+            } else {
+                selected.to_owned()
+            };
+            let snapshot = provider
+                .load(&PanelRequest {
+                    page: PanelPage::Files,
+                    directory: selected
+                        .to_str()
+                        .context("file browser path must be UTF-8")?
+                        .into(),
+                    query: String::new(),
+                    limit: 10_000,
+                })
+                .map_err(|failure| anyhow::anyhow!(failure.message))?;
+            let entries = snapshot
+                .entries
+                .into_iter()
+                .filter_map(|entry| match entry.target {
+                    PanelTarget::Directory { path } => {
+                        Some(json!({"kind":"directory","path":path,"name":entry.label}))
+                    }
+                    PanelTarget::File { path, .. } => {
+                        Some(json!({"kind":"file","path":path,"name":entry.label}))
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
             if json {
-                json_success("file_list", None, entries)?;
+                let source = provider.source();
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "ok":true,"kind":"file_list","data":entries,"truncated":snapshot.truncated,
+                        "source":{"root":source.root,"identity":source.identity}
+                    }))?
+                );
             } else if entries.is_empty() {
                 println!("no files");
             } else {
@@ -10021,70 +11162,50 @@ fn handle_files_command(repo_root: &Path, command: FilesCommand) -> Result<()> {
                     println!(
                         "{:<9} {}",
                         entry["kind"].as_str().unwrap_or("unknown"),
-                        entry["path"].as_str().unwrap_or("")
+                        sanitize_terminal_line(entry["path"].as_str().unwrap_or_default())
                     );
                 }
             }
+            if !json && snapshot.truncated {
+                eprintln!("File listing reached its scan or result limit.");
+            }
         }
         FilesCommand::Show { path, json } => {
-            let preview = git::read_file_preview(repo_root, &path, 80_000)?;
+            // Keep the established 80,000-byte content window; the marker is
+            // additional presentation text and truncated is always explicit.
+            let preview = provider
+                .file_preview(&path, 80_000)
+                .map_err(|failure| anyhow::anyhow!(failure.message))?;
             if json {
                 json_success("file_preview", None, file_preview_payload(&preview))?;
             } else {
-                print!("{}", preview.content);
+                print!(
+                    "{}",
+                    workdeck_diff::sanitize_terminal_text(
+                        &preview.content,
+                        workdeck_diff::SanitizeOptions::default()
+                    )
+                );
             }
         }
     }
     Ok(())
 }
 
-fn file_entries_for_path(files: &[PathBuf], cwd: &Path) -> Vec<Value> {
-    let mut dirs = BTreeSet::<PathBuf>::new();
-    let mut direct_files = Vec::<PathBuf>::new();
-    for path in files {
-        let relative = if cwd.as_os_str().is_empty() {
-            path.as_path()
-        } else {
-            match path.strip_prefix(cwd) {
-                Ok(relative) if !relative.as_os_str().is_empty() => relative,
-                _ => continue,
-            }
-        };
-        let mut components = relative.components();
-        let Some(first) = components.next() else {
-            continue;
-        };
-        let child = cwd.join(first.as_os_str());
-        if components.next().is_some() {
-            dirs.insert(child);
-        } else {
-            direct_files.push(child);
-        }
-    }
-    direct_files.sort();
-
-    dirs.into_iter()
-        .map(|path| json!({ "kind": "directory", "path": path, "name": file_name(&path) }))
-        .chain(
-            direct_files
-                .into_iter()
-                .map(|path| json!({ "kind": "file", "path": path, "name": file_name(&path) })),
-        )
-        .collect()
-}
-
-fn file_name(path: &Path) -> String {
-    path.file_name()
-        .map(|name| name.to_string_lossy().to_string())
-        .unwrap_or_else(|| path.to_string_lossy().to_string())
-}
-
 fn handle_changes_command(repo_root: &Path, command: ChangesCommand) -> Result<()> {
+    let provider = workdeck_cli::repository_panels::RepositoryPanels::new(repo_root, None, 1)
+        .map_err(|failure| anyhow::anyhow!(failure.message))?;
     match command {
         ChangesCommand::List { group, json } => {
-            let snapshot = git::scan_repo(repo_root)?;
+            if !matches!(group.as_str(), "directory" | "dir" | "status") {
+                bail!("unknown change group {group}");
+            }
+            let read = provider
+                .change_snapshot()
+                .map_err(|failure| anyhow::anyhow!(failure.message))?;
+            let snapshot = read.snapshot;
             if json {
-                let payload = match group.as_str() {
+                let mut payload = match group.as_str() {
                     "directory" | "dir" => status_payload(&snapshot),
                     "status" => json!({
                         "repo_root": snapshot.root,
@@ -10092,22 +11213,57 @@ fn handle_changes_command(repo_root: &Path, command: ChangesCommand) -> Result<(
                     }),
                     value => bail!("unknown change group {value}"),
                 };
+                payload["truncated"] = json!(read.truncated);
+                // Existing row fields remain unchanged; rename origins are an
+                // additive field attached to each corresponding projection.
+                let qualify = |change: &mut Value| {
+                    if let Some(path) = change["path"].as_str()
+                        && let Some(old_path) = read.old_paths.get(Path::new(path))
+                    {
+                        change["old_path"] = json!(old_path);
+                    }
+                };
+                if let Some(changes) = payload["changes"].as_array_mut() {
+                    for change in changes {
+                        qualify(change);
+                    }
+                }
+                if let Some(groups) = payload["groups"].as_array_mut() {
+                    for group in groups {
+                        if let Some(changes) = group["changes"].as_array_mut() {
+                            for change in changes {
+                                qualify(change);
+                            }
+                        }
+                    }
+                }
                 json_success("change_list", None, payload)?;
             } else if snapshot.changes.is_empty() {
-                println!("clean worktree");
+                println!(
+                    "{}",
+                    if read.truncated {
+                        "change inspection reached its coverage limit"
+                    } else {
+                        "clean worktree"
+                    }
+                );
             } else {
                 match group.as_str() {
                     "directory" | "dir" => {
                         for group in snapshot.groups {
                             println!(
                                 "{} {} +{} -{}",
-                                group.path.display(),
+                                sanitize_terminal_line(&group.path.display().to_string()),
                                 group.files.len(),
                                 group.total_additions,
                                 group.total_deletions
                             );
                             for change in group.files {
-                                println!("  {:<10} {}", change.kind.label(), change.path.display());
+                                println!(
+                                    "  {:<10} {}",
+                                    change.kind.label(),
+                                    sanitize_terminal_line(&change.path.display().to_string())
+                                );
                             }
                         }
                     }
@@ -10115,20 +11271,36 @@ fn handle_changes_command(repo_root: &Path, command: ChangesCommand) -> Result<(
                         for group in changes_grouped_by_status(&snapshot.changes) {
                             println!("{}", group["status"].as_str().unwrap_or("unknown"));
                             for change in group["changes"].as_array().into_iter().flatten() {
-                                println!("  {}", change["path"].as_str().unwrap_or_default());
+                                println!(
+                                    "  {}",
+                                    sanitize_terminal_line(
+                                        change["path"].as_str().unwrap_or_default()
+                                    )
+                                );
                             }
                         }
                     }
                     value => bail!("unknown change group {value}"),
                 }
             }
+            if !json && read.truncated {
+                eprintln!("Change rows or line statistics reached their read limit.");
+            }
         }
         ChangesCommand::Diff { path, json } => {
-            let preview = git::diff_for_path(repo_root, &path)?;
+            let preview = provider
+                .change_preview(&path)
+                .map_err(|failure| anyhow::anyhow!(failure.message))?;
             if json {
                 json_success("change_diff", None, file_preview_payload(&preview))?;
             } else {
-                print!("{}", preview.content);
+                print!(
+                    "{}",
+                    workdeck_diff::sanitize_terminal_text(
+                        &preview.content,
+                        workdeck_diff::SanitizeOptions::default()
+                    )
+                );
             }
         }
     }
@@ -10138,54 +11310,54 @@ fn handle_changes_command(repo_root: &Path, command: ChangesCommand) -> Result<(
 fn handle_search_command(
     repo_root: &Path,
     config: &Config,
-    store: &WorkdeckStore,
+    _store: &WorkdeckStore,
     query: String,
     targets: Vec<String>,
     json_output: bool,
 ) -> Result<()> {
-    let snapshot = git::scan_repo(repo_root)?;
-    let git_overview = git::scan_git_overview(
-        repo_root,
-        Some(&config.git.base_branch),
-        config.git.recent_commits,
-    )?;
-    let files = git::list_repo_files(repo_root, 20_000)?;
-    let issues = store.load_issues()?;
-    let sessions = store.load_agent_sessions()?;
-    let references = store.load_reference_data()?;
-    let symbols = workdeck_cli::search::extract_symbols(repo_root, &files);
-    let index = workdeck_cli::search::SearchIndex::rebuild(
-        &files,
-        &snapshot.changes,
-        &issues,
-        &sessions,
-        &references,
-        &symbols,
-        Some(&git_overview),
-    );
+    use workdeck_tui::workbench::RepositoryPanelProvider;
     let target_filter = targets
         .into_iter()
         .map(|target| target.to_ascii_lowercase())
         .collect::<BTreeSet<_>>();
-    let results = index
-        .query(&query, 100)
-        .into_iter()
-        .filter(|result| {
-            target_filter.is_empty()
-                || target_filter.contains(search_target_group(&result.record.target))
+    if let Some(target) = target_filter.iter().find(|target| {
+        !matches!(
+            target.as_str(),
+            "files" | "changes" | "issues" | "agents" | "git"
+        )
+    }) {
+        bail!("unknown search target {target:?}; expected files, changes, issues, agents, or git");
+    }
+    let base = (!config.git.base_branch.is_empty()).then(|| config.git.base_branch.clone());
+    let provider = workdeck_cli::repository_panels::RepositoryPanels::new(
+        repo_root,
+        base,
+        config.git.recent_commits,
+    )
+    .map_err(|failure| anyhow::anyhow!(failure.message))?;
+    let (results, truncated) = provider
+        .search_matching(&query, 100, |target| {
+            target_filter.is_empty() || target_filter.contains(search_target_group(target))
         })
+        .map_err(|failure| anyhow::anyhow!(failure.message))?;
+    let results = results
+        .into_iter()
         .map(|result| {
             json!({
-                "score": result.score,
-                "label": result.record.label,
-                "detail": result.record.detail,
-                "target": search_target_payload(&result.record.target),
+                "score":result.score,"label":result.record.label,"detail":result.record.detail,
+                "target":search_target_payload(&result.record.target)
             })
         })
         .collect::<Vec<_>>();
-
     if json_output {
-        json_success("search_results", None, results)?;
+        let source = provider.source();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "ok":true,"kind":"search_results","data":results,"truncated":truncated,
+                "source":{"root":source.root,"identity":source.identity}
+            }))?
+        );
     } else if results.is_empty() {
         println!("no results");
     } else {
@@ -10194,9 +11366,12 @@ fn handle_search_command(
                 "{:<6} {:<10} {}",
                 result["score"].as_i64().unwrap_or_default(),
                 result["target"]["kind"].as_str().unwrap_or("unknown"),
-                result["label"].as_str().unwrap_or_default()
+                sanitize_terminal_line(result["label"].as_str().unwrap_or_default())
             );
         }
+    }
+    if !json_output && truncated {
+        eprintln!("Search reached its scan or result limit.");
     }
     Ok(())
 }
@@ -10212,27 +11387,8 @@ fn print_jsonl_record(kind: &str, payload: Value) -> Result<()> {
     Ok(())
 }
 
-fn print_event_jsonl_record(event: StoreEvent) -> Result<()> {
-    println!(
-        "{}",
-        serde_json::to_string(&json!({
-            "kind": "event",
-            "payload": {
-                "kind": event.kind,
-                "payload": event.payload,
-                "created_at": event.created_at,
-            },
-        }))?
-    );
-    Ok(())
-}
-
-fn handle_config_command(
-    repo_root: &Path,
-    store: &WorkdeckStore,
-    command: ConfigCommand,
-) -> Result<()> {
-    let path = repo_root.join(".agents/workdeck/config.toml");
+fn handle_config_command(repo_root: &Path, command: ConfigCommand) -> Result<()> {
+    let path = workdeck_cli::config::resolve_repo_config_path(repo_root)?;
     match command {
         ConfigCommand::Path { json } => {
             if json {
@@ -10250,15 +11406,15 @@ fn handle_config_command(
             }
         }
         ConfigCommand::Init { json } => {
-            store.init()?;
+            let path = workdeck_cli::config_edit::initialize(repo_root)?;
             if json {
                 json_success(
                     "config",
                     Some("init"),
-                    json!({ "initialized": true, "path": store.root() }),
+                    json!({ "initialized": true, "path": path }),
                 )?;
             } else {
-                println!("initialized {}", store.root().display());
+                println!("initialized {}", path.display());
             }
         }
         ConfigCommand::Validate { json } => {
@@ -10281,15 +11437,8 @@ fn handle_config_command(
             }
         }
         ConfigCommand::Set { key, value, json } => {
-            let mut root = load_repo_config_value(&path)?;
             let storage_key = config_storage_key(&key);
-            set_toml_path(&mut root, &storage_key, parse_config_value(&value))?;
-            let raw = toml::to_string_pretty(&root)?;
-            if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            std::fs::write(&path, raw)?;
-            Config::load(repo_root)?;
+            workdeck_cli::config_edit::set(repo_root, &storage_key, &value)?;
             if json {
                 json_success(
                     "config",
@@ -10305,12 +11454,7 @@ fn handle_config_command(
 }
 
 fn load_repo_config_value(path: &Path) -> Result<toml::Value> {
-    if !path.exists() {
-        return Ok(toml::Value::Table(Default::default()));
-    }
-    let raw = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
-    toml::from_str(&raw).with_context(|| format!("failed to parse {}", path.display()))
+    workdeck_cli::config::read_repository_config_value(path)
 }
 
 fn get_toml_path<'a>(value: &'a toml::Value, key: &str) -> Option<&'a toml::Value> {
@@ -10339,38 +11483,6 @@ fn config_storage_key(key: &str) -> String {
     }
 }
 
-fn set_toml_path(root: &mut toml::Value, key: &str, value: toml::Value) -> Result<()> {
-    let parts = key
-        .split('.')
-        .filter(|part| !part.trim().is_empty())
-        .collect::<Vec<_>>();
-    if parts.is_empty() {
-        bail!("config key cannot be empty");
-    }
-    let mut current = root;
-    for part in &parts[..parts.len() - 1] {
-        let table = current
-            .as_table_mut()
-            .with_context(|| format!("config path {key} is not a table"))?;
-        current = table
-            .entry((*part).to_string())
-            .or_insert_with(|| toml::Value::Table(Default::default()));
-    }
-    current
-        .as_table_mut()
-        .with_context(|| format!("config path {key} is not a table"))?
-        .insert(parts[parts.len() - 1].to_string(), value);
-    Ok(())
-}
-
-fn parse_config_value(value: &str) -> toml::Value {
-    match value {
-        "true" => toml::Value::Boolean(true),
-        "false" => toml::Value::Boolean(false),
-        _ => toml::Value::String(value.to_string()),
-    }
-}
-
 fn handle_events_command(store: &WorkdeckStore, command: EventsCommand) -> Result<()> {
     match command {
         EventsCommand::List { json } => {
@@ -10390,6 +11502,7 @@ fn handle_events_command(store: &WorkdeckStore, command: EventsCommand) -> Resul
 }
 
 fn handle_import_command(
+    repo_root: &Path,
     store: &WorkdeckStore,
     path: PathBuf,
     _merge: bool,
@@ -10397,98 +11510,17 @@ fn handle_import_command(
     dry_run: bool,
     json_output: bool,
 ) -> Result<()> {
-    let file = File::open(&path).with_context(|| format!("failed to open {}", path.display()))?;
-    let value: Value = serde_json::from_reader(file)
-        .with_context(|| format!("failed to parse JSON {}", path.display()))?;
-    let issues: Vec<Issue> = serde_json::from_value(
-        value
-            .get("issues")
-            .cloned()
-            .unwrap_or_else(|| Value::Array(Vec::new())),
-    )
-    .with_context(|| "failed to parse issues")?;
-    let projects: Vec<Project> = serde_json::from_value(
-        value
-            .get("projects")
-            .cloned()
-            .unwrap_or_else(|| Value::Array(Vec::new())),
-    )
-    .with_context(|| "failed to parse projects")?;
-    let cycles: Vec<Cycle> = serde_json::from_value(
-        value
-            .get("cycles")
-            .cloned()
-            .unwrap_or_else(|| Value::Array(Vec::new())),
-    )
-    .with_context(|| "failed to parse cycles")?;
-    let labels: Vec<Label> = serde_json::from_value(
-        value
-            .get("labels")
-            .cloned()
-            .unwrap_or_else(|| Value::Array(Vec::new())),
-    )
-    .with_context(|| "failed to parse labels")?;
-    let sessions: Vec<AgentSession> = serde_json::from_value(
-        value
-            .get("agent_sessions")
-            .cloned()
-            .unwrap_or_else(|| Value::Array(Vec::new())),
-    )
-    .with_context(|| "failed to parse agent sessions")?;
-
     if !dry_run {
-        if replace && store.root().exists() {
-            std::fs::remove_dir_all(store.root())
-                .with_context(|| format!("failed to replace {}", store.root().display()))?;
-        }
-        store.init()?;
-        for issue in &issues {
-            store.save_issue(issue)?;
-        }
-        for project in &projects {
-            store.upsert_project(
-                Some(project.id.clone()),
-                project.name.clone(),
-                Some(project.description.clone()),
-                Some(project.status.clone()),
-            )?;
-        }
-        for cycle in &cycles {
-            store.upsert_cycle(
-                Some(cycle.id.clone()),
-                cycle.name.clone(),
-                Some(cycle.starts_at.clone()),
-                Some(cycle.ends_at.clone()),
-                Some(cycle.status.clone()),
-            )?;
-        }
-        for label in &labels {
-            store.upsert_label(
-                Some(label.id.clone()),
-                label.name.clone(),
-                Some(label.color.clone()),
-            )?;
-        }
-        for session in &sessions {
-            store.save_agent_session(session)?;
-        }
-        store.append_event(
-            "import_completed",
-            json!({
-                "path": path,
-                "replace": replace,
-            }),
-        )?;
+        return Err(pm_cli::legacy_mutation_failure(store.root()));
     }
-
-    let payload = json!({
-        "dry_run": dry_run,
-        "issues": issues.len(),
-        "projects": projects.len(),
-        "cycles": cycles.len(),
-        "labels": labels.len(),
-        "agent_sessions": sessions.len(),
-    });
+    let input = pm_transfer::read_input(repo_root, &path)?;
+    let value = match workdeck_pm::decode_transfer(&input)? {
+        workdeck_pm::ImportSource::Legacy(export) => export.canonical_document(),
+        workdeck_pm::ImportSource::Native(_) => bail!(
+            "a native snapshot cannot be imported into a legacy planning source; explicitly migrate or select a native destination"
+        ),
+    };
+    let payload = serde_json::to_value(store.preview_legacy_import(&value, replace)?)?;
     if json_output {
         json_success(
             "import",
@@ -10635,21 +11667,12 @@ fn handle_project_command(store: &WorkdeckStore, command: ProjectCommand) -> Res
                 }
             }
         }
-        ProjectCommand::Save {
-            name,
+        ProjectCommand::Show {
             id,
-            description,
-            status,
             json,
+            membership,
         } => {
-            let project = store.upsert_project(id, name, description, status)?;
-            if json {
-                json_success("project", Some("save"), project)?;
-            } else {
-                println!("{} {}", project.id, project.name);
-            }
-        }
-        ProjectCommand::Show { id, json } => {
+            membership.reject_legacy(store.root())?;
             let project = store
                 .load_reference_data()?
                 .projects
@@ -10662,22 +11685,7 @@ fn handle_project_command(store: &WorkdeckStore, command: ProjectCommand) -> Res
                 println!("{} {}", project.id, project.name);
             }
         }
-        ProjectCommand::Delete {
-            id,
-            yes,
-            force,
-            json,
-        } => {
-            if !yes {
-                bail!("delete requires --yes");
-            }
-            let project = store.delete_project(&id, force)?;
-            if json {
-                json_success("project", Some("delete"), project)?;
-            } else {
-                println!("deleted {}", project.id);
-            }
-        }
+        _ => return Err(pm_cli::legacy_mutation_failure(store.root())),
     }
     Ok(())
 }
@@ -10699,22 +11707,12 @@ fn handle_cycle_command(store: &WorkdeckStore, command: CycleCommand) -> Result<
                 }
             }
         }
-        CycleCommand::Save {
-            name,
+        CycleCommand::Show {
             id,
-            starts_at,
-            ends_at,
-            status,
             json,
+            membership,
         } => {
-            let cycle = store.upsert_cycle(id, name, starts_at, ends_at, status)?;
-            if json {
-                json_success("cycle", Some("save"), cycle)?;
-            } else {
-                println!("{} {}", cycle.id, cycle.name);
-            }
-        }
-        CycleCommand::Show { id, json } => {
+            membership.reject_legacy(store.root())?;
             let cycle = store
                 .load_reference_data()?
                 .cycles
@@ -10727,22 +11725,7 @@ fn handle_cycle_command(store: &WorkdeckStore, command: CycleCommand) -> Result<
                 println!("{} {}", cycle.id, cycle.name);
             }
         }
-        CycleCommand::Delete {
-            id,
-            yes,
-            force,
-            json,
-        } => {
-            if !yes {
-                bail!("delete requires --yes");
-            }
-            let cycle = store.delete_cycle(&id, force)?;
-            if json {
-                json_success("cycle", Some("delete"), cycle)?;
-            } else {
-                println!("deleted {}", cycle.id);
-            }
-        }
+        _ => return Err(pm_cli::legacy_mutation_failure(store.root())),
     }
     Ok(())
 }
@@ -10764,20 +11747,12 @@ fn handle_label_command(store: &WorkdeckStore, command: LabelCommand) -> Result<
                 }
             }
         }
-        LabelCommand::Save {
-            name,
+        LabelCommand::Show {
             id,
-            color,
             json,
+            membership,
         } => {
-            let label = store.upsert_label(id, name, color)?;
-            if json {
-                json_success("label", Some("save"), label)?;
-            } else {
-                println!("{} {}", label.id, label.name);
-            }
-        }
-        LabelCommand::Show { id, json } => {
+            membership.reject_legacy(store.root())?;
             let label = store
                 .load_reference_data()?
                 .labels
@@ -10790,22 +11765,7 @@ fn handle_label_command(store: &WorkdeckStore, command: LabelCommand) -> Result<
                 println!("{} {}", label.id, label.name);
             }
         }
-        LabelCommand::Delete {
-            id,
-            yes,
-            force,
-            json,
-        } => {
-            if !yes {
-                bail!("delete requires --yes");
-            }
-            let label = store.delete_label(&id, force)?;
-            if json {
-                json_success("label", Some("delete"), label)?;
-            } else {
-                println!("deleted {}", label.id);
-            }
-        }
+        _ => return Err(pm_cli::legacy_mutation_failure(store.root())),
     }
     Ok(())
 }
@@ -10836,173 +11796,11 @@ fn handle_agent_command(store: &WorkdeckStore, command: AgentCommand) -> Result<
                 }
             }
         }
-        AgentCommand::Record {
-            title,
-            id,
-            agent,
-            status,
-            goal,
-            summary,
-            cwd,
-            plan_item,
-            touched_file,
-            command_run,
-            test_run,
-            handoff_note,
-            json,
-        } => {
-            let mut session = AgentSession::new(title);
-            if let Some(id) = id {
-                session.id = id;
-            }
-            if let Some(agent) = agent {
-                session.agent = agent;
-            }
-            if let Some(status) = status {
-                session.status = status;
-            }
-            if let Some(goal) = goal {
-                session.goal = goal;
-            }
-            if let Some(summary) = summary {
-                session.summary = summary;
-            }
-            if let Some(cwd) = cwd {
-                session.cwd = cwd.display().to_string();
-            }
-            session.plan = plan_item;
-            session.touched_files = touched_file
-                .into_iter()
-                .map(|path| AgentTouchedFile {
-                    path,
-                    change_type: String::new(),
-                })
-                .collect();
-            session.commands_run = command_run;
-            session.tests_run = test_run;
-            session.handoff_notes = handoff_note;
-            store.save_agent_session(&session)?;
-            print_agent_session_action(session, json, Some("record"))?;
-        }
         AgentCommand::Show { id, json } => {
             let session = load_agent_session(store, &id)?;
             print_agent_session(session, json)?;
         }
-        AgentCommand::Update {
-            id,
-            title,
-            agent,
-            status,
-            goal,
-            summary,
-            cwd,
-            json,
-        } => {
-            let mut session = load_agent_session(store, &id)?;
-            if let Some(title) = title {
-                session.title = title;
-            }
-            if let Some(agent) = agent {
-                session.agent = agent;
-            }
-            if let Some(status) = status {
-                session.status = status;
-            }
-            if let Some(goal) = goal {
-                session.goal = goal;
-            }
-            if let Some(summary) = summary {
-                session.summary = summary;
-            }
-            if let Some(cwd) = cwd {
-                session.cwd = cwd.display().to_string();
-            }
-            store.save_agent_session(&session)?;
-            print_agent_session_action(session, json, Some("update"))?;
-        }
-        AgentCommand::Finish { id, summary, json } => {
-            let mut session = load_agent_session(store, &id)?;
-            session.status = "done".to_string();
-            session.ended_at = Utc::now().to_rfc3339();
-            if let Some(summary) = summary {
-                session.summary = summary;
-            }
-            store.save_agent_session(&session)?;
-            print_agent_session_action(session, json, Some("finish"))?;
-        }
-        AgentCommand::AppendPlan { id, text, json } => {
-            let mut session = load_agent_session(store, &id)?;
-            session.plan.push(text);
-            store.save_agent_session(&session)?;
-            print_agent_session_action(session, json, Some("append-plan"))?;
-        }
-        AgentCommand::AddFile {
-            id,
-            path,
-            change_type,
-            json,
-        } => {
-            let mut session = load_agent_session(store, &id)?;
-            session
-                .touched_files
-                .push(AgentTouchedFile { path, change_type });
-            store.save_agent_session(&session)?;
-            print_agent_session_action(session, json, Some("add-file"))?;
-        }
-        AgentCommand::AddCommand { id, text, json } => {
-            let mut session = load_agent_session(store, &id)?;
-            session.commands_run.push(text);
-            store.save_agent_session(&session)?;
-            print_agent_session_action(session, json, Some("add-command"))?;
-        }
-        AgentCommand::AddTest { id, text, json } => {
-            let mut session = load_agent_session(store, &id)?;
-            session.tests_run.push(text);
-            store.save_agent_session(&session)?;
-            print_agent_session_action(session, json, Some("add-test"))?;
-        }
-        AgentCommand::AddNote { id, text, json } => {
-            let mut session = load_agent_session(store, &id)?;
-            session.handoff_notes.push(text);
-            store.save_agent_session(&session)?;
-            print_agent_session_action(session, json, Some("add-note"))?;
-        }
-        AgentCommand::Delete { id, yes, json } => {
-            if !yes {
-                bail!("delete requires --yes");
-            }
-            let path = store.agent_session_file_path(&id);
-            if !path.exists() {
-                bail!("agent session {id} does not exist");
-            }
-            std::fs::remove_file(&path)
-                .with_context(|| format!("failed to delete {}", path.display()))?;
-            store.append_event("agent_session_deleted", json!({ "id": id }))?;
-            if json {
-                json_success(
-                    "agent_session",
-                    Some("delete"),
-                    json!({ "deleted": true, "id": id }),
-                )?;
-            } else {
-                println!("deleted {id}");
-            }
-        }
-        AgentCommand::Import { path, json } => {
-            let sessions = read_agent_sessions(&path)?;
-            let imported = sessions
-                .into_iter()
-                .map(|session| {
-                    store.save_agent_session(&session)?;
-                    Ok(session)
-                })
-                .collect::<Result<Vec<_>>>()?;
-            if json {
-                json_success("agent_session_list", Some("import"), imported)?;
-            } else {
-                println!("imported {} agent session(s)", imported.len());
-            }
-        }
+        _ => return Err(pm_cli::legacy_mutation_failure(store.root())),
     }
     Ok(())
 }
@@ -11013,62 +11811,6 @@ fn load_agent_session(store: &WorkdeckStore, id: &str) -> Result<AgentSession> {
         .into_iter()
         .find(|session| session.id == id)
         .with_context(|| format!("agent session {id} does not exist"))
-}
-
-fn read_agent_sessions(path: &Path) -> Result<Vec<AgentSession>> {
-    let extension = path.extension().and_then(|value| value.to_str());
-    let sessions = if extension == Some("jsonl") {
-        let file =
-            File::open(path).with_context(|| format!("failed to open {}", path.display()))?;
-        let mut sessions = Vec::new();
-        for (index, line) in BufReader::new(file).lines().enumerate() {
-            let line = line.with_context(|| format!("failed to read line {}", index + 1))?;
-            if line.trim().is_empty() {
-                continue;
-            }
-            let value: Value = serde_json::from_str(&line)
-                .with_context(|| format!("failed to parse JSONL line {}", index + 1))?;
-            sessions.push(agent_session_from_json_value(value).with_context(|| {
-                format!("line {} does not contain an agent session", index + 1)
-            })?);
-        }
-        sessions
-    } else {
-        let file =
-            File::open(path).with_context(|| format!("failed to open {}", path.display()))?;
-        let value: Value = serde_json::from_reader(file)
-            .with_context(|| format!("failed to parse JSON {}", path.display()))?;
-        match value {
-            Value::Array(values) => values
-                .into_iter()
-                .enumerate()
-                .map(|(index, value)| {
-                    agent_session_from_json_value(value).with_context(|| {
-                        format!("item {} does not contain an agent session", index + 1)
-                    })
-                })
-                .collect::<Result<Vec<_>>>()?,
-            value => vec![
-                agent_session_from_json_value(value)
-                    .with_context(|| "JSON file does not contain an agent session")?,
-            ],
-        }
-    };
-
-    if sessions.is_empty() {
-        bail!("no agent sessions found in {}", path.display());
-    }
-    Ok(sessions)
-}
-
-fn agent_session_from_json_value(value: Value) -> Result<AgentSession> {
-    if let Some(session) = value.get("session") {
-        return serde_json::from_value(session.clone()).map_err(Into::into);
-    }
-    if let Some(session) = value.pointer("/payload/session") {
-        return serde_json::from_value(session.clone()).map_err(Into::into);
-    }
-    serde_json::from_value(value).map_err(Into::into)
 }
 
 fn handle_issue_command(store: &WorkdeckStore, command: IssueCommand) -> Result<()> {
@@ -11082,7 +11824,9 @@ fn handle_issue_command(store: &WorkdeckStore, command: IssueCommand) -> Result<
             assignee,
             due_at,
             json,
+            query_options,
         } => {
+            query_options.reject_legacy(store.root())?;
             let issues = filter_issues(
                 store.load_issues()?,
                 status,
@@ -11109,215 +11853,6 @@ fn handle_issue_command(store: &WorkdeckStore, command: IssueCommand) -> Result<
                 }
             }
         }
-        IssueCommand::Create {
-            title,
-            from_json,
-            description,
-            status,
-            priority,
-            project,
-            cycle,
-            assignee,
-            due_at,
-            label,
-            linked_commit,
-            linked_file,
-            json,
-        } => {
-            let input = issue_create_input(
-                title,
-                from_json,
-                description,
-                status,
-                priority,
-                project,
-                cycle,
-                assignee,
-                due_at,
-                label,
-                linked_commit,
-                linked_file,
-            )?;
-            let mut issue = store.create_issue(input.title)?;
-            let update = issue_update(
-                None,
-                input.description,
-                input.status,
-                input.priority,
-                input.project,
-                input.cycle,
-                input.assignee,
-                input.due_at,
-                input.labels,
-                input.linked_commits,
-            )?;
-            issue = store.update_issue(&issue.key, update)?;
-            for path in input.linked_files {
-                issue = store.link_issue_file(&issue.key, &path)?;
-            }
-            print_issue_action(issue, json, Some("create"))?;
-        }
-        IssueCommand::Update {
-            key,
-            title,
-            description,
-            status,
-            priority,
-            project,
-            cycle,
-            assignee,
-            due_at,
-            label,
-            linked_commit,
-            json,
-        } => {
-            let issue = store.update_issue(
-                &key,
-                issue_update(
-                    title,
-                    description,
-                    status,
-                    priority,
-                    project,
-                    cycle,
-                    assignee,
-                    due_at,
-                    label,
-                    linked_commit,
-                )?,
-            )?;
-            print_issue_action(issue, json, Some("update"))?;
-        }
-        IssueCommand::Link { key, path, json } => {
-            let issue = store.link_issue_file(&key, &path)?;
-            print_issue_action(issue, json, Some("link-file"))?;
-        }
-        IssueCommand::LinkFile { key, path, json } => {
-            let issue = store.link_issue_file(&key, &path)?;
-            print_issue_action(issue, json, Some("link-file"))?;
-        }
-        IssueCommand::UnlinkFile { key, path, json } => {
-            let mut issue = load_issue(store, &key)?;
-            issue.linked_files.retain(|linked| linked != &path);
-            issue.touch();
-            store.save_issue(&issue)?;
-            store.append_event("issue_file_unlinked", json!({ "key": key, "path": path }))?;
-            print_issue_action(issue, json, Some("unlink-file"))?;
-        }
-        IssueCommand::LinkCommit { key, sha, json } => {
-            let issue = store.update_issue(
-                &key,
-                IssueUpdate {
-                    linked_commits: Some(vec![sha]),
-                    ..IssueUpdate::default()
-                },
-            )?;
-            print_issue_action(issue, json, Some("link-commit"))?;
-        }
-        IssueCommand::UnlinkCommit { key, sha, json } => {
-            let mut issue = load_issue(store, &key)?;
-            issue.linked_commits.retain(|linked| linked != &sha);
-            issue.touch();
-            store.save_issue(&issue)?;
-            store.append_event("issue_commit_unlinked", json!({ "key": key, "sha": sha }))?;
-            print_issue_action(issue, json, Some("unlink-commit"))?;
-        }
-        IssueCommand::Close { key, json } => {
-            let issue = store.update_issue(
-                &key,
-                IssueUpdate {
-                    status: Some(IssueStatus::Done),
-                    ..IssueUpdate::default()
-                },
-            )?;
-            print_issue_action(issue, json, Some("close"))?;
-        }
-        IssueCommand::Reopen { key, json } => {
-            let issue = store.update_issue(
-                &key,
-                IssueUpdate {
-                    status: Some(IssueStatus::Todo),
-                    ..IssueUpdate::default()
-                },
-            )?;
-            print_issue_action(issue, json, Some("reopen"))?;
-        }
-        IssueCommand::Move { key, status, json } => {
-            let issue = store.update_issue(
-                &key,
-                IssueUpdate {
-                    status: Some(status.parse().map_err(anyhow::Error::msg)?),
-                    ..IssueUpdate::default()
-                },
-            )?;
-            print_issue_action(issue, json, Some("move"))?;
-        }
-        IssueCommand::Assign {
-            key,
-            assignee,
-            json,
-        } => {
-            let issue = store.update_issue(
-                &key,
-                IssueUpdate {
-                    assignee: Some(assignee),
-                    ..IssueUpdate::default()
-                },
-            )?;
-            print_issue_action(issue, json, Some("assign"))?;
-        }
-        IssueCommand::Unassign { key, json } => {
-            let issue = store.update_issue(
-                &key,
-                IssueUpdate {
-                    assignee: Some(String::new()),
-                    ..IssueUpdate::default()
-                },
-            )?;
-            print_issue_action(issue, json, Some("unassign"))?;
-        }
-        IssueCommand::Label { command } => match command {
-            IssueLabelCommand::Add { key, label, json } => {
-                let mut issue = load_issue(store, &key)?;
-                if !issue.labels.iter().any(|value| value == &label) {
-                    issue.labels.push(label);
-                    issue.labels.sort();
-                    issue.touch();
-                    store.save_issue(&issue)?;
-                    store.append_event("issue_label_added", json!({ "key": key }))?;
-                }
-                print_issue_action(issue, json, Some("label-add"))?;
-            }
-            IssueLabelCommand::Remove { key, label, json } => {
-                let mut issue = load_issue(store, &key)?;
-                issue.labels.retain(|value| value != &label);
-                issue.touch();
-                store.save_issue(&issue)?;
-                store.append_event("issue_label_removed", json!({ "key": key, "label": label }))?;
-                print_issue_action(issue, json, Some("label-remove"))?;
-            }
-        },
-        IssueCommand::Delete { key, yes, json } => {
-            if !yes {
-                bail!("delete requires --yes");
-            }
-            let path = store.issue_file_path(&key);
-            if !path.exists() {
-                bail!("issue {key} does not exist");
-            }
-            std::fs::remove_file(&path)
-                .with_context(|| format!("failed to delete {}", path.display()))?;
-            store.append_event("issue_deleted", json!({ "key": key }))?;
-            if json {
-                json_success(
-                    "issue",
-                    Some("delete"),
-                    json!({ "deleted": true, "key": key }),
-                )?;
-            } else {
-                println!("deleted {key}");
-            }
-        }
         IssueCommand::Show { key, json } => {
             let issue = store
                 .load_issues()?
@@ -11326,6 +11861,7 @@ fn handle_issue_command(store: &WorkdeckStore, command: IssueCommand) -> Result<
                 .with_context(|| format!("issue {key} does not exist"))?;
             print_issue(issue, json)?;
         }
+        _ => return Err(pm_cli::legacy_mutation_failure(store.root())),
     }
     Ok(())
 }
@@ -11371,168 +11907,6 @@ fn filter_issues(
         })
         .filter(|issue| due_at.as_ref().is_none_or(|due_at| &issue.due_at == due_at))
         .collect())
-}
-
-fn load_issue(store: &WorkdeckStore, key: &str) -> Result<workdeck_cli::store::Issue> {
-    store
-        .load_issues()?
-        .into_iter()
-        .find(|issue| issue.key == key)
-        .with_context(|| format!("issue {key} does not exist"))
-}
-
-#[derive(Debug)]
-struct IssueCreateInput {
-    title: String,
-    description: Option<String>,
-    status: Option<String>,
-    priority: Option<String>,
-    project: Option<String>,
-    cycle: Option<String>,
-    assignee: Option<String>,
-    due_at: Option<String>,
-    labels: Vec<String>,
-    linked_commits: Vec<String>,
-    linked_files: Vec<String>,
-}
-
-#[allow(clippy::too_many_arguments)]
-fn issue_create_input(
-    title: Option<String>,
-    from_json: Option<PathBuf>,
-    description: Option<String>,
-    status: Option<String>,
-    priority: Option<String>,
-    project: Option<String>,
-    cycle: Option<String>,
-    assignee: Option<String>,
-    due_at: Option<String>,
-    labels: Vec<String>,
-    linked_commits: Vec<String>,
-    linked_files: Vec<String>,
-) -> Result<IssueCreateInput> {
-    let mut input = if let Some(path) = from_json {
-        issue_create_input_from_json(&path)?
-    } else {
-        IssueCreateInput {
-            title: title
-                .clone()
-                .with_context(|| "issue title is required unless --from-json is used")?,
-            description: None,
-            status: None,
-            priority: None,
-            project: None,
-            cycle: None,
-            assignee: None,
-            due_at: None,
-            labels: Vec::new(),
-            linked_commits: Vec::new(),
-            linked_files: Vec::new(),
-        }
-    };
-
-    if let Some(title) = title {
-        input.title = title;
-    }
-    input.description = description.or(input.description);
-    input.status = status.or(input.status);
-    input.priority = priority.or(input.priority);
-    input.project = project.or(input.project);
-    input.cycle = cycle.or(input.cycle);
-    input.assignee = assignee.or(input.assignee);
-    input.due_at = due_at.or(input.due_at);
-    if !labels.is_empty() {
-        input.labels = labels;
-    }
-    if !linked_commits.is_empty() {
-        input.linked_commits = linked_commits;
-    }
-    if !linked_files.is_empty() {
-        input.linked_files = linked_files;
-    }
-    Ok(input)
-}
-
-fn issue_create_input_from_json(path: &Path) -> Result<IssueCreateInput> {
-    let mut raw = String::new();
-    if path == Path::new("-") {
-        std::io::stdin()
-            .read_to_string(&mut raw)
-            .with_context(|| "failed to read issue JSON from stdin")?;
-    } else {
-        raw = std::fs::read_to_string(path)
-            .with_context(|| format!("failed to read {}", path.display()))?;
-    }
-    let value: Value = serde_json::from_str(&raw).with_context(|| "failed to parse issue JSON")?;
-    let title = value
-        .get("title")
-        .and_then(Value::as_str)
-        .with_context(|| "issue JSON requires title")?
-        .to_string();
-    Ok(IssueCreateInput {
-        title,
-        description: json_string(&value, "description"),
-        status: json_string(&value, "status"),
-        priority: json_string(&value, "priority"),
-        project: json_string(&value, "project"),
-        cycle: json_string(&value, "cycle"),
-        assignee: json_string(&value, "assignee"),
-        due_at: json_string(&value, "due_at"),
-        labels: json_string_array(&value, "labels"),
-        linked_commits: json_string_array(&value, "linked_commits"),
-        linked_files: json_string_array(&value, "linked_files"),
-    })
-}
-
-fn json_string(value: &Value, key: &str) -> Option<String> {
-    value
-        .get(key)
-        .and_then(Value::as_str)
-        .map(ToString::to_string)
-}
-
-fn json_string_array(value: &Value, key: &str) -> Vec<String> {
-    value
-        .get(key)
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .map(ToString::to_string)
-        .collect()
-}
-
-#[allow(clippy::too_many_arguments)]
-fn issue_update(
-    title: Option<String>,
-    description: Option<String>,
-    status: Option<String>,
-    priority: Option<String>,
-    project: Option<String>,
-    cycle: Option<String>,
-    assignee: Option<String>,
-    due_at: Option<String>,
-    labels: Vec<String>,
-    linked_commits: Vec<String>,
-) -> Result<IssueUpdate> {
-    Ok(IssueUpdate {
-        title,
-        description,
-        status: status
-            .map(|value| value.parse())
-            .transpose()
-            .map_err(anyhow::Error::msg)?,
-        priority: priority
-            .map(|value| value.parse::<Priority>())
-            .transpose()
-            .map_err(anyhow::Error::msg)?,
-        project,
-        cycle,
-        assignee,
-        due_at,
-        labels: (!labels.is_empty()).then_some(labels),
-        linked_commits: (!linked_commits.is_empty()).then_some(linked_commits),
-    })
 }
 
 fn print_issue(issue: workdeck_cli::store::Issue, json: bool) -> Result<()> {

@@ -1,0 +1,18 @@
+id = "fixture-session"
+title = "Historical redirect investigation"
+agent = "fixture-agent"
+cwd = "/synthetic/checkout"
+status = "finished"
+started_at = "2026-09-01T09:15:00+02:00"
+ended_at = "2026-09-01T10:15:00+02:00"
+goal = "Investigate issue WD-1"
+summary = "Found the redirect handler."
+plan = ["Reproduce", "Inspect handler", "Prepare regression scenario"]
+commands_run = ["Recorded annotation only: inspect redirect source"]
+tests_run = ["Recorded annotation only: no verification receipt exists"]
+handoff_notes = ["Ask a reviewer to inspect query-string preservation."]
+external_session_id = "fixture-runtime-session"
+
+[[touched_files]]
+path = "src/auth/redirect.rs"
+change_type = "modified"

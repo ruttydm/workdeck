@@ -21,7 +21,7 @@ Workdeck can show imported Herder session metadata and attribution, but it never
 - built-in Git, Jujutsu, and Sapling providers plus patch, stdin, pager, stash, show, and difftool inputs;
 - repository status, changed-file trees, diffs, files, syntax previews, and search;
 - branch, commit, stash, tag, remote, project, issue, and handoff context;
-- repo-local issue and review metadata under `.agents/workdeck/`;
+- repository planning files under root-level `.workdeck/`, with explicit migration from `.agents/workdeck/`;
 - authenticated local review sessions and trusted native JSON-RPC extensions;
 - JSON and JSONL output for scripts and integrations;
 - no Bun, React, OpenTUI, JavaScript engine, or WASM runtime.
@@ -87,6 +87,28 @@ workdeck doctor
 See [Themes](docs/themes.md) for built-in and custom theme configuration, automatic
 terminal-background selection, and legacy syntax-scope migration.
 
+The [Git-native project-management design](docs/project-management.md) records the
+`.workdeck/` storage model, planning workflows, and agent experience. The current
+[standalone implementation plan](docs/project-management-implementation-plan.md) defines phases,
+dependencies, acceptance criteria, and current evidence for Workdeck itself. The implementation
+now includes the shared file engine, native issue commands, explicit legacy migration,
+project/cycle workbench views, hierarchy and organization policy, saved views, wiki authoring,
+and time records. PM-06 is qualified with native work graphs, feature authoring and
+coverage, gate definitions, and declared evidence. Press `b` from Issues for the dependency
+graph or `v` for Features. PM-07 is qualified with bounded task context, next actions,
+questions and immutable handoffs; press `i` from Issues to open Context. PM-08 is
+qualified with named commands, source-bound check plans, bounded local execution,
+and structured results; press `5` in Context for Checks. Git claims and authenticated
+completion are available through CLI and TUI, including `g` in the Claims view for
+claimed completion with a verification file. Indexing and the remaining CI/release
+qualification follow in the implementation ledger. Project and milestone exits now
+have source-bound `assess`/`complete` commands, and feature maturity uses explicit
+source-bound `assess`/`promote` commands. The mounted TUI exposes `p` for hierarchy
+policy and `m` for feature maturity; authenticated policy-basis integration remains
+in progress.
+The [collaboration guide](docs/project-management-collaboration.md) covers inspected
+sources, claims, separate completion/release, and reviewed proposals through CLI and TUI.
+
 ## Validate
 
 See [Contributing](CONTRIBUTING.md) for bug reports, proposals, development,
@@ -104,6 +126,10 @@ cargo fmt --all --check
 cargo test --locked --workspace --all-targets
 cargo clippy --locked --workspace --all-targets -- -D warnings
 cargo build --locked --release --package workdeck-cli --bin workdeck
+cargo xtask pm profile --profile standalone
+cargo xtask pm check --profile standalone
+cargo xtask pm performance --profile standalone
+cargo xtask pm release-check --profile standalone
 cargo xtask verify
 cargo xtask architecture check
 cargo xtask nix check

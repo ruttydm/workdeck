@@ -101,8 +101,8 @@ payload bytes, while permitting explicit empty directory entries. Inspection lim
 archives to 100,000 entries and 2 GiB of declared uncompressed payload. Each payload read is
 bounded to its declared size plus one byte and must
 match the declared size exactly; short and oversized streams fail without unbounded draining.
-This is preliminary
-structural inspection, not a complete package verifier: required contents, wrapper layout,
+This is preliminary structural inspection, not a complete package verifier: `--package` adds
+required-content and wrapper-layout path/type checks, while metadata contents,
 signatures/provenance and safe extraction remain unfinished. Output deliberately does not claim
 checksum verification or installation. Tests exercise tar and ZIP payload reads and path rejection
 without creating extracted directories.
@@ -151,14 +151,17 @@ as false. It neither creates provenance nor packages or installs anything. The s
 test statements are test data, not build evidence.
 Format reference: [SLSA provenance v1](https://slsa.dev/spec/v1.0/provenance).
 
-`cargo xtask release package --target TRIPLE --provenance STATEMENT [--binary PATH] [--output DIR]`
+`cargo xtask release package --target TRIPLE --provenance STATEMENT [--verify-ci] [--binary PATH] [--output DIR]`
 checks that statement against the exact in-memory executable bytes passed to the archive writer,
 not an earlier hash of a subsequently reopened binary. Invalid evidence fails before creating the
-output directory. Both tar and ZIP tests reopen archives and verify exact binary and statement
-bytes. This remains subject binding, not authentication: signature verification and trusted builder/input policy
-are unfinished. The release workflow now requests binary attestation before packaging, supplies
-the action's bundle output, then requests separate archive attestation. This workflow wiring has
-not been executed remotely; successful local decoding tests are not signing/CI evidence.
+output directory. After writing, the command reopens the generated archive through the same
+package-layout inspector and verifies the generated checksum manifest through the installer
+helpers; a malformed archive or checksum mismatch fails the command. Both tar and ZIP tests
+reopen archives and verify exact binary and statement bytes. This remains subject binding, not
+authentication: signature verification and trusted builder/input policy are unfinished. The
+release workflow now requests binary attestation before packaging, supplies the action's bundle
+output, then requests separate archive attestation. This workflow wiring has not been executed
+remotely; successful local decoding tests are not signing/CI evidence.
 Nothing has been published or represented as a verified release.
 
 `cargo xtask release provenance-verify BINARY BUNDLE OWNER/REPO SOURCE_COMMIT refs/tags/TAG`
