@@ -84,6 +84,21 @@ fn measure(memory: bool) -> Result<serde_json::Value> {
             "each navigation press must change the real selection"
         );
     }
+    // Diagnostic-only steady-state loop for external profilers. Runs after the
+    // measured sections and never contributes samples to the report.
+    if let Ok(seconds) = std::env::var("WORKDECK_NAV_PROFILE_SECS")
+        && let Ok(seconds) = seconds.parse::<u64>()
+        && seconds > 0
+    {
+        let deadline = std::time::Duration::from_secs(seconds);
+        let profile_start = Instant::now();
+        while profile_start.elapsed() < deadline {
+            navigation
+                .app
+                .handle_key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
+            navigation.render_pass(1);
+        }
+    }
     let navigation_memory = memory.then(native_memory::snapshot).transpose()?;
     drop(navigation);
     let mut scrolling = renderer()?;

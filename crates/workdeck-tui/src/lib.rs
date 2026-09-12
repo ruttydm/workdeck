@@ -1516,7 +1516,7 @@ impl ReviewApp {
             .get(initial_snapshot.selection.file_index)
             .map(|file| file.runtime_id.clone());
         let mut initial_extension_selection =
-            workdeck_extension_host::build_extension_review_selection_from_document(
+            workdeck_extension_host::build_extension_review_selection_metadata(
                 &initial_snapshot.changeset,
                 initial_snapshot.selection,
             );
@@ -3861,7 +3861,7 @@ impl ReviewApp {
                 selected_file_id,
             )
         });
-        let mut selection = workdeck_extension_host::build_extension_review_selection_from_document(
+        let mut selection = workdeck_extension_host::build_extension_review_selection_metadata(
             &snapshot.changeset,
             snapshot.selection,
         );
@@ -26193,6 +26193,51 @@ mod tests {
         {
             assert_eq!(actual, expected, "resized frame cell {index}");
         }
+    }
+
+    #[test]
+    fn bridge_commits_resolve_selection_without_materializing_the_corpus() {
+        // Interaction-time bridge commits run on every key press; each one
+        // used to serialize every file into the selection payload. The
+        // committed selection must carry metadata only, with the corpus
+        // deferred until a command context is frozen.
+        let review = navigation_changeset(vec![
+            ("a.rs".into(), "old a\n".repeat(30), "new a\n".repeat(30)),
+            ("b.rs".into(), "old b\n".repeat(30), "new b\n".repeat(30)),
+        ]);
+        let mut app = ReviewApp::new(
+            review,
+            ReviewOptions {
+                layout: LayoutMode::Split,
+                highlight: false,
+                ..ReviewOptions::default()
+            },
+        );
+        let mut terminal = Terminal::new(TestBackend::new(120, 24)).unwrap();
+        rendered_review_frame(&mut terminal, &app);
+        for _ in 0..3 {
+            app.handle_key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
+            rendered_review_frame(&mut terminal, &app);
+        }
+        let committed = app.extension_runtime_bridge.get_selection();
+        assert!(committed.files.is_empty());
+        assert!(
+            committed.file.is_some(),
+            "selected file metadata must still resolve"
+        );
+        assert!(
+            committed.hunk_index.is_some(),
+            "selected hunk must still resolve"
+        );
+        let corpus = app
+            .extension_file_projection_cache
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(app.with_state(|state| state.changeset_snapshot()));
+        assert!(
+            !corpus.is_materialized(),
+            "key presses must not materialize the file projection corpus"
+        );
     }
 
     #[test]

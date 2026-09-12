@@ -112,14 +112,63 @@ pub fn build_extension_review_selection_from_document(
 }
 
 fn resolve_hunk_index(file: &ExtensionDiffFile, selected_hunk_index: Option<f64>) -> Option<usize> {
+    resolve_hunk_index_for_count(file.hunks.len(), selected_hunk_index)
+}
+
+fn resolve_hunk_index_for_count(
+    hunk_count: usize,
+    selected_hunk_index: Option<f64>,
+) -> Option<usize> {
     let selected = selected_hunk_index.filter(|index| index.is_finite())?;
-    let last = file.hunks.len().checked_sub(1)?;
+    let last = hunk_count.checked_sub(1)?;
     let selected = selected.floor().max(0.0);
     Some(if selected >= last as f64 {
         last
     } else {
         selected as usize
     })
+}
+
+/// Resolve selection metadata without projecting the file corpus.
+///
+/// Interaction-time bridge commits run on every key press and frame commit;
+/// the corpus list is materialized only when a command context is actually
+/// frozen, so this builder keeps `files` empty and projects only the selected
+/// file.
+#[must_use]
+pub fn build_extension_review_selection_metadata(
+    changeset: &Changeset,
+    selection: ReviewSelection,
+) -> ExtensionReviewSelection {
+    let Some(file) = changeset.files.get(selection.file_index) else {
+        return ExtensionReviewSelection::default();
+    };
+    let hunk_index = resolve_hunk_index_for_count(
+        file.hunks.len(),
+        selection.hunk_index.map(|index| index as f64),
+    );
+    // Mirror the public resolver: the cursor only carries a target when the
+    // raw hunk index survives the clamp unchanged.
+    let current_line =
+        match (selection.hunk_index, hunk_index) {
+            (Some(raw), Some(resolved)) if raw == resolved => selection
+                .side
+                .zip(selection.line)
+                .map(|(side, line)| ExtensionReviewSelectionLine {
+                    side: match side {
+                        ReviewSide::Old => ExtensionFileSide::Old,
+                        ReviewSide::New => ExtensionFileSide::New,
+                    },
+                    line,
+                }),
+            _ => None,
+        };
+    ExtensionReviewSelection {
+        file: Some(project_extension_diff_file(file)),
+        hunk_index,
+        current_line,
+        files: Vec::new(),
+    }
 }
 
 #[cfg(test)]
@@ -286,6 +335,81 @@ mod tests {
         let selection = build_extension_review_selection(&files, Some("binary"), Some(0.0), None);
         assert_eq!(selection.file.unwrap().id, "binary");
         assert_eq!(selection.hunk_index, None);
+    }
+
+    fn document() -> Changeset {
+        workdeck_diff::parse_patch(
+            "--- a/alpha.ts\n+++ b/alpha.ts\n@@ -1,3 +1,4 @@\n-removed\n context\n+added\n+second\n",
+            "selection-fixture",
+            "Working tree",
+            workdeck_core::ChangesetSource::WorkingTree { staged: false },
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn metadata_selection_matches_the_document_builder_without_the_corpus() {
+        let document = document();
+        let file_id = document.files[0].runtime_id.clone();
+        for selection in [
+            ReviewSelection {
+                file_index: 0,
+                hunk_index: Some(0),
+                side: Some(ReviewSide::New),
+                line: Some(3),
+            },
+            ReviewSelection {
+                file_index: 0,
+                hunk_index: Some(9),
+                side: Some(ReviewSide::Old),
+                line: Some(1),
+            },
+            ReviewSelection {
+                file_index: 0,
+                hunk_index: None,
+                side: None,
+                line: None,
+            },
+            ReviewSelection {
+                file_index: 4,
+                hunk_index: Some(0),
+                side: Some(ReviewSide::New),
+                line: Some(1),
+            },
+        ] {
+            let full = build_extension_review_selection_from_document(&document, selection);
+            let metadata = build_extension_review_selection_metadata(&document, selection);
+            assert_eq!(metadata.file, full.file, "file for {selection:?}");
+            assert_eq!(
+                metadata.hunk_index, full.hunk_index,
+                "hunk for {selection:?}"
+            );
+            assert_eq!(
+                metadata.current_line, full.current_line,
+                "current line for {selection:?}"
+            );
+            assert!(
+                metadata.files.is_empty(),
+                "metadata builder must not project the corpus"
+            );
+        }
+        assert_eq!(full_files_guard(&document), vec![file_id]);
+    }
+
+    fn full_files_guard(document: &Changeset) -> Vec<String> {
+        build_extension_review_selection_from_document(
+            document,
+            ReviewSelection {
+                file_index: 0,
+                hunk_index: None,
+                side: None,
+                line: None,
+            },
+        )
+        .files
+        .into_iter()
+        .map(|file| file.id)
+        .collect()
     }
 
     #[test]
