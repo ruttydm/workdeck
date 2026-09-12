@@ -191,22 +191,23 @@ intervals. Defining/verifying cross-runtime memory comparisons remains required 
 interaction benchmark can be mapped or admitted. The diagnostic does not force allocator purges
 and cannot claim equivalence to Hunk's full-GC snapshots.
 
-### Current native interaction receipt at `ee34bf1e`
+### Current native interaction receipt at `890d201b`
 
-The plain-split repaint cache, pending worker-key memo, shared review metadata, and the
-source-presentation-keyed geometry cache are measured in
-[`interaction-native-ee34bf1e.json`](interaction-native-ee34bf1e.json). Twenty optimized Workdeck
-samples ran on the macOS arm64 host after the full verifier. The report is a native receipt;
+The plain-split repaint cache, pending worker-key memo, shared review metadata, the
+source-presentation-keyed geometry cache, and the bridge selection-metadata resolution are
+measured in [`interaction-native-890d201b.json`](interaction-native-890d201b.json). Twenty
+optimized Workdeck samples ran on the macOS arm64 host after the full verifier, with the
+status line, bundled search, and daemon-skew ports landed. The report is a native receipt;
 the paired comparison below uses the frozen disposable-oracle Hunk pins from the same host.
 
 | Median | Workdeck |
 | --- | ---: |
-| First frame | 4.67 ms |
-| Navigation press | 3.34 ms |
-| Scroll tick | 0.60 ms |
-| Scroll tick p95 | 0.62 ms |
-| RSS after first frame | 112,525,312 bytes |
-| RSS after navigation | 115,933,184 bytes |
+| First frame | 5.10 ms |
+| Navigation press | 3.58 ms |
+| Scroll tick | 0.88 ms |
+| Scroll tick p95 | 0.91 ms |
+| RSS after first frame | 112,803,840 bytes |
+| RSS after navigation | 116,047,872 bytes |
 
 Reproduce it with:
 
@@ -219,14 +220,17 @@ The geometry cache was previously disabled whenever any file carried a snapshot-
 (`SourceOrigin::File`), which describes every interaction fixture file, so each wheel tick
 rebuilt the complete row plan inside dispatch. Availability now keys the geometry and
 plain-height caches through a monotonic presentation revision, and the presentation table is
-Arc-shared, so per-frame option clones no longer deep-copy it. The immutable-document pair cache
-remains bounded to 2,048 entries and invalidated by document identity, selection, theme, width,
-wrapping, line-number, highlight, and horizontal offset changes. Pending native worker requests
-retain an identity-scoped key so redraws poll without rebuilding serialized metadata; completion
-still follows the ordinary decode path. Dynamic comment, extension, and line-highlight paths
-continue to use the complete metadata painter. A regression test pins cached and rebuilt frames
-cell-identical across wheel ticks with snapshot-backed sources. Non-macOS receipts remain
-required release evidence.
+Arc-shared, so per-frame option clones no longer deep-copy it. Bridge commits now resolve the
+selected file, clamped hunk, and line cursor without projecting the corpus, keeping the file
+serialization deferred to frozen command contexts; before that fix each key press serialized
+every file (~30 ms per navigation press). The immutable-document pair cache remains bounded to
+2,048 entries and invalidated by document identity, selection, theme, width, wrapping,
+line-number, highlight, and horizontal offset changes. Pending native worker requests retain an
+identity-scoped key so redraws poll without rebuilding serialized metadata; completion still
+follows the ordinary decode path. Dynamic comment, extension, and line-highlight paths continue
+to use the complete metadata painter. Regression tests pin cached and rebuilt frames
+cell-identical across wheel ticks with snapshot-backed sources and that key presses never
+materialize the projection corpus. Non-macOS receipts remain required release evidence.
 
 For a fresh paired diagnostic, the disposable oracle captures are
 [`interaction-hunk-2c00f435-20.json`](interaction-hunk-2c00f435-20.json) and
@@ -237,16 +241,17 @@ receipt are:
 
 | Median | Hunk main | Hunk v0.20.1 | Workdeck |
 | --- | ---: | ---: | ---: |
-| First frame | 20.70 ms | 21.28 ms | 4.67 ms |
-| Navigation press | 51.95 ms | 53.22 ms | 3.34 ms |
-| Scroll tick | 1.93 ms | 2.04 ms | 0.60 ms |
-| Scroll tick p95 | 8.93 ms | 6.83 ms | 0.62 ms |
+| First frame | 20.70 ms | 21.28 ms | 5.10 ms |
+| Navigation press | 51.95 ms | 53.22 ms | 3.58 ms |
+| Navigation press p95 | 61.17 ms | 66.79 ms | 4.14 ms |
+| Scroll tick | 1.93 ms | 2.04 ms | 0.88 ms |
+| Scroll tick p95 | 8.93 ms | 6.83 ms | 0.91 ms |
 
-Workdeck is now faster than both pins on every paired interaction metric: scroll is 68.9% under
-the main-pin median and 70.6% under the stable-pin median, so the strict 10% interaction latency
+Workdeck is faster than both pins on every paired interaction metric: scroll is 54.4% under
+the main-pin median and 56.9% under the stable-pin median, so the strict 10% interaction latency
 gate passes on this workload. Three fresh native rounds under `/usr/bin/time -l` peak at
-119,013,376 bytes (116,785,152; 118,964,224; 119,013,376) in
-[`interaction-native-peak-ee34bf1e.json`](interaction-native-peak-ee34bf1e.json), below the
+119,865,344 bytes (117,407,744; 119,865,344; 117,063,680) in
+[`interaction-native-peak-890d201b.json`](interaction-native-peak-890d201b.json), below the
 frozen pin peaks of 613,482,496 and 591,872,000 bytes in
 [`interaction-paired-peak-c453574b.json`](interaction-paired-peak-c453574b.json)
 and below the prior native paired peak of 170,754,048 bytes, so the no-peak-memory-regression

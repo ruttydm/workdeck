@@ -1,16 +1,17 @@
 # Native release-channel and version policy
 
-## Current semantic-port closeout (`ee34bf1e`)
+## Current semantic-port closeout (`890d201b`)
 
-The latest local closeout reran the strict port gates after the source-presentation-keyed
-geometry cache change. `cargo xtask port fetch` followed by strict `cargo xtask port audit`
-report 1,257 baseline files, 1,459 records, zero unmapped records, zero post-baseline upstream
-commits, and 1,197 provenance-checked Workdeck commits. The native 20-sample interaction
-receipt is recorded at
-[`port/hunk/benchmarks/interaction-native-ee34bf1e.json`](../port/hunk/benchmarks/interaction-native-ee34bf1e.json);
+The latest local closeout reran the strict port gates after the status-line, bundled-search,
+and daemon-skew upstream ports plus the bridge selection-metadata fix. `cargo xtask port fetch`
+followed by strict `cargo xtask port audit` reports 1,257 baseline files, 1,459 records, zero
+unmapped records, 100 authenticated post-baseline upstream records with an empty delta queue,
+and 1,205 provenance-checked Workdeck commits. The native 20-sample interaction receipt is
+recorded at
+[`port/hunk/benchmarks/interaction-native-890d201b.json`](../port/hunk/benchmarks/interaction-native-890d201b.json);
 against the frozen same-host Hunk pins it passes every paired interaction metric (scroll tick
-median 0.60 ms versus 1.93/2.04 ms, 68.9%/70.6% under the main/stable pins), and three fresh
-`/usr/bin/time -l` native rounds peak at 119,013,376 bytes against frozen pin peaks of
+median 0.88 ms versus 1.93/2.04 ms, navigation press 3.58 ms versus 51.95/53.22 ms), and three
+fresh `/usr/bin/time -l` native rounds peak at 119,865,344 bytes against frozen pin peaks of
 613,482,496 and 591,872,000 bytes, so the paired 10% latency gate and the no-peak-memory
 regression requirement pass on this host. Non-macOS execution, remote signing/provenance, and
 external installer/update evidence remain release gates rather than being inferred from the
