@@ -767,6 +767,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             [
                 "workdeck.app.openAgentSkill",
+                "workdeck.review.focusFilter",
                 "workdeck.review.alignCurrentLineTop",
                 "workdeck.review.alignCurrentLineCenter",
                 "workdeck.review.alignCurrentLineBottom",
@@ -796,6 +797,13 @@ mod tests {
             .iter()
             .map(|command| command.id.to_owned())
             .collect::<Vec<_>>();
+        // Bundled commands are remappable under the same `workdeck.` owner, so
+        // the documented table lists them beside the catalog.
+        runtime.extend(
+            crate::bundled_search_command_defaults()
+                .into_iter()
+                .map(|entry| entry.id),
+        );
         runtime.sort();
         assert_eq!(documented, runtime);
     }

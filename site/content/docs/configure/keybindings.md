@@ -10,7 +10,7 @@ Every keyboard shortcut is a named command. A `[keybindings]` table in `~/.confi
 [keybindings]
 "workdeck.app.quit" = "ctrl+x"               # one chord
 "workdeck.review.nextWorkdeck" = ["]", "ctrl+n"] # several chords for one command
-"workdeck.review.focusFilter" = "f"          # takes "f" away from page-down
+"workdeck.review.focusFilter" = "/"          # takes "/" back from content search
 "workdeck.view.toggleMenuBar" = false        # unbind it entirely
 "myext.toggle" = "ctrl+g"                # extension commands too
 ```
@@ -20,7 +20,7 @@ Every id starts with the name of whoever owns the command: Workdeck's own comman
 ## Rules
 
 - **User bindings replace defaults.** The chords you list are the complete set of keys that command answers to.
-- **A key you bind is yours.** Any command holding the same chord only as a default gives it up and keeps its other keys.
+- **A key you bind is yours.** Any command holding the same chord only as a default gives it up and keeps its remaining keys. Above, `workdeck.search.find` loses `/` and the filter — which ships unbound — takes it.
 - **`false` (or `[]`) unbinds a command**, leaving its keys doing nothing.
 - Two entries claiming one chord is a conflict: the first in the file wins and the session reports the other. Unknown ids and unusable chords are reported the same way, and the rest of the table still applies.
 

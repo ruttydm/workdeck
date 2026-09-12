@@ -15,10 +15,14 @@ Extensions are discovered in deterministic groups:
 4. repository paths under `.workdeck/extensions` and its repository config,
    after a fresh trust decision.
 
-Bundled Git, Jujutsu, Sapling, and file-navigation providers are compiled into
-the distribution. They are implicitly trusted, load before user configuration,
-and remain available when `--no-extensions` is supplied. User and repository
-extensions are never inferred from a source-language file or a package manager.
+Bundled Git, Jujutsu, Sapling, file-navigation, and content-search providers
+are compiled into the distribution. They are implicitly trusted, load before
+user configuration, and remain available when `--no-extensions` is supplied.
+The bundled `/` search registers its commands and line highlighter through the
+same process-cached bundled UI registry as the files pane; the TUI composes
+that tier ahead of user registrations, so it can never be shadowed and stays
+active without user extensions. User and repository extensions are never
+inferred from a source-language file or a package manager.
 
 An extension id owns the namespaces `<id>.<command>`, `<id>:<pane>`,
 `<id>:<view>`, and `[extension.<id>]`. The host validates ids centrally,

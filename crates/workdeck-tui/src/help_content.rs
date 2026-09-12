@@ -79,6 +79,14 @@ const NAVIGATION: &[HelpEntrySpec] = &[
         description: "previous / next comment",
     },
     HelpEntrySpec {
+        keys: HelpEntryKeys::Commands(&["workdeck.search.find"]),
+        description: "search diff content",
+    },
+    HelpEntrySpec {
+        keys: HelpEntryKeys::Commands(&["workdeck.search.next", "workdeck.search.previous"]),
+        description: "next / previous search match",
+    },
+    HelpEntrySpec {
         keys: HelpEntryKeys::Commands(&[
             "workdeck.review.scrollCodeLeft",
             "workdeck.review.scrollCodeRight",
@@ -211,6 +219,9 @@ pub const HELP_COMMAND_IDS: &[&str] = &[
     "workdeck.review.nextFile",
     "workdeck.review.previousAnnotatedHunk",
     "workdeck.review.nextAnnotatedHunk",
+    "workdeck.search.find",
+    "workdeck.search.next",
+    "workdeck.search.previous",
     "workdeck.review.scrollCodeLeft",
     "workdeck.review.scrollCodeRight",
     "workdeck.review.jumpToTop",
@@ -332,7 +343,10 @@ pub fn default_help_commands() -> Vec<HelpCommand> {
         ("workdeck.view.toggleHunkHeaders", &["m"], true),
         ("workdeck.view.toggleMenuBar", &["M"], true),
         ("workdeck.review.editSelectedFile", &["e"], true),
-        ("workdeck.review.focusFilter", &["/"], true),
+        ("workdeck.review.focusFilter", &[], true),
+        ("workdeck.search.find", &["/"], true),
+        ("workdeck.search.next", &["n"], true),
+        ("workdeck.search.previous", &["N"], true),
         ("workdeck.review.startNote", &["c"], true),
         ("workdeck.review.editActiveNote", &["E"], false),
         ("workdeck.review.replyToActiveNote", &["R"], false),

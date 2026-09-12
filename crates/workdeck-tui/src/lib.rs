@@ -11,6 +11,7 @@ mod agent_skill_dialog;
 mod app_commands;
 mod app_host;
 mod app_menus;
+mod bundled_search;
 mod code_cell_view;
 mod code_row_layout;
 mod code_row_view;
@@ -129,6 +130,11 @@ pub use agent_skill_dialog::*;
 pub use app_commands::*;
 pub use app_host::*;
 pub use app_menus::*;
+pub use bundled_search::{
+    BundledSearchCommand, BundledSearchCommandView, BundledSearchRuntime, PendingBundledSearch,
+    bundled_search_command_claims, bundled_search_command_defaults, bundled_search_command_views,
+    dispatch_bundled_search_command,
+};
 pub use code_cell_view::*;
 pub use code_row_layout::*;
 pub use code_row_view::*;
@@ -251,9 +257,10 @@ use workdeck_diff::{
     wrap_segments,
 };
 use workdeck_extension_api::{
-    ExtensionCommandAvailability, ExtensionCurrentLinePaint as ExtensionCurrentLinePaintContext,
-    ExtensionFileSide, ExtensionFileViewContext, ExtensionHostAction, ExtensionKeyEvent,
-    ExtensionLayoutMode, ExtensionLifecycleEvent, ExtensionNotification, ExtensionNotificationHub,
+    BUNDLED_SEARCH_HIGHLIGHTER_ID, ExtensionCommandAvailability,
+    ExtensionCurrentLinePaint as ExtensionCurrentLinePaintContext, ExtensionFileSide,
+    ExtensionFileViewContext, ExtensionHostAction, ExtensionKeyEvent, ExtensionLayoutMode,
+    ExtensionLifecycleEvent, ExtensionNotification, ExtensionNotificationHub,
     ExtensionNotificationSubscription, ExtensionNotifyType, ExtensionPaintTheme, ExtensionPaneView,
     ExtensionPromptLineChange, ExtensionPromptLineCompletion, ExtensionResolvedKeybindings,
     ExtensionResolvedLayout, ExtensionReviewNote, ExtensionStatusAlignment, ExtensionStatusTone,
@@ -261,9 +268,10 @@ use workdeck_extension_api::{
     ExtensionWorkspaceWriteResult, FileLanguageGlobTarget, FileLanguageMatcher,
     FileViewModeKeyRequest, FileViewModeLifecycleRequest, KeyRoutingResult,
     KeyboardModeRegistration, PaneActionInvocation, PaneAvailabilityRequest, PaneInputInvocation,
-    PanePlacement, PaneRegistration, PaneRenderRequest, Registration, ReviewEvent,
-    SessionReloadReason, ViewNode, ViewStyle, WORKDECK_FILES_PANE_KEY, bundled_files_pane,
-    extension_pane_size, file_view_unavailable_reason,
+    PanePlacement, PaneRegistration, PaneRenderRequest, Registration, ReviewEvent, SearchOutcome,
+    SearchSession, SearchSessionOptions, SessionReloadReason, ViewNode, ViewStyle,
+    WORKDECK_FILES_PANE_KEY, WORKDECK_VENDOR_EXTENSION_ID, bundled_files_pane, extension_pane_size,
+    file_view_unavailable_reason, format_outcome_spans,
 };
 use workdeck_extension_host::{
     ActiveSessionKeyboardMode, EXTENSION_SHUTDOWN_TIMEOUT,
@@ -967,6 +975,19 @@ impl ExtensionPaneRuntime {
                 .filter(|key| key.as_str() != WORKDECK_FILES_PANE_KEY)
                 .cloned(),
         );
+        // Compose the bundled search highlighter ahead of the user registry's,
+        // mirroring Hunk's bundled-first session composition: the vendor tier
+        // cannot be shadowed and stays active under `--no-extensions`. Its
+        // runtime rides one slot past the subprocess list, where
+        // `prepare_extension_line_highlights` appends it.
+        line_highlighters.insert(
+            0,
+            RegisteredLineHighlighter::new(
+                extensions.len(),
+                WORKDECK_VENDOR_EXTENSION_ID.to_owned(),
+                BUNDLED_SEARCH_HIGHLIGHTER_ID,
+            ),
+        );
         Self {
             extensions,
             panes,
@@ -1211,6 +1232,12 @@ pub struct ReviewApp {
     status_line: StatusLineStore,
     /// Store id of the host's own filter prompt, when it is open.
     filter_prompt_id: Option<u64>,
+    /// Process-wide session of the bundled `/` content search.
+    search_session: Arc<Mutex<SearchSession>>,
+    /// The same session's face for the shared line-highlight pipeline.
+    search_runtime: Arc<BundledSearchRuntime>,
+    /// Context frozen when `/` opened, delivered when its prompt settles.
+    pending_bundled_search: Option<PendingBundledSearch>,
     /// Edit cursor for the current extension-owned inline prompt.
     status_prompt_cursor: usize,
     status_prompt_scroll: Cell<usize>,
@@ -1413,7 +1440,17 @@ impl ReviewApp {
             options.pager,
             options.pending_extension_trust_repo_root.as_deref(),
         );
+        // The bundled search session is process-wide, like Hunk's bundled
+        // factories: it runs once, owns no review, and stays active under
+        // `--no-extensions`.
+        let search_session = Arc::new(Mutex::new(SearchSession::new(
+            SearchSessionOptions::default(),
+        )));
+        let search_runtime = Arc::new(BundledSearchRuntime::new(Arc::clone(&search_session)));
         let mut command_defaults = builtin_command_key_defaults();
+        // Bundled commands compose after the built-ins and before user extension
+        // commands, so their defaults are remappable under the same rules.
+        command_defaults.extend(bundled_search_command_defaults());
         command_defaults.extend(extension_command_key_defaults(
             &extension_pane_runtime.commands,
         ));
@@ -1422,6 +1459,7 @@ impl ReviewApp {
             &extension_pane_runtime.commands,
             &builtin_command_match_probes(Some(&resolved_command_keys)),
             Some(&resolved_command_keys),
+            &bundled_search_command_claims(&resolved_command_keys),
         );
         extension_pane_runtime.app_commands = extension_command_table.commands;
         extension_pane_runtime.command_conflicts = extension_command_table.conflicts;
@@ -1520,6 +1558,9 @@ impl ReviewApp {
             filter_scroll: Cell::new(0),
             status_line: StatusLineStore::new(),
             filter_prompt_id: None,
+            search_session: Arc::clone(&search_session),
+            search_runtime,
+            pending_bundled_search: None,
             status_prompt_cursor: 0,
             status_prompt_scroll: Cell::new(0),
             status_prompt_last_id: None,
@@ -2216,6 +2257,7 @@ impl ReviewApp {
         self.exit_active_keyboard_mode();
         self.exit_active_file_view_mode();
         let mut command_defaults = builtin_command_key_defaults();
+        command_defaults.extend(bundled_search_command_defaults());
         command_defaults.extend(extension_command_key_defaults(&replacement.commands));
         self.resolved_command_keys =
             resolve_command_keys(&command_defaults, &self.options.keybindings);
@@ -2223,6 +2265,7 @@ impl ReviewApp {
             &replacement.commands,
             &builtin_command_match_probes(Some(&self.resolved_command_keys)),
             Some(&self.resolved_command_keys),
+            &bundled_search_command_claims(&self.resolved_command_keys),
         );
         replacement.app_commands = extension_command_table.commands;
         replacement.command_conflicts = extension_command_table.conflicts;
@@ -2807,6 +2850,16 @@ impl ReviewApp {
             self.apply_builtin_command_action(dispatch.action);
             self.publish_extension_lifecycle_event(ExtensionLifecycleEvent::CommandExecuted {
                 command_id: command_id.into(),
+            });
+            return;
+        }
+        if let Some(command) =
+            dispatch_bundled_search_command(&self.resolved_command_keys, &live_key)
+        {
+            self.close_app_menu();
+            self.run_bundled_search_command(command);
+            self.publish_extension_lifecycle_event(ExtensionLifecycleEvent::CommandExecuted {
+                command_id: command.full_id().into(),
             });
             return;
         }
@@ -3773,6 +3826,9 @@ impl ReviewApp {
         if self.options.cursor_line == CursorLineMode::Off {
             selection.current_line = None;
         }
+        // `selection.files` stays empty in the committed bridge: the projection
+        // is deliberately deferred. Command invocation sites fill it with the
+        // visible list the moment a context is actually frozen.
         self.extension_runtime_bridge
             .commit(ExtensionRuntimeCommit {
                 registry_generation: self.extension_registry_generation,
@@ -3784,6 +3840,36 @@ impl ReviewApp {
                 selected_file_id,
                 commands: self.extension_command_availability(),
             });
+    }
+
+    /// The visible files in review order, as a frozen command context carries them.
+    ///
+    /// Materializes the shared projection once per document; commands are
+    /// user-initiated, so paying that cost at invocation keeps every render free
+    /// of it.
+    fn visible_extension_files(&self) -> Vec<workdeck_extension_api::ExtensionDiffFile> {
+        let (projection, visible_ids) = self.with_state(|state| {
+            let projection = self
+                .extension_file_projection_cache
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .get(state.changeset_snapshot());
+            let visible_ids = state
+                .changeset()
+                .files
+                .iter()
+                .filter(|file| diff_file_matches_filter(file, &self.filter))
+                .map(|file| file.runtime_id.clone())
+                .collect::<Vec<_>>();
+            (projection, visible_ids)
+        });
+        let visible_ids = visible_ids.iter().collect::<BTreeSet<_>>();
+        projection
+            .resolve()
+            .iter()
+            .filter(|file| visible_ids.contains(&file.id))
+            .cloned()
+            .collect()
     }
 
     fn app_menus(&self) -> AppMenus {
@@ -3843,6 +3929,19 @@ impl ReviewApp {
             )
         };
         commands.extend(extension_commands.iter().cloned());
+        // Bundled search commands sit in the menus that name them — Navigate —
+        // before the user-extension tier, so `to_menu_entries` resolves them by
+        // id exactly like the built-ins.
+        commands.extend(
+            bundled_search_command_views(&self.resolved_command_keys)
+                .into_iter()
+                .map(|view| AppMenuCommand {
+                    id: view.id.into(),
+                    title: view.title.into(),
+                    key_labels: view.key_labels,
+                    enabled: true,
+                }),
+        );
         let file_view_apply_all_label = file_presentations
             .bulk_target
             .as_ref()
@@ -4016,14 +4115,27 @@ impl ReviewApp {
     }
 
     fn help_commands(&self) -> Vec<HelpCommand> {
-        self.builtin_commands()
+        let mut commands = self
+            .builtin_commands()
             .into_iter()
             .map(|command| HelpCommand {
                 id: command.id.into(),
                 key_labels: command.key_labels,
                 enabled: command.enabled,
             })
-            .collect()
+            .collect::<Vec<_>>();
+        // Bundled search commands advertise through the same resolved keymap as
+        // the built-ins, so help reflects remaps like every other row.
+        commands.extend(
+            bundled_search_command_views(&self.resolved_command_keys)
+                .into_iter()
+                .map(|view| HelpCommand {
+                    id: view.id.into(),
+                    key_labels: view.key_labels,
+                    enabled: true,
+                }),
+        );
+        commands
     }
 
     fn apply_builtin_command_action(&mut self, action: AppCommandAction) {
@@ -4738,7 +4850,10 @@ impl ReviewApp {
         self.commit_extension_runtime_bridge();
         let command_epoch = self.extension_command_epoch;
         let committed = self.extension_runtime_bridge.committed_review();
-        let selection = self.extension_runtime_bridge.get_selection();
+        let mut selection = self.extension_runtime_bridge.get_selection();
+        // Freeze the visible files into the context, exactly as the selection
+        // itself is frozen at invocation.
+        selection.files = self.visible_extension_files();
         let review_controls = self.extension_runtime_bridge.create_review_controls();
         let files = self.with_state(|state| state.changeset_snapshot());
         let workspace = self
@@ -4839,6 +4954,127 @@ impl ReviewApp {
                 )));
         }
         self.start_queued_extension_requests(Some(command.extension_index));
+    }
+
+    /// Run one bundled search command against the process-wide session.
+    ///
+    /// `/` opens the status-line prompt prefilled with the last query; `n` / `N`
+    /// repeat it from the live selection. Every command hands the session the
+    /// visible files from its frozen context, never a closed-over review.
+    fn run_bundled_search_command(&mut self, command: BundledSearchCommand) {
+        self.commit_extension_runtime_bridge();
+        let mut selection = self.extension_runtime_bridge.get_selection();
+        selection.files = self.visible_extension_files();
+        match command {
+            BundledSearchCommand::Find => {
+                let initial = self
+                    .search_session
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .query()
+                    .unwrap_or_default()
+                    .to_owned();
+                let opened = self.status_line.open_prompt(
+                    bundled_search::bundled_search_prompt_options(&initial),
+                    bundled_search::bundled_search_prompt_request_options(),
+                    bundled_search::bundled_search_prompt_owner(),
+                );
+                if opened.is_some() {
+                    self.status_prompt_cursor = initial.chars().count();
+                    self.status_prompt_last_id = None;
+                    // The selection is frozen at `/`, so the search starts from
+                    // where it was pressed.
+                    self.pending_bundled_search = Some(PendingBundledSearch {
+                        position: bundled_search::bundled_search_position(&selection),
+                        files: selection.files.clone(),
+                    });
+                }
+            }
+            BundledSearchCommand::Next | BundledSearchCommand::Previous => {
+                let direction = match command {
+                    BundledSearchCommand::Next => workdeck_extension_api::SearchDirection::Forward,
+                    _ => workdeck_extension_api::SearchDirection::Backward,
+                };
+                let position = bundled_search::bundled_search_position(&selection);
+                let outcome = self
+                    .search_session
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .repeat(direction, &selection.files, &position);
+                self.deliver_bundled_search_outcome(outcome);
+            }
+        }
+    }
+
+    /// Resolve the `/` prompt: a cancelled prompt keeps the search, an emptied
+    /// submit ends it, and a query runs and lands.
+    fn settle_bundled_search_prompt(&mut self, answer: Option<String>) {
+        let Some(pending) = self.pending_bundled_search.take() else {
+            return;
+        };
+        let Some(query) = answer else {
+            return;
+        };
+        if query.trim().is_empty() {
+            // Submitting an emptied prompt is the way out of a search: marks and
+            // the status item go with the query rather than reserving the row.
+            self.search_session
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clear();
+            self.refresh_bundled_search_marks();
+            self.status_line
+                .clear_item(&bundled_search::bundled_search_status_item_key());
+            return;
+        }
+        let outcome = self
+            .search_session
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .search(&query, &pending.files, &pending.position);
+        self.deliver_bundled_search_outcome(outcome);
+    }
+
+    /// Apply one search outcome: navigate on a hit, re-derive marks, and
+    /// report on the status row.
+    fn deliver_bundled_search_outcome(&mut self, outcome: SearchOutcome) {
+        if let SearchOutcome::Moved { target, .. } = &outcome {
+            match target.line.line_number {
+                Some(line) => self.reveal_extension_review_line(
+                    WORKDECK_VENDOR_EXTENSION_ID,
+                    &target.file_id,
+                    bundled_search::bundled_search_side(target.line.side),
+                    line,
+                ),
+                None => self.select_extension_review_hunk(
+                    WORKDECK_VENDOR_EXTENSION_ID,
+                    &target.file_id,
+                    target.hunk_index,
+                ),
+            }
+        }
+        self.refresh_bundled_search_marks();
+        self.status_line
+            .set_item(bundled_search::bundled_search_status_item(
+                format_outcome_spans(&outcome),
+            ));
+    }
+
+    /// Ask the highlight pipeline to re-derive the session's marks.
+    fn refresh_bundled_search_marks(&mut self) {
+        let result = self
+            .extension_pane_runtime
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .line_highlights
+            .refresh(
+                WORKDECK_VENDOR_EXTENSION_ID,
+                BUNDLED_SEARCH_HIGHLIGHTER_ID,
+                None,
+            );
+        if let LineHighlightRefreshResult::UnknownHighlighter = result {
+            self.status = Some("bundled search line highlighter is not registered".to_owned());
+        }
     }
 
     /// Apply every ready native command/event result without blocking the Ratatui event loop.
@@ -5797,6 +6033,9 @@ impl ReviewApp {
                 if self.focus == Focus::Filter {
                     self.focus = Focus::Review;
                 }
+            }
+            StatusPromptOwner::Vendor => {
+                self.settle_bundled_search_prompt(answer);
             }
             StatusPromptOwner::Extension {
                 extension_index,
@@ -8040,7 +8279,7 @@ impl ReviewApp {
         let annotations =
             saved_extension_annotations(changeset, comments, self.options.agent_notes);
         let files = public_review::merge_file_annotations_borrowed(&changeset.files, &annotations);
-        let extensions = runtime
+        let mut extensions = runtime
             .extensions
             .iter()
             .cloned()
@@ -8051,6 +8290,9 @@ impl ReviewApp {
                 }) as Arc<dyn LineHighlightRuntime>
             })
             .collect::<Vec<_>>();
+        // The bundled search highlighter rides the slot its registration claimed:
+        // one past the subprocess list, composed ahead of it in registration order.
+        extensions.push(Arc::clone(&self.search_runtime) as Arc<dyn LineHighlightRuntime>);
         let filter_changed = runtime
             .line_highlight_preparation
             .set_stream_filter(&self.filter);
@@ -8765,6 +9007,16 @@ impl ReviewApp {
             });
             return true;
         }
+        if let Some(command) =
+            dispatch_bundled_search_command(&self.resolved_command_keys, &live_key)
+        {
+            self.close_app_menu();
+            self.run_bundled_search_command(command);
+            self.publish_extension_lifecycle_event(ExtensionLifecycleEvent::CommandExecuted {
+                command_id: command.full_id().into(),
+            });
+            return true;
+        }
         if self.invoke_extension_command(key) {
             self.close_app_menu();
             return true;
@@ -8806,6 +9058,13 @@ impl ReviewApp {
             self.apply_builtin_command_action(dispatch.action);
             self.publish_extension_lifecycle_event(ExtensionLifecycleEvent::CommandExecuted {
                 command_id: command_id.into(),
+            });
+            return;
+        }
+        if let Some(command) = bundled_search::BundledSearchCommand::from_full_id(command_id) {
+            self.run_bundled_search_command(command);
+            self.publish_extension_lifecycle_event(ExtensionLifecycleEvent::CommandExecuted {
+                command_id: command.full_id().into(),
             });
             return;
         }
@@ -10196,6 +10455,31 @@ impl ReviewApp {
         rows
     }
 
+    /// Whether any registered line highlighter can currently paint marks.
+    ///
+    /// An idle bundled search paints nothing — no query means no marks — so it
+    /// must not defeat the geometry caches the way a user highlighter does.
+    fn active_line_highlighters_prevent_geometry_caching(
+        &self,
+        runtime: &ExtensionPaneRuntime,
+    ) -> bool {
+        let search_idle = self
+            .search_session
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .query()
+            .is_none();
+        runtime
+            .line_highlights
+            .registrations()
+            .iter()
+            .any(|registration| {
+                !(search_idle
+                    && registration.extension_id == WORKDECK_VENDOR_EXTENSION_ID
+                    && registration.highlighter_id == BUNDLED_SEARCH_HIGHLIGHTER_ID)
+            })
+    }
+
     fn review_geometry_cache_key(
         &self,
         state: &ReviewState,
@@ -10222,7 +10506,7 @@ impl ReviewApp {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         if !runtime.extensions.is_empty()
             || !runtime.file_views.is_empty()
-            || !runtime.line_highlights.registrations().is_empty()
+            || self.active_line_highlighters_prevent_geometry_caching(&runtime)
             || !runtime.file_view_component_expanded.is_empty()
         {
             return None;
@@ -10259,7 +10543,7 @@ impl ReviewApp {
             if state.comments().is_empty()
                 && runtime.extensions.is_empty()
                 && runtime.file_views.is_empty()
-                && runtime.line_highlights.registrations().is_empty()
+                && !self.active_line_highlighters_prevent_geometry_caching(&runtime)
                 && let Some(cached) = self
                     .review_plain_height
                     .lock()
@@ -22589,6 +22873,7 @@ mod tests {
             &registrations,
             &builtin_command_match_probes(Some(&app.resolved_command_keys)),
             Some(&app.resolved_command_keys),
+            &bundled_search_command_claims(&app.resolved_command_keys),
         );
         {
             let mut runtime = app
@@ -23891,10 +24176,16 @@ mod tests {
 
         #[test]
         fn slash_filter_reaches_a_file_beyond_the_initial_viewport() {
+            // `/` ships on content search; the documented one-liner hands it
+            // back to the filter for this fixture.
             let mut app = ReviewApp::new(
                 sidebar_jump_navigation_changeset(),
                 ReviewOptions {
                     layout: LayoutMode::Split,
+                    keybindings: vec![UserKeyBindingEntry::new(
+                        "workdeck.review.focusFilter",
+                        UserKeyBinding::Chord("/".into()),
+                    )],
                     ..ReviewOptions::default()
                 },
             );
@@ -24136,7 +24427,8 @@ mod tests {
         }
 
         fn type_filter(app: &mut ReviewApp) {
-            press(app, KeyCode::Char('/'));
+            // The filter ships unbound; Tab reaches it.
+            press(app, KeyCode::Tab);
             for ch in "beta".chars() {
                 press(app, KeyCode::Char(ch));
             }
@@ -28498,6 +28790,428 @@ mod tests {
         assert!(settled.contains("filter=beta"), "frame: {settled}");
     }
 
+    // Translated from Hunk AppHost.search.test.tsx and test/pty/
+    // search-integration.test.ts (0a41a761, MIT, Modem Labs Inc.; see
+    // THIRD_PARTY_NOTICES). The search primitives are unit-tested in
+    // workdeck-extension-api; these drive the real review app: the `/` prompt,
+    // landing, repeats, wrap, the status-row report, and the current mark.
+    mod bundled_search {
+        use super::*;
+
+        /// Sixty context lines between the two hunks, so the second sits well
+        /// below the fold of a short terminal.
+        fn filler() -> String {
+            (0..60)
+                .map(|index| format!("const filler{index} = {index};"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        }
+
+        /// Two changed files: alpha has `readConfig` in two separate hunks,
+        /// beta has one.
+        fn search_changeset() -> Changeset {
+            navigation_changeset(vec![
+                (
+                    "alpha.ts".into(),
+                    format!("const top = 1;\n{}\nconst bottom = 2;\n", filler()),
+                    format!(
+                        "const top = readConfig(\"first\");\n{}\nconst bottom = readConfig(\"second\");\n",
+                        filler()
+                    ),
+                ),
+                (
+                    "beta.ts".into(),
+                    "const other = 1;\n".into(),
+                    "const other = readConfig(\"third\");\n".into(),
+                ),
+            ])
+        }
+
+        fn launch(changeset: Changeset) -> (ReviewApp, Terminal<TestBackend>) {
+            let app = ReviewApp::new(
+                changeset,
+                ReviewOptions {
+                    layout: LayoutMode::Stack,
+                    sidebar: false,
+                    highlight: false,
+                    ..ReviewOptions::default()
+                },
+            );
+            let terminal = Terminal::new(TestBackend::new(120, 14)).unwrap();
+            (app, terminal)
+        }
+
+        fn type_text(app: &mut ReviewApp, text: &str) {
+            for character in text.chars() {
+                app.handle_key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
+            }
+        }
+
+        fn press_key(app: &mut ReviewApp, code: KeyCode) {
+            app.handle_key(KeyEvent::new(code, KeyModifiers::NONE));
+        }
+
+        /// Terminals report capital letters with Shift held.
+        fn press_shifted(app: &mut ReviewApp, character: char) {
+            app.handle_key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::SHIFT));
+        }
+
+        /// Render until a condition holds, and fail loudly when it never does.
+        fn frame_until(
+            terminal: &mut Terminal<TestBackend>,
+            app: &ReviewApp,
+            describe: &str,
+            predicate: impl Fn(&str) -> bool,
+        ) -> String {
+            let deadline = Instant::now() + Duration::from_secs(4);
+            loop {
+                let frame = rendered_review_frame(terminal, app);
+                if predicate(&frame) {
+                    return frame;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "timed out waiting for {describe}:\n{frame}"
+                );
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+
+        /// Whether the highlight pipeline has published a current-tone mark for
+        /// one file yet. Marks are prepared after the landing paints, so poll.
+        fn current_mark_landed(app: &ReviewApp, file_id: &str) -> bool {
+            app.published_extension_line_highlights()
+                .get(file_id)
+                .is_some_and(|marks| {
+                    marks
+                        .iter()
+                        .any(|mark| mark.tone == workdeck_extension_api::HighlightTone::Current)
+                })
+        }
+
+        fn wait_for_current_mark(
+            terminal: &mut Terminal<TestBackend>,
+            app: &ReviewApp,
+            file_id: &str,
+        ) {
+            let deadline = Instant::now() + Duration::from_secs(4);
+            while !current_mark_landed(app, file_id) {
+                rendered_review_frame(terminal, app);
+                assert!(
+                    Instant::now() < deadline,
+                    "current search mark never landed for {file_id}"
+                );
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+
+        fn open_prompt(terminal: &mut Terminal<TestBackend>, app: &mut ReviewApp) {
+            press_key(app, KeyCode::Char('/'));
+            frame_until(terminal, app, "the search prompt to open", |frame| {
+                status_row(frame).trim_start().starts_with('/')
+            });
+        }
+
+        fn submit(app: &mut ReviewApp) {
+            press_key(app, KeyCode::Enter);
+        }
+
+        /// Open the prompt with an empty buffer, clearing a prefilled query first.
+        fn open_empty_prompt(terminal: &mut Terminal<TestBackend>, app: &mut ReviewApp) {
+            open_prompt(terminal, app);
+            if !status_row(&rendered_review_frame(terminal, app))
+                .trim_start()
+                .starts_with("/ search diff")
+            {
+                press_key(app, KeyCode::Esc);
+                frame_until(
+                    terminal,
+                    app,
+                    "escape to clear the prefilled query",
+                    |frame| status_row(frame).trim_start().starts_with("/ search diff"),
+                );
+            }
+        }
+
+        /// Forget any search a previous test left behind.
+        fn clear_search(terminal: &mut Terminal<TestBackend>, app: &mut ReviewApp) {
+            open_empty_prompt(terminal, app);
+            submit(app);
+            frame_until(
+                terminal,
+                app,
+                "the emptied submit to close the prompt",
+                |frame| {
+                    !status_row(frame).trim_start().starts_with('/')
+                        && !status_row(frame).contains("No match")
+                },
+            );
+        }
+
+        #[test]
+        fn slash_prompts_enter_lands_and_n_and_capital_n_step_wrap_and_report() {
+            let (mut app, mut terminal) = launch(search_changeset());
+            let alpha_id = app.with_state(|state| state.changeset().files[0].runtime_id.clone());
+            let initial = rendered_review_frame(&mut terminal, &app);
+            assert!(initial.contains("alpha.ts"));
+            // The second match sits below the fold, so a landing there scrolls.
+            assert!(initial.contains("readConfig(\"first\")"));
+            assert!(!initial.contains("readConfig(\"second\")"));
+
+            open_empty_prompt(&mut terminal, &mut app);
+            let opened = rendered_review_frame(&mut terminal, &app);
+            assert!(
+                status_row(&opened).contains("/ search diff"),
+                "frame: {opened}"
+            );
+            // The prompt shows no `ext` attribution: bundled search is
+            // Workdeck's own UI.
+            assert!(!status_row(&opened).contains("ext"));
+
+            // Smart case: the lowercase query matches `readConfig`. The review
+            // opens on alpha's first hunk, and a search steps strictly forward,
+            // so the first landing is alpha's second hunk — below the fold,
+            // revealed near the top of the viewport.
+            type_text(&mut app, "readconfig");
+            submit(&mut app);
+            let landed = frame_until(
+                &mut terminal,
+                &app,
+                "the first landing to report",
+                |frame| status_row(frame).contains("[2/3] alpha.ts:62"),
+            );
+            assert!(
+                status_row(&landed).contains("— const bottom = readConfig(\"second\");"),
+                "frame: {landed}"
+            );
+            let row = landed
+                .lines()
+                .position(|line| line.contains("readConfig(\"second\")"))
+                .expect("landed match visible");
+            assert!(row > 0 && row < 8, "row {row}: {landed}");
+            wait_for_current_mark(&mut terminal, &app, &alpha_id);
+
+            press_key(&mut app, KeyCode::Char('n'));
+            frame_until(&mut terminal, &app, "n to land on beta", |frame| {
+                status_row(frame).contains("[3/3] beta.ts:1")
+            });
+
+            press_key(&mut app, KeyCode::Char('n'));
+            let wrapped = frame_until(
+                &mut terminal,
+                &app,
+                "n to wrap back to the first match",
+                |frame| {
+                    status_row(frame).contains("[1/3] alpha.ts:1")
+                        && status_row(frame).contains("wrapped")
+                },
+            );
+            assert!(
+                status_row(&wrapped).contains("— const top = readConfig(\"first\");"),
+                "frame: {wrapped}"
+            );
+
+            press_shifted(&mut app, 'N');
+            frame_until(
+                &mut terminal,
+                &app,
+                "N to wrap back to the last match",
+                |frame| {
+                    status_row(frame).contains("[3/3] beta.ts:1")
+                        && status_row(frame).contains("wrapped")
+                },
+            );
+            press_shifted(&mut app, 'N');
+            frame_until(
+                &mut terminal,
+                &app,
+                "N to step back without wrapping",
+                |frame| {
+                    status_row(frame).contains("[2/3] alpha.ts:62")
+                        && !status_row(frame).contains("wrapped")
+                },
+            );
+        }
+
+        #[test]
+        fn a_miss_a_repeat_before_any_search_and_an_emptied_prompt_each_report_themselves() {
+            let (mut app, mut terminal) = launch(search_changeset());
+            let beta_id = app.with_state(|state| state.changeset().files[1].runtime_id.clone());
+            rendered_review_frame(&mut terminal, &app);
+            clear_search(&mut terminal, &mut app);
+
+            press_key(&mut app, KeyCode::Char('n'));
+            frame_until(
+                &mut terminal,
+                &app,
+                "n before any search to say so",
+                |frame| status_row(frame).contains("No search yet — press / to search"),
+            );
+
+            open_empty_prompt(&mut terminal, &mut app);
+            type_text(&mut app, "zzz");
+            submit(&mut app);
+            frame_until(&mut terminal, &app, "the miss to report", |frame| {
+                status_row(frame).contains("No match for \"zzz\"")
+            });
+
+            // Reopening shows the last query; Escape clears the buffer, and
+            // submitting the emptied prompt drops the search and its item.
+            open_prompt(&mut terminal, &mut app);
+            frame_until(&mut terminal, &app, "the last query to prefill", |frame| {
+                status_row(frame).contains("/ zzz")
+            });
+            press_key(&mut app, KeyCode::Esc);
+            frame_until(&mut terminal, &app, "escape to clear the buffer", |frame| {
+                status_row(frame).trim_start().starts_with("/ search diff")
+            });
+            submit(&mut app);
+            frame_until(
+                &mut terminal,
+                &app,
+                "the emptied submit to clear the status item",
+                |frame| {
+                    !frame.contains("No match") && !status_row(frame).trim_start().starts_with('/')
+                },
+            );
+            assert!(!current_mark_landed(&app, &beta_id));
+
+            press_key(&mut app, KeyCode::Char('n'));
+            frame_until(
+                &mut terminal,
+                &app,
+                "the cleared search to report no query",
+                |frame| status_row(frame).contains("No search yet"),
+            );
+        }
+
+        #[test]
+        fn the_search_prompt_preserves_trailing_whitespace_when_searching_and_reopening() {
+            let (mut app, mut terminal) = launch(search_changeset());
+            rendered_review_frame(&mut terminal, &app);
+
+            open_empty_prompt(&mut terminal, &mut app);
+            type_text(&mut app, "readConfig ");
+            submit(&mut app);
+            frame_until(
+                &mut terminal,
+                &app,
+                "the trailing space to matter",
+                |frame| status_row(frame).contains("No match for \"readConfig \""),
+            );
+
+            // Appending after reopening proves the space survived in the
+            // prompt's buffer.
+            open_prompt(&mut terminal, &mut app);
+            type_text(&mut app, "(");
+            submit(&mut app);
+            frame_until(
+                &mut terminal,
+                &app,
+                "the reopened query to retain its space",
+                |frame| status_row(frame).contains("No match for \"readConfig (\""),
+            );
+
+            open_empty_prompt(&mut terminal, &mut app);
+            type_text(&mut app, "   ");
+            submit(&mut app);
+            press_key(&mut app, KeyCode::Char('n'));
+            frame_until(
+                &mut terminal,
+                &app,
+                "a whitespace-only submit to clear the search",
+                |frame| status_row(frame).contains("No search yet"),
+            );
+        }
+
+        #[test]
+        fn escape_twice_leaves_the_search_in_place_and_a_reload_keeps_the_query() {
+            let changeset = search_changeset();
+            let (mut app, mut terminal) = launch(changeset.clone());
+            let alpha_id = app.with_state(|state| state.changeset().files[0].runtime_id.clone());
+
+            open_empty_prompt(&mut terminal, &mut app);
+            type_text(&mut app, "readConfig");
+            submit(&mut app);
+            frame_until(
+                &mut terminal,
+                &app,
+                "the first landing to report",
+                |frame| status_row(frame).contains("[2/3] alpha.ts:62"),
+            );
+
+            open_prompt(&mut terminal, &mut app);
+            frame_until(&mut terminal, &app, "the query to prefill", |frame| {
+                status_row(frame).contains("/ readConfig")
+            });
+            press_key(&mut app, KeyCode::Esc);
+            frame_until(
+                &mut terminal,
+                &app,
+                "the first escape to clear the buffer",
+                |frame| status_row(frame).trim_start().starts_with("/ search diff"),
+            );
+            press_key(&mut app, KeyCode::Esc);
+            frame_until(
+                &mut terminal,
+                &app,
+                "the cancelled prompt to leave the last landing reported",
+                |frame| {
+                    !status_row(frame).trim_start().starts_with('/')
+                        && status_row(frame).contains("[2/3]")
+                },
+            );
+            wait_for_current_mark(&mut terminal, &app, &alpha_id);
+
+            // A content reload rebuilds the visible files; `n` re-matches the
+            // kept query from the live selection, which the landing left on
+            // alpha's second hunk.
+            app.reload(changeset);
+            frame_until(&mut terminal, &app, "the review to reload", |frame| {
+                frame.contains("alpha.ts")
+            });
+            press_key(&mut app, KeyCode::Char('n'));
+            frame_until(
+                &mut terminal,
+                &app,
+                "n after the reload to step the kept query",
+                |frame| status_row(frame).contains("[3/3] beta.ts:1"),
+            );
+        }
+
+        #[test]
+        fn a_filtered_out_file_is_never_a_target_and_tab_still_opens_the_filter() {
+            let (mut app, mut terminal) = launch(search_changeset());
+            rendered_review_frame(&mut terminal, &app);
+
+            press_key(&mut app, KeyCode::Tab);
+            frame_until(
+                &mut terminal,
+                &app,
+                "tab to open the file filter",
+                |frame| frame.contains("filter: type to filter files"),
+            );
+            type_text(&mut app, "beta");
+            frame_until(&mut terminal, &app, "the filter to hide alpha", |frame| {
+                !frame.contains("alpha.ts")
+            });
+            press_key(&mut app, KeyCode::Tab);
+            frame_until(&mut terminal, &app, "tab to leave the filter", |frame| {
+                !frame.contains("filter: type to filter files")
+            });
+
+            open_empty_prompt(&mut terminal, &mut app);
+            type_text(&mut app, "readConfig");
+            submit(&mut app);
+            frame_until(
+                &mut terminal,
+                &app,
+                "the search to see only the visible file",
+                |frame| status_row(frame).contains("[1/1] beta.ts:1"),
+            );
+        }
+    }
+
     #[test]
     fn repeated_escape_clears_each_retyped_no_match_filter_before_exiting() {
         let oracle: serde_json::Value = serde_json::from_str(include_str!(
@@ -28530,7 +29244,8 @@ mod tests {
 
         let mut app = ReviewApp::new(changeset(), ReviewOptions::default());
         let mut terminal = Terminal::new(TestBackend::new(220, 12)).unwrap();
-        app.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+        // The filter ships unbound; Tab reaches it.
+        app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
         assert_eq!(app.focus, Focus::Filter);
         for character in ['b', '界'] {
             app.handle_key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
@@ -28569,7 +29284,7 @@ mod tests {
         app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert_eq!(app.focus, Focus::Review);
 
-        app.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
         app.handle_key(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE));
         app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         assert_eq!(app.filter, "z");
@@ -28765,7 +29480,8 @@ mod tests {
                     "new\n".into(),
                 )]));
             } else {
-                app.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+                // `/` belongs to content search now; Tab reaches the filter.
+                app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
                 for character in "short.txt".chars() {
                     app.handle_key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
                 }

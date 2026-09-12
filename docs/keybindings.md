@@ -6,7 +6,7 @@ Every keyboard shortcut is a named command. The user-only `[keybindings]` table 
 [keybindings]
 "workdeck.app.quit" = "ctrl+x"               # one chord
 "workdeck.review.nextHunk" = ["]", "ctrl+n"] # several chords for one command
-"workdeck.review.focusFilter" = "f"          # takes f away from page-down
+"workdeck.review.focusFilter" = "/"          # takes "/" back from content search
 "workdeck.view.toggleMenuBar" = false        # unbind it entirely
 "myext.toggle" = "ctrl+g"                    # extension commands too
 ```
@@ -16,8 +16,9 @@ Every ID begins with its owner. Workdeck’s built-ins use `workdeck.`; extensio
 The resolution rules are:
 
 - A user binding replaces all defaults for that command; it is not additive.
-- A chord explicitly claimed by one command is removed from any other command that held it only by default. That old owner keeps its remaining keys.
+- A chord explicitly claimed by one command is removed from any other command that held it only by default. That old owner keeps its remaining keys. Above, `workdeck.search.find` loses `/` and the filter — which ships unbound — takes it.
 - `false` or `[]` unbinds a command without removing its programmatic command ID.
+- Commands that ship without a chord remain one line away: the file filter keeps Tab and the File menu, and one `[keybindings]` entry gives any unbound command a key.
 - When two user entries claim the same chord, the first entry in the file wins. The session reports the conflict, unknown IDs, and unusable chords while applying the rest of the table.
 - A compatibility alias configures its canonical command. The first alias or canonical entry in the file wins if both appear.
 
@@ -39,7 +40,7 @@ Inline saved notes expose Edit, Reply, and, for reply-free user notes, Delete. `
 | `workdeck.review.alignCurrentLineTop` | Align current line to viewport top | _(none)_ |
 | `workdeck.review.editActiveNote` | Edit the active review note | `E` |
 | `workdeck.review.editSelectedFile` | Open the selected file in your editor | `e` |
-| `workdeck.review.focusFilter` | Focus the file filter | `/` |
+| `workdeck.review.focusFilter` | Focus the file filter | _(none)_ |
 | `workdeck.review.halfPageDown` | Scroll down half a page | `d`, `ctrl+d` |
 | `workdeck.review.halfPageUp` | Scroll up half a page | `u`, `ctrl+u` |
 | `workdeck.review.jumpToBottom` | Jump to end | `G`, `end` |
@@ -61,6 +62,9 @@ Inline saved notes expose Edit, Reply, and, for reply-free user notes, Delete. `
 | `workdeck.review.stepDown` | Scroll down one row | `down`, `j` |
 | `workdeck.review.stepUp` | Scroll up one row | `up`, `k` |
 | `workdeck.review.toggleHunkGap` | Expand or collapse selected context | `z` |
+| `workdeck.search.find` | Search diff content | `/` |
+| `workdeck.search.next` | Next search match | `n` |
+| `workdeck.search.previous` | Previous search match | `N` |
 | `workdeck.view.applyFilePresentationToAllMatching` | Apply current file presentation to all matches | _(none)_ |
 | `workdeck.view.cursorLineNumber` | Mark the current line number | _(none)_ |
 | `workdeck.view.cursorLineOff` | Hide the current-line marker | _(none)_ |

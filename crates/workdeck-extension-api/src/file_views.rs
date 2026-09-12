@@ -78,6 +78,12 @@ pub struct ExtensionReviewSelection {
     pub hunk_index: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current_line: Option<ExtensionReviewSelectionLine>,
+    /// The currently visible files in review order: the same frozen views a
+    /// pane's files carry, so a command can act on the whole review the user
+    /// sees without shadow-tracking `changeset_loaded`. `file` is one of these
+    /// entries or `None`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<ExtensionDiffFile>,
 }
 
 /// One added or removed source-line range, inclusive on both ends.

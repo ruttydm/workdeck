@@ -194,9 +194,12 @@ run without installing anything.
 ## Bundled extensions
 
 Every VCS backend Workdeck ships — **Git, Jujutsu, and Sapling** — is an extension,
-and so is the **built-in file-navigation pane**. They live in
+and so are the **built-in file-navigation pane** and the **`/` content search**
+(`workdeck.search.find` / `next` / `previous`, with its match marks and
+status-row report). They live in
 `src/extensions/default/`, are compiled into the binary, and register through
-the same `workdeck.registerVcsAdapter` and `workdeck.registerPane` this guide
+the same `workdeck.registerVcsAdapter`, `workdeck.registerPane`,
+`workdeck.registerCommand`, and `workdeck.registerLineHighlighter` this guide
 documents. There is no private registration path.
 
 Git in particular is the reason: it is the backend that exercises every
@@ -218,7 +221,10 @@ being Workdeck's own code:
 
 Failure isolation still applies to them. The ids `git`, `jj`, and `sl` are
 reserved as a result — see `registerVcsAdapter` below — and so is `workdeck`, the
-id the bundled files pane and every built-in command are named under.
+id the bundled files pane, the bundled `/` content search, and every built-in
+command are named under. Because the bundled search runs once per process with
+no config, it derives its session state from its context
+(`ctx.selection.files`) rather than closing over a review.
 
 ## Trust
 
@@ -1473,6 +1479,13 @@ workdeck.registerCommand(
 `selection.file` is a frozen read-only view, identical to the entries in a
 pane's `files` prop. Extensions only receive visible files, so it is `null`
 when filtering hides the selected file or when no files are visible.
+`selection.files` is every visible file in review order — the same frozen
+views a pane's `files` prop carries — so a command that works across the whole
+review (a content search, a bulk action) reads its corpus here instead of
+shadow-tracking `changeset_loaded`; `selection.file` is one of its entries or
+`null`. The values are captured when the command fires: a handler that still
+awaits something sees the selection it was run from, not wherever the user
+navigated to meanwhile.
 `selection.hunkIndex` is that file's selected workdeck, and `null` whenever `file`
 is — or when the file has no hunks to select. `selection.currentLine` is the
 one-based `{ side, line }` source address carrying the current-line marker, or

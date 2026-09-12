@@ -13,6 +13,7 @@ mod extension_ids;
 mod file_views;
 mod keys;
 mod panes;
+mod search;
 mod status_line;
 mod vcs;
 
@@ -25,6 +26,11 @@ pub use extension_ids::*;
 pub use file_views::*;
 pub use keys::*;
 pub use panes::*;
+/// The bundled extension `/` content search: patch-search primitives, one
+/// process-wide session, and the outcome/status-row vocabulary its commands
+/// report through. The extension-facing halves (`selection.files`, the search
+/// registrations) join the public extension API here.
+pub use search::*;
 pub use status_line::*;
 pub use vcs::*;
 
@@ -2647,7 +2653,28 @@ mod tests {
                 active_view_id: Some("outline".into()),
                 active_mode_id: Some("outline".into()),
             },
-            selection: ExtensionReviewSelection::default(),
+            selection: ExtensionReviewSelection {
+                files: vec![ExtensionDiffFile {
+                    id: "alpha".into(),
+                    path: "src/alpha.ts".into(),
+                    patch: "@@ -1 +1 @@\n-old\n+new\n".into(),
+                    stats: crate::ExtensionDiffStats {
+                        additions: 1,
+                        deletions: 1,
+                    },
+                    previous_path: None,
+                    language: None,
+                    metadata: serde_json::json!({}),
+                    change_type: None,
+                    stats_truncated: false,
+                    hunks: Vec::new(),
+                    agent: None,
+                    is_untracked: false,
+                    is_binary: false,
+                    is_too_large: false,
+                }],
+                ..ExtensionReviewSelection::default()
+            },
         };
         live_selection.file_index = 9;
 
@@ -2663,7 +2690,28 @@ mod tests {
         assert_eq!(encoded["workspace"]["reviewGeneration"], 11);
         assert_eq!(encoded["file_views"]["activeViewId"], "outline");
         assert_eq!(encoded["file_views"]["activeModeId"], "outline");
-        assert_eq!(encoded["selection"], serde_json::json!({}));
+        // The visible files cross the wire in review order; an empty list is
+        // omitted rather than serialized.
+        assert_eq!(
+            encoded["selection"]["files"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|file| file["path"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["src/alpha.ts"]
+        );
+        assert_eq!(
+            encoded["selection"]["files"][0]["patch"],
+            "@@ -1 +1 @@\n-old\n+new\n"
+        );
+        let decoded: CommandInvocation = serde_json::from_value(encoded.clone()).unwrap();
+        assert_eq!(decoded.selection.files.len(), 1);
+        // An empty visible list is omitted rather than serialized.
+        let empty = serde_json::to_value(ExtensionReviewSelection::default()).unwrap();
+        assert_eq!(empty, serde_json::json!({}));
+        let decoded_empty: ExtensionReviewSelection = serde_json::from_value(empty).unwrap();
+        assert!(decoded_empty.files.is_empty());
         assert_eq!(
             encoded["commands"]["enabled"],
             serde_json::json!(["workdeck.review.nextHunk", "workdeck.review.next-hunk"])

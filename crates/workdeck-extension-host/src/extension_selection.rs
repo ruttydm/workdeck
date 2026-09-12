@@ -27,7 +27,12 @@ pub fn build_extension_review_selection(
     let Some(file) = selected_file_id
         .and_then(|selected| files.iter().find(|candidate| candidate.id == selected))
     else {
-        return ExtensionReviewSelection::default();
+        // No selection still carries the corpus: a whole-review command needs
+        // the visible list even when the filter hides the selected file.
+        return ExtensionReviewSelection {
+            files: files.to_vec(),
+            ..ExtensionReviewSelection::default()
+        };
     };
 
     let hunk_index = resolve_hunk_index(file, selected_hunk_index);
@@ -38,6 +43,9 @@ pub fn build_extension_review_selection(
         file: Some(file.clone()),
         hunk_index,
         current_line,
+        // The visible list itself, in review order, so a whole-review command
+        // searches exactly what the user can see.
+        files: files.to_vec(),
     }
 }
 
@@ -58,17 +66,28 @@ pub fn build_extension_review_selection_from_document(
         .files
         .get(selection.file_index)
         .map(|file| file.runtime_id.as_str());
-    let Some(file) = selected_file_id.and_then(|selected| {
-        // Preserve the public resolver's first-match behavior even if a caller
-        // supplies duplicate or empty mounted IDs. Only that file is serialized.
-        changeset
-            .files
-            .iter()
-            .find(|file| file.runtime_id == selected)
-    }) else {
-        return ExtensionReviewSelection::default();
+    // The document is the widest corpus a host can hand a command: every file
+    // in review order. A host that applies a file filter replaces this list
+    // with its own visible projection before the selection crosses the wire.
+    let files = changeset
+        .files
+        .iter()
+        .map(project_extension_diff_file)
+        .collect::<Vec<_>>();
+    let Some(selected) = selected_file_id else {
+        return ExtensionReviewSelection {
+            files,
+            ..ExtensionReviewSelection::default()
+        };
     };
-    let file = project_extension_diff_file(file);
+    // Preserve the public resolver's first-match behavior even if a caller
+    // supplies duplicate or empty mounted IDs.
+    if !files.iter().any(|file| file.id == selected) {
+        return ExtensionReviewSelection {
+            files,
+            ..ExtensionReviewSelection::default()
+        };
+    }
     let line_cursor = selection
         .hunk_index
         .zip(selection.side)
@@ -85,7 +104,7 @@ pub fn build_extension_review_selection_from_document(
             },
         });
     build_extension_review_selection(
-        std::slice::from_ref(&file),
+        &files,
         selected_file_id,
         selection.hunk_index.map(|index| index as f64),
         line_cursor.as_ref(),
@@ -159,19 +178,43 @@ mod tests {
 
     #[test]
     fn resolves_the_selected_file_and_hunk_from_visible_views() {
-        let selection = build_extension_review_selection(&files(), Some("beta"), Some(0.0), None);
-        assert_eq!(selection.file.unwrap().path, "beta.ts");
+        let files = files();
+        let selection = build_extension_review_selection(&files, Some("beta"), Some(0.0), None);
+        assert_eq!(selection.file.as_ref().unwrap().path, "beta.ts");
         assert_eq!(selection.hunk_index, Some(0));
         assert_eq!(selection.current_line, None);
+        assert_eq!(selection.files.len(), files.len());
+        assert_eq!(selection.files[1].id, selection.file.as_ref().unwrap().id);
+    }
+
+    #[test]
+    fn carries_the_visible_files_in_review_order_even_with_no_selection() {
+        // A content search or any whole-review command needs the corpus the
+        // user can see, not the one file under the cursor, and it needs it even
+        // when the filter hides the selection.
+        let files = files();
+        let selection = build_extension_review_selection(&files, Some("gamma"), Some(0.0), None);
+
+        assert_eq!(selection.file, None);
+        assert_eq!(selection.hunk_index, None);
+        assert_eq!(selection.current_line, None);
+        assert_eq!(
+            selection
+                .files
+                .iter()
+                .map(|file| file.path.as_str())
+                .collect::<Vec<_>>(),
+            ["alpha.ts", "beta.ts"]
+        );
     }
 
     #[test]
     fn absent_or_filtered_out_files_report_no_selection() {
         for file_id in [None, Some("gamma")] {
-            assert_eq!(
-                build_extension_review_selection(&files(), file_id, Some(0.0), None),
-                ExtensionReviewSelection::default()
-            );
+            let selection = build_extension_review_selection(&files(), file_id, Some(0.0), None);
+            assert_eq!(selection.file, None);
+            assert_eq!(selection.hunk_index, None);
+            assert_eq!(selection.current_line, None);
         }
     }
 

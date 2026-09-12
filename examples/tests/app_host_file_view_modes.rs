@@ -86,6 +86,13 @@ impl Fixture {
                     sidebar: false,
                     highlight: false,
                     prompt_save_view_preferences: false,
+                    // `n` ships on the bundled content search; this fixture's
+                    // probe owns `n` for its answered command, so hand the
+                    // chord back the documented way.
+                    keybindings: vec![workdeck_core::UserKeyBindingEntry::new(
+                        "workdeck.search.next",
+                        workdeck_core::UserKeyBinding::Disabled,
+                    )],
                     ..ReviewOptions::default()
                 },
                 vec![extension],

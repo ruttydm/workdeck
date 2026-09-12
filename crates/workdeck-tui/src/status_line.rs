@@ -126,6 +126,9 @@ pub enum StatusPromptOwner {
         extension_id: String,
         request_id: String,
     },
+    /// Workdeck's own bundled tier, e.g. the `/` content search. Shares the
+    /// extension prompt's editing behavior without extension attribution.
+    Vendor,
 }
 
 /// One resolved prompt and its answer, returned to the surface that owns it.

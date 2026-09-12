@@ -74,18 +74,43 @@ struct ClaimedChord {
     chord: ParsedKeyChord,
 }
 
+/// One bundled vendor command whose chords the extension table must respect.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BundledCommandClaim {
+    pub id: String,
+    /// Chords after user bindings folded in; bundled defaults when unbound.
+    pub keys: Vec<String>,
+}
+
 /// Adapt registered extension commands into the live dispatch table.
 ///
 /// Built-ins always win. Between extensions, registration order breaks ties.
 /// Refusal is per chord, so a multi-key command retains every unclaimed chord.
+/// Bundled vendor commands claim their chords ahead of every user extension,
+/// like the built-ins.
 #[must_use]
 pub fn build_extension_app_commands(
     registered: &[RegisteredExtensionCommand],
     builtins: &[AppCommand],
     resolved_keys: Option<&ResolvedKeymap>,
+    bundled: &[BundledCommandClaim],
 ) -> ExtensionAppCommands {
     let mut answer = ExtensionAppCommands::default();
     let mut claimed = Vec::<ClaimedChord>::new();
+
+    for claim in bundled {
+        for chord in &claim.keys {
+            // Bundled claims are resolved through the same keymap table as the
+            // built-ins; skipping is the safe response to an unusable chord.
+            let Ok(parsed) = parse_key_chord(chord) else {
+                continue;
+            };
+            claimed.push(ClaimedChord {
+                command_id: claim.id.clone(),
+                chord: parsed,
+            });
+        }
+    }
 
     for registration in registered {
         let full_id = registration.full_id();
@@ -212,7 +237,7 @@ mod tests {
             registered(0, "meta", "toggle", &["y"]),
             registered(0, "meta", "silent", &[]),
         ];
-        let result = build_extension_app_commands(&registrations, &builtins(None), None);
+        let result = build_extension_app_commands(&registrations, &builtins(None), None, &[]);
 
         assert!(result.conflicts.is_empty());
         assert_eq!(
@@ -244,7 +269,7 @@ mod tests {
             registered(0, "meta", "steal-s", &["s"]),
             registered(0, "meta", "ok", &["y"]),
         ];
-        let result = build_extension_app_commands(&registrations, &builtins(None), None);
+        let result = build_extension_app_commands(&registrations, &builtins(None), None, &[]);
 
         assert_eq!(result.commands[0].key_labels, Vec::<String>::new());
         assert_eq!(result.commands[1].key_labels, ["y"]);
@@ -265,7 +290,7 @@ mod tests {
             registered(0, "first", "mine", &["y"]),
             registered(1, "second", "mine", &["y"]),
         ];
-        let result = build_extension_app_commands(&registrations, &builtins(None), None);
+        let result = build_extension_app_commands(&registrations, &builtins(None), None, &[]);
 
         assert_eq!(result.commands[0].key_labels, ["y"]);
         assert!(result.commands[1].key_labels.is_empty());
@@ -276,7 +301,7 @@ mod tests {
     #[test]
     fn binds_one_command_to_every_declared_chord() {
         let registrations = vec![registered(0, "meta", "toggle", &["y", "ctrl+o"])];
-        let result = build_extension_app_commands(&registrations, &builtins(None), None);
+        let result = build_extension_app_commands(&registrations, &builtins(None), None, &[]);
 
         assert!(result.conflicts.is_empty());
         assert_eq!(result.commands[0].key_labels, ["y", "Ctrl+O"]);
@@ -287,7 +312,7 @@ mod tests {
     #[test]
     fn drops_only_the_conflicting_chord_of_a_multi_key_command() {
         let registrations = vec![registered(0, "meta", "toggle", &["s", "y"])];
-        let result = build_extension_app_commands(&registrations, &builtins(None), None);
+        let result = build_extension_app_commands(&registrations, &builtins(None), None, &[]);
 
         assert_eq!(result.conflicts.len(), 1);
         assert_eq!(result.conflicts[0].key, "s");
@@ -302,7 +327,8 @@ mod tests {
             keys: BTreeMap::from([("meta.toggle".into(), vec!["ctrl+j".into()])]),
             issues: Vec::new(),
         };
-        let result = build_extension_app_commands(&registrations, &builtins(None), Some(&resolved));
+        let result =
+            build_extension_app_commands(&registrations, &builtins(None), Some(&resolved), &[]);
 
         assert!(dispatch_extension_app_command(&result.commands, &chord_event("ctrl+j")).is_some());
         assert!(dispatch_extension_app_command(&result.commands, &chord_event("y")).is_none());
@@ -324,10 +350,41 @@ mod tests {
             &registrations,
             &build_app_commands(Some(&resolved), BuiltinCommandAvailability::default()),
             Some(&resolved),
+            &[BundledCommandClaim {
+                id: "workdeck.search.find".into(),
+                keys: vec!["/".into()],
+            }],
         );
 
         assert!(result.conflicts.is_empty());
         assert!(dispatch_extension_app_command(&result.commands, &chord_event("s")).is_some());
+    }
+
+    #[test]
+    fn a_chord_a_bundled_command_holds_is_refused_for_a_user_extension() {
+        let registrations = vec![registered(0, "meta", "grab-slash", &["/", "y"])];
+        let result = build_extension_app_commands(
+            &registrations,
+            &builtins(None),
+            None,
+            &[BundledCommandClaim {
+                id: "workdeck.search.find".into(),
+                keys: vec!["/".into()],
+            }],
+        );
+
+        assert_eq!(
+            result.conflicts,
+            [ExtensionCommandConflict {
+                extension_id: "meta".into(),
+                full_id: "meta.grab-slash".into(),
+                key: "/".into(),
+                conflicting_id: "workdeck.search.find".into(),
+            }]
+        );
+        assert_eq!(result.commands[0].keys, ["y"]);
+        assert!(dispatch_extension_app_command(&result.commands, &chord_event("y")).is_some());
+        assert!(dispatch_extension_app_command(&result.commands, &chord_event("/")).is_none());
     }
 
     #[test]

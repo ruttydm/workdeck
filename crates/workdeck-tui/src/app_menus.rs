@@ -223,6 +223,12 @@ pub fn build_app_menus(options: BuildAppMenusOptions) -> AppMenus {
         labeled("workdeck.review.previousAnnotatedHunk", "Previous comment"),
         labeled("workdeck.review.nextAnnotatedHunk", "Next comment"),
         MenuEntrySpec::Separator,
+        // Bundled content search lives in the menu that names it, not under
+        // Extensions: it is Workdeck's own tier.
+        labeled("workdeck.search.find", "Search diff content…"),
+        labeled("workdeck.search.next", "Next match"),
+        labeled("workdeck.search.previous", "Previous match"),
+        MenuEntrySpec::Separator,
         labeled("workdeck.review.focusFilter", "Focus filter"),
     ];
     let agent = vec![
@@ -295,10 +301,26 @@ mod tests {
     };
 
     fn commands(availability: BuiltinCommandAvailability) -> Vec<AppMenuCommand> {
-        build_app_commands(None, availability)
+        let mut commands = build_app_commands(None, availability)
             .iter()
             .map(AppMenuCommand::from)
-            .collect()
+            .collect::<Vec<_>>();
+        // The live app composes bundled search commands beside the built-ins;
+        // menus must resolve them from the same table.
+        let mut defaults = builtin_command_key_defaults();
+        defaults.extend(crate::bundled_search_command_defaults());
+        let resolved = resolve_command_keys(&defaults, &[]);
+        commands.extend(
+            crate::bundled_search_command_views(&resolved)
+                .into_iter()
+                .map(|view| AppMenuCommand {
+                    id: view.id.into(),
+                    title: view.title.into(),
+                    key_labels: view.key_labels,
+                    enabled: true,
+                }),
+        );
+        commands
     }
 
     fn base_options() -> BuildAppMenusOptions {
@@ -441,7 +463,17 @@ mod tests {
                 .iter()
                 .map(|entry| item_fields(entry).2)
                 .collect::<Vec<_>>(),
-            [Some("["), Some("]"), Some("{"), Some("}"), Some("/")]
+            // The filter ships unbound, so its Navigate entry carries no hint.
+            [
+                Some("["),
+                Some("]"),
+                Some("{"),
+                Some("}"),
+                Some("/"),
+                Some("n"),
+                Some("N"),
+                None
+            ]
         );
     }
 

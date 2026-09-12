@@ -232,7 +232,9 @@ mod tests {
         }
         assert_eq!(
             workdeck_core::review_digest(format!("{output}\n").as_bytes()),
-            "fa3a65276780ab00b61b7c8107b15366723ce23f7d7b202494078f12990e6f84"
+            // Updated with the bundled search rows and the unbound filter: the
+            // same rows upstream's search commit renders.
+            "fa3f57a7a5d868a8f5ed29ca77b7a5ce8f27a1e33a3cc24c3456b0597cb834f9"
         );
         assert_eq!(
             buffer[map.modal.frame.as_position()].fg,

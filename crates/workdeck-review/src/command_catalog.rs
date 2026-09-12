@@ -172,7 +172,10 @@ pub const APP_COMMAND_CATALOG: &[AppCommandCatalogEntry] = &[
         "workdeck.review.focusFilter",
         "Focus the file filter",
         Review,
-        &["/"],
+        // Ships unbound: `/` belongs to content search. Tab
+        // (`workdeck.app.toggleFocusArea`) and the menu still reach the filter,
+        // and `[keybindings] "workdeck.review.focusFilter" = "/"` restores it.
+        &[],
         ClientLocal,
     ),
     closing(semantic(

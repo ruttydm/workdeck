@@ -422,7 +422,8 @@ fn availability_failure_injects_a_files_fallback_that_the_files_command_closes()
 fn pane_availability_reacts_to_the_filtered_visible_file_projection() {
     let mut fixture = Fixture::standard("filtered-availability");
     assert!(fixture.draw().contains("TWO FILE PANE"));
-    fixture.press(KeyCode::Char('/'));
+    // `/` belongs to content search; Tab reaches the filter.
+    fixture.press(KeyCode::Tab);
     fixture.type_text("alpha");
     assert!(!fixture.draw().contains("TWO FILE PANE"));
 }

@@ -231,6 +231,7 @@ impl ReviewApp {
             .extension_pane_runtime
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        command_defaults.extend(crate::bundled_search_command_defaults());
         command_defaults.extend(crate::extension_command_key_defaults(&runtime.commands));
         self.resolved_command_keys =
             crate::resolve_command_keys(&command_defaults, &self.options.keybindings);
@@ -238,6 +239,7 @@ impl ReviewApp {
             &runtime.commands,
             &crate::builtin_command_match_probes(Some(&self.resolved_command_keys)),
             Some(&self.resolved_command_keys),
+            &crate::bundled_search_command_claims(&self.resolved_command_keys),
         );
         runtime.app_commands = table.commands;
         runtime.command_conflicts = table.conflicts;

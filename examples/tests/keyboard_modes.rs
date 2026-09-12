@@ -205,7 +205,8 @@ fn routes_handled_and_passed_keys_after_modal_and_filter_owners() {
     assert!(!harness.frame().contains("Reload"));
     assert!(harness.frame().contains("Probe normal"));
 
-    harness.press(KeyCode::Char('/'));
+    // `/` belongs to content search; Tab reaches the filter.
+    harness.press(KeyCode::Tab);
     harness.drain_notices();
     let filter_frame = harness.frame();
     assert!(

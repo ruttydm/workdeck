@@ -641,6 +641,7 @@ mod tests {
                 file: Some(selected),
                 hunk_index: Some(0),
                 current_line: None,
+                files: Vec::new(),
             },
             selected_file_id: Some(file_id.into()),
             commands: commands(),
