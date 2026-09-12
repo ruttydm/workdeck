@@ -7173,7 +7173,10 @@ fn probe_initial_theme_mode<I: ThemeProbeInput, W: Write>(
     let Some(input) = input else {
         return Ok(None);
     };
-    workdeck_tui::detect_terminal_theme_mode_from_background(input, output, timeout)
+    let probe = workdeck_tui::detect_terminal_theme_mode_from_background(input, output, timeout)?;
+    // Keys typed while the probe held the input must not vanish with it.
+    workdeck_tui::stage_initial_terminal_input(&probe.replay);
+    Ok(probe.mode)
 }
 
 fn detect_initial_review_theme_mode(

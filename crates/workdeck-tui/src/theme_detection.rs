@@ -283,11 +283,266 @@ pub fn theme_mode_for_background_color(color: RgbColor) -> TerminalThemeMode {
 ///
 /// The input's prior raw-mode state is restored on success, timeout, or I/O
 /// failure. Piped diff stdin is therefore never consumed by theme detection.
+///
+/// The probe stops reading the moment the accumulated bytes can no longer be
+/// part of a reply stream, and returns any consumed bytes that were not reply
+/// chatter so the caller can replay them as user input instead of dropping
+/// the first keys typed during startup.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct TerminalThemeProbe {
+    pub mode: Option<TerminalThemeMode>,
+    pub replay: Vec<u8>,
+}
+
+/// Match a user-key escape encoding (arrows, home/end, editing keys, and
+/// modifier variants) at `at`. Terminal replies such as DA or kitty protocol
+/// reports carry `?` parameters and never match.
+fn key_escape_len(bytes: &[u8], at: usize) -> Option<usize> {
+    if bytes.get(at) != Some(&0x1b) {
+        return None;
+    }
+    let rest = &bytes[at + 1..];
+    let final_after_params = |params: &[u8], tilde: bool| -> Option<usize> {
+        // Parameters must be digits or modifier separators; a key encoding
+        // never contains private-mode markers like '?'. Tilde finals need at
+        // least one parameter digit, arrows and home/end need none.
+        if tilde && params.is_empty() {
+            return None;
+        }
+        if !params
+            .iter()
+            .all(|b| b.is_ascii_digit() || matches!(b, b';' | b':' | b'<' | b'>' | b'*'))
+        {
+            return None;
+        }
+        match rest.get(1 + params.len()) {
+            Some(b'A'..=b'D' | b'H' | b'F' | b'~') => Some(2 + params.len() + 1),
+            _ => None,
+        }
+    };
+    match rest.first() {
+        Some(b'[') => {
+            let params = rest[1..]
+                .iter()
+                .take_while(|b| b.is_ascii_digit() || matches!(b, b';' | b':' | b'<' | b'>' | b'*'))
+                .count();
+            final_after_params(&rest[1..1 + params], rest.get(1 + params) == Some(&b'~'))
+        }
+        Some(b'O') => match rest.get(1) {
+            Some(b'A'..=b'D') => Some(3),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Split consumed input into complete escape-sequence chatter and a trailing
+/// run that cannot belong to one. The trailing run starts either an
+/// incomplete escape sequence (still plausible reply chatter) or a foreign
+/// byte such as a user keystroke. Key-encoded escapes count as foreign input,
+/// not chatter, so typed arrows survive the probe.
+fn split_escape_chatter(bytes: &[u8]) -> (&[u8], &[u8]) {
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] != 0x1b {
+            break;
+        }
+        if key_escape_len(bytes, index).is_some() {
+            return (&bytes[..index], &bytes[index..]);
+        }
+        match bytes.get(index + 1) {
+            Some(b']') => match find_osc_end(bytes, index + 2) {
+                Some(end) => index = end,
+                None => return (&bytes[..index], &bytes[index..]),
+            },
+            Some(b'[') => match find_csi_end(bytes, index + 2) {
+                Some(end) => index = end,
+                None => return (&bytes[..index], &bytes[index..]),
+            },
+            Some(_) => match bytes.get(index + 2) {
+                Some(_) => index += 3,
+                None => return (&bytes[..index], &bytes[index..]),
+            },
+            None => return (&bytes[..index], &bytes[index..]),
+        }
+    }
+    (&bytes[..index], &bytes[index..])
+}
+
+fn find_osc_end(bytes: &[u8], from: usize) -> Option<usize> {
+    let mut index = from;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\x07' => return Some(index + 1),
+            0x1b if bytes.get(index + 1) == Some(&b'\\') => return Some(index + 2),
+            _ => index += 1,
+        }
+    }
+    None
+}
+
+fn find_csi_end(bytes: &[u8], from: usize) -> Option<usize> {
+    let mut index = from;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if (0x40..=0x7e).contains(&byte) {
+            return Some(index + 1);
+        }
+        index += 1;
+    }
+    None
+}
+
+/// Find the first complete OSC 11 color reply, preferring RGB over hex across
+/// the whole buffer exactly like the source parser, and report the buffer
+/// offset where the chosen reply ends.
+fn scan_complete_osc_11_replies(bytes: &[u8]) -> Option<(RgbColor, usize)> {
+    let mut first_hex: Option<(RgbColor, usize)> = None;
+    let mut index = 0;
+    while let Some(start) = find_subslice(bytes, b"\x1b]11;", index) {
+        let payload_from = start + b"\x1b]11;".len();
+        let Some(end) = find_osc_end(bytes, payload_from) else {
+            // An unterminated reply may still surround a later complete one,
+            // exactly like the source's match_indices scan.
+            index = start + 1;
+            continue;
+        };
+        let terminator = if bytes.get(end - 1) == Some(&b'\x07') {
+            1
+        } else {
+            2
+        };
+        let payload = &bytes[payload_from..end - terminator];
+        if let Some(color) = parse_background_payload(&String::from_utf8_lossy(payload)) {
+            if payload.first() != Some(&b'#') {
+                return Some((color, end));
+            }
+            first_hex.get_or_insert((color, end));
+        }
+        // Failed payloads can swallow later replies; keep scanning from the
+        // next byte so inner occurrences still get their own match.
+        index = start + 1;
+    }
+    first_hex
+}
+
+fn find_subslice(haystack: &[u8], needle: &[u8], from: usize) -> Option<usize> {
+    if needle.is_empty() || haystack.len() < needle.len() {
+        return None;
+    }
+    (from..=haystack.len() - needle.len())
+        .find(|&index| &haystack[index..index + needle.len()] == needle)
+}
+
+fn foreign_tail(bytes: &[u8]) -> Option<&[u8]> {
+    let (_, tail) = split_escape_chatter(bytes);
+    match tail.first() {
+        None => None,
+        Some(&0x1b) => key_escape_len(tail, 0).map(|_| tail),
+        Some(_) => Some(tail),
+    }
+}
+
+/// Decode terminal input bytes captured during the startup theme probe into
+/// key events, so keys typed while the probe held the input are replayed into
+/// the review instead of being dropped. Unrecognized sequences are skipped;
+/// modifier components of replayed escapes are simplified to none.
+#[must_use]
+pub fn decode_replayed_terminal_input(bytes: &[u8]) -> Vec<crossterm::event::KeyEvent> {
+    use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+    let mut events = Vec::new();
+    let mut index = 0;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        match byte {
+            0x1b => {
+                if let Some(length) = key_escape_len(bytes, index) {
+                    if let Some(event) = decode_key_escape(&bytes[index..index + length]) {
+                        events.push(event);
+                    }
+                    index += length;
+                } else {
+                    events.push(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+                    index += 1;
+                }
+            }
+            b'\r' | b'\n' => {
+                events.push(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+                index += 1;
+            }
+            b'\t' => {
+                events.push(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+                index += 1;
+            }
+            0x7f | 0x08 => {
+                events.push(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+                index += 1;
+            }
+            0x00..=0x1f => index += 1,
+            _ => {
+                let text = String::from_utf8_lossy(&bytes[index..]);
+                let Some(character) = text.chars().next() else {
+                    index += 1;
+                    continue;
+                };
+                events.push(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
+                index += character.len_utf8().max(1);
+            }
+        }
+    }
+    events
+        .into_iter()
+        .map(|mut event| {
+            event.kind = KeyEventKind::Press;
+            event
+        })
+        .collect()
+}
+
+fn decode_key_escape(sequence: &[u8]) -> Option<crossterm::event::KeyEvent> {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let final_byte = *sequence.last()?;
+    let code = match sequence.get(1) {
+        Some(b'O') => match final_byte {
+            b'A' => KeyCode::Up,
+            b'B' => KeyCode::Down,
+            b'C' => KeyCode::Right,
+            b'D' => KeyCode::Left,
+            _ => return None,
+        },
+        Some(b'[') => match final_byte {
+            b'A' => KeyCode::Up,
+            b'B' => KeyCode::Down,
+            b'C' => KeyCode::Right,
+            b'D' => KeyCode::Left,
+            b'H' => KeyCode::Home,
+            b'F' => KeyCode::End,
+            b'~' => {
+                let params = &sequence[2..sequence.len() - 1];
+                let first = params.split(|byte| *byte == b';').next()?;
+                let number = std::str::from_utf8(first).ok()?.parse::<u8>().ok()?;
+                match number {
+                    1 | 7 => KeyCode::Home,
+                    2 => KeyCode::Insert,
+                    3 => KeyCode::Delete,
+                    4 | 8 => KeyCode::End,
+                    5 => KeyCode::PageUp,
+                    6 => KeyCode::PageDown,
+                    _ => return None,
+                }
+            }
+            _ => return None,
+        },
+        _ => return None,
+    };
+    Some(KeyEvent::new(code, KeyModifiers::NONE))
+}
+
 pub fn detect_terminal_theme_mode_from_background(
     input: &mut impl ThemeProbeInput,
     output: &mut impl Write,
     timeout: Duration,
-) -> io::Result<Option<TerminalThemeMode>> {
+) -> io::Result<TerminalThemeProbe> {
     let was_raw = input.is_raw();
     let result = (|| {
         input.set_raw_mode(true)?;
@@ -299,24 +554,43 @@ pub fn detect_terminal_theme_mode_from_background(
         let mut response = Vec::new();
         loop {
             let Some(remaining) = timeout.checked_sub(started.elapsed()) else {
-                return Ok(None);
+                let replay = foreign_tail(&response).map_or_else(Vec::new, <[u8]>::to_vec);
+                return Ok(TerminalThemeProbe { mode: None, replay });
             };
             let chunk = match input.read_chunk(remaining) {
                 Ok(Some(chunk)) => chunk,
-                Ok(None) => return Ok(None),
-                Err(error) if error.kind() == io::ErrorKind::TimedOut => return Ok(None),
+                Ok(None) => {
+                    let replay = foreign_tail(&response).map_or_else(Vec::new, <[u8]>::to_vec);
+                    return Ok(TerminalThemeProbe { mode: None, replay });
+                }
+                Err(error) if error.kind() == io::ErrorKind::TimedOut => {
+                    let replay = foreign_tail(&response).map_or_else(Vec::new, <[u8]>::to_vec);
+                    return Ok(TerminalThemeProbe { mode: None, replay });
+                }
                 Err(error) => return Err(error),
             };
             response.extend_from_slice(&chunk);
-            if let Some(color) = parse_osc_11_background_color(&String::from_utf8_lossy(&response))
-            {
-                return Ok(Some(theme_mode_for_background_color(color)));
+            if let Some((color, end)) = scan_complete_osc_11_replies(&response) {
+                let replay = foreign_tail(&response[end..]).map_or_else(Vec::new, <[u8]>::to_vec);
+                return Ok(TerminalThemeProbe {
+                    mode: Some(theme_mode_for_background_color(color)),
+                    replay,
+                });
+            }
+            if let Some(replay) = foreign_tail(&response) {
+                // Bytes that cannot be reply chatter arrived before any reply,
+                // typically the first keys typed during startup. Stop reading
+                // now and hand them back instead of consuming more input.
+                return Ok(TerminalThemeProbe {
+                    mode: None,
+                    replay: replay.to_vec(),
+                });
             }
         }
     })();
     let restore = was_raw.map_or(Ok(()), |was_raw| input.set_raw_mode(was_raw));
     match (result, restore) {
-        (Ok(mode), Ok(())) => Ok(mode),
+        (Ok(probe), Ok(())) => Ok(probe),
         (Err(error), _) | (Ok(_), Err(error)) => Err(error),
     }
 }
@@ -480,7 +754,7 @@ mod tests {
             .unwrap();
             let settled_on_hex = split >= hex.len();
             assert_eq!(
-                mode,
+                mode.mode,
                 Some(if settled_on_hex {
                     TerminalThemeMode::Light
                 } else {
@@ -488,6 +762,7 @@ mod tests {
                 }),
                 "split at {split}"
             );
+            assert!(mode.replay.is_empty(), "split at {split}");
             assert_eq!(input.chunks.len(), usize::from(settled_on_hex));
             assert_eq!(input.raw_transitions, [true, false]);
         }
@@ -504,7 +779,8 @@ mod tests {
                     &mut Vec::new(),
                     Duration::from_secs(1),
                 )
-                .unwrap(),
+                .unwrap()
+                .mode,
                 Some(TerminalThemeMode::Light),
                 "split at {split}"
             );
@@ -528,7 +804,10 @@ mod tests {
                 Duration::from_millis(50),
             )
             .unwrap(),
-            Some(TerminalThemeMode::Dark)
+            TerminalThemeProbe {
+                mode: Some(TerminalThemeMode::Dark),
+                replay: Vec::new(),
+            }
         );
         assert_eq!(output, OSC_11_BACKGROUND_QUERY.as_bytes());
         assert_eq!(input.raw_transitions, vec![true, false]);
@@ -550,8 +829,110 @@ mod tests {
                 Duration::from_millis(1),
             )
             .unwrap(),
-            None
+            TerminalThemeProbe::default()
         );
         assert_eq!(input.raw_transitions, vec![true, false]);
+    }
+
+    #[test]
+    fn a_foreign_first_chunk_aborts_the_probe_and_is_replayed_not_eaten() {
+        let mut input = FakeThemeInput {
+            raw: false,
+            chunks: VecDeque::from([b"q".to_vec(), b"\x1b]11;rgb:00/00/00\x07".to_vec()]),
+            raw_transitions: Vec::new(),
+        };
+        assert_eq!(
+            detect_terminal_theme_mode_from_background(
+                &mut input,
+                &mut Vec::new(),
+                Duration::from_secs(1),
+            )
+            .unwrap(),
+            TerminalThemeProbe {
+                mode: None,
+                replay: b"q".to_vec(),
+            }
+        );
+        // The later reply chunk must remain unconsumed for the caller.
+        assert_eq!(input.chunks.len(), 1);
+        assert_eq!(input.raw_transitions, vec![true, false]);
+    }
+
+    #[test]
+    fn a_reply_chunk_with_trailing_user_keys_replays_the_tail() {
+        let mut input = FakeThemeInput {
+            raw: false,
+            chunks: VecDeque::from([b"\x1b]11;#ffffff\x07j".to_vec()]),
+            raw_transitions: Vec::new(),
+        };
+        assert_eq!(
+            detect_terminal_theme_mode_from_background(
+                &mut input,
+                &mut Vec::new(),
+                Duration::from_secs(1),
+            )
+            .unwrap(),
+            TerminalThemeProbe {
+                mode: Some(TerminalThemeMode::Light),
+                replay: b"j".to_vec(),
+            }
+        );
+    }
+
+    #[test]
+    fn a_timeout_with_only_partial_chatter_replays_nothing() {
+        let mut input = FakeThemeInput {
+            raw: false,
+            chunks: VecDeque::from([b"\x1b]11;rgb:0".to_vec()]),
+            raw_transitions: Vec::new(),
+        };
+        assert_eq!(
+            detect_terminal_theme_mode_from_background(
+                &mut input,
+                &mut Vec::new(),
+                Duration::from_millis(1),
+            )
+            .unwrap(),
+            TerminalThemeProbe {
+                mode: None,
+                replay: Vec::new(),
+            }
+        );
+    }
+
+    #[test]
+    fn an_arrow_key_during_the_probe_window_is_replayed() {
+        let mut input = FakeThemeInput {
+            raw: false,
+            chunks: VecDeque::from([b"\x1b[Bmore-keys".to_vec()]),
+            raw_transitions: Vec::new(),
+        };
+        assert_eq!(
+            detect_terminal_theme_mode_from_background(
+                &mut input,
+                &mut Vec::new(),
+                Duration::from_secs(1),
+            )
+            .unwrap()
+            .replay,
+            b"\x1b[Bmore-keys".to_vec()
+        );
+    }
+
+    #[test]
+    fn escape_chatter_splitting_separates_replies_from_foreign_tails() {
+        let reply = b"\x1b]11;?\x1b\\\x1b]11;#ffffff\x07";
+        assert_eq!(split_escape_chatter(reply).1, b"");
+        assert_eq!(foreign_tail(reply), None);
+        let with_keys = b"\x1b]11;?\x1b\\jk\x1b";
+        assert_eq!(split_escape_chatter(with_keys).1, b"jk\x1b");
+        assert_eq!(foreign_tail(with_keys), Some(&b"jk\x1b"[..]));
+        let incomplete = b"\x1b]11;rgb:0";
+        assert_eq!(foreign_tail(incomplete), None);
+        let leading_key = b"]\x1b]11;#ffffff\x07";
+        assert_eq!(
+            foreign_tail(leading_key),
+            Some(&b"]\x1b]11;#ffffff\x07"[..])
+        );
     }
 }

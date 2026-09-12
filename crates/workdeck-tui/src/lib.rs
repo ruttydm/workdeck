@@ -11074,6 +11074,57 @@ fn run_review_inner(
     result
 }
 
+/// Keys captured by the startup theme probe, staged for replay before the
+/// event loop starts reading the terminal. One launch owns one review loop.
+static STAGED_INITIAL_INPUT: Mutex<Vec<crossterm::event::KeyEvent>> = Mutex::new(Vec::new());
+
+/// Stage terminal input captured during the startup theme probe so the first
+/// keys typed during the probe window replay into the review instead of
+/// being dropped. Must be called before the review run loop starts.
+pub fn stage_initial_terminal_input(bytes: &[u8]) {
+    if bytes.is_empty() {
+        return;
+    }
+    let decoded = theme_detection::decode_replayed_terminal_input(bytes);
+    if decoded.is_empty() {
+        return;
+    }
+    if let Ok(mut staged) = STAGED_INITIAL_INPUT.lock() {
+        staged.extend(decoded);
+    }
+}
+
+fn take_staged_initial_input() -> Vec<crossterm::event::KeyEvent> {
+    STAGED_INITIAL_INPUT
+        .lock()
+        .map(|mut staged| std::mem::take(&mut *staged))
+        .unwrap_or_default()
+}
+
+fn deliver_loop_key(
+    terminal: &mut InteractiveTerminalSession,
+    app: &mut ReviewApp,
+    job_control: &JobControlSupport,
+    key: crossterm::event::KeyEvent,
+) -> Result<()> {
+    match job_control.action(key, JobControlPlatform::current(), false) {
+        Some(JobControlAction::Interrupt) => app.should_quit = true,
+        Some(JobControlAction::Suspend) => {
+            terminal.suspend_foreground_process_group()?;
+        }
+        None => {
+            app.handle_key(key);
+            if let Some(request) = app.take_editor_request()
+                && let Some(message) =
+                    open_review_editor_in_crossterm(terminal.terminal_mut(), &request)
+            {
+                app.status = Some(message);
+            }
+        }
+    }
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 fn run_loop(
     terminal: &mut InteractiveTerminalSession,
@@ -11089,6 +11140,13 @@ fn run_loop(
 ) -> Result<()> {
     let mut next_reload = Instant::now() + Duration::from_millis(250);
     let job_control = JobControlSupport::default();
+    let staged_initial_input = take_staged_initial_input();
+    for key in staged_initial_input {
+        deliver_loop_key(terminal, app, &job_control, key)?;
+        if app.should_quit {
+            return Ok(());
+        }
+    }
     while !app.should_quit && !session_stop.is_some_and(|stop| stop.load(Ordering::Relaxed)) {
         if terminal.host_disconnected() {
             break;
@@ -11170,23 +11228,7 @@ fn run_loop(
             };
             match event {
                 Event::Key(key) => {
-                    match job_control.action(key, JobControlPlatform::current(), false) {
-                        Some(JobControlAction::Interrupt) => app.should_quit = true,
-                        Some(JobControlAction::Suspend) => {
-                            terminal.suspend_foreground_process_group()?;
-                        }
-                        None => {
-                            app.handle_key(key);
-                            if let Some(request) = app.take_editor_request()
-                                && let Some(message) = open_review_editor_in_crossterm(
-                                    terminal.terminal_mut(),
-                                    &request,
-                                )
-                            {
-                                app.status = Some(message);
-                            }
-                        }
-                    }
+                    deliver_loop_key(terminal, app, &job_control, key)?;
                 }
                 Event::Mouse(mouse) => app.handle_mouse_event(mouse),
                 Event::Paste(text) => app.handle_paste(&text),

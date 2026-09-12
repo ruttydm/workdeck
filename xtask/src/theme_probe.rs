@@ -153,14 +153,14 @@ fn probe(
         inner: input,
         raw: String::new(),
     };
-    let mode = workdeck_tui::detect_terminal_theme_mode_from_background(
+    let probe = workdeck_tui::detect_terminal_theme_mode_from_background(
         &mut input,
         output,
         Duration::from_millis(500),
     )?;
     let color = workdeck_tui::parse_osc_11_background_color(&input.raw);
     Ok(serde_json::json!({
-        "mode": mode.map(mode_name),
+        "mode": probe.mode.map(mode_name),
         "color": color.map(|c| serde_json::json!({"red": c.red, "green": c.green, "blue": c.blue})),
         "classified": color.map(workdeck_tui::theme_mode_for_background_color).map(mode_name),
         "raw": input.raw.replace('\u{1b}', "\\e"),
