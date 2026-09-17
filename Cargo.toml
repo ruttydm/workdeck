@@ -7,6 +7,7 @@ members = [
     "crates/workdeck-extension-host",
     "crates/workdeck-migration",
     "crates/workdeck-markup",
+    "crates/workdeck-pm",
     "crates/workdeck-review",
     "crates/workdeck-session",
     "crates/workdeck-store",

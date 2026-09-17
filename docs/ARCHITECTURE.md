@@ -21,7 +21,8 @@ source-role migration, bootstrap invariant, and incremental migration policy.
 | `workdeck-markup` | none |
 | `workdeck-migration` | none |
 | `workdeck-store` | none |
-| `workdeck-tui` | core, diff, extension API and host, markup, review, session, VCS |
+| `workdeck-pm` | none |
+| `workdeck-tui` | core, diff, extension API and host, markup, PM, review, session, VCS |
 | `workdeck-cli` | every product crate; this is the composition root |
 
 The allowed lists are ceilings, not required edges. Removing a dependency does not require a
@@ -32,6 +33,12 @@ and its failure remain executable evidence.
 `workdeck-cli` must expose exactly one production binary named `workdeck`. `xtask` and the compiled
 native extension examples are non-publishable repository tools and fixtures, not shipped product
 executables.
+
+`workdeck-pm` owns file-backed planning contracts and shared application operations.
+It does not depend on a terminal renderer, the review/session runtime, or another
+product. CLI and TUI adapters share its validation and mutation paths. Planning
+authority lives in repository-root `.workdeck/` files; disposable projections and
+machine-local state cannot silently replace that authority.
 
 ## Source boundaries
 

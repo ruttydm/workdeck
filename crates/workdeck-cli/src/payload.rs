@@ -62,14 +62,19 @@ pub fn changes_grouped_by_status(changes: &[git::ChangeEntry]) -> Vec<Value> {
 pub fn search_target_group(target: &SearchTarget) -> &'static str {
     match target {
         SearchTarget::File(_) => "files",
-        SearchTarget::Change(_) => "changes",
+        SearchTarget::Change(_) | SearchTarget::StagedChange(_) => "changes",
         SearchTarget::Issue(_) => "issues",
         SearchTarget::AgentSession(_) => "agents",
         SearchTarget::GitCommit(_)
         | SearchTarget::GitBranch(_)
         | SearchTarget::GitStash(_)
         | SearchTarget::GitTag(_) => "git",
-        SearchTarget::Project(_) | SearchTarget::Cycle(_) | SearchTarget::Label(_) => "issues",
+        SearchTarget::Initiative(_)
+        | SearchTarget::Project(_)
+        | SearchTarget::Milestone(_)
+        | SearchTarget::Cycle(_)
+        | SearchTarget::Target(_)
+        | SearchTarget::Label(_) => "issues",
         SearchTarget::Symbol { .. } => "files",
     }
 }
@@ -78,6 +83,9 @@ pub fn search_target_payload(target: &SearchTarget) -> Value {
     match target {
         SearchTarget::File(path) => json!({ "kind": "file", "path": path }),
         SearchTarget::Change(path) => json!({ "kind": "change", "path": path }),
+        SearchTarget::StagedChange(path) => {
+            json!({ "kind": "change", "path": path, "staged": true })
+        }
         SearchTarget::Issue(key) => json!({ "kind": "issue", "key": key }),
         SearchTarget::AgentSession(id) => json!({ "kind": "agent", "id": id }),
         SearchTarget::GitCommit(sha) => json!({ "kind": "git_commit", "sha": sha }),
@@ -85,7 +93,10 @@ pub fn search_target_payload(target: &SearchTarget) -> Value {
         SearchTarget::GitStash(name) => json!({ "kind": "git_stash", "name": name }),
         SearchTarget::GitTag(name) => json!({ "kind": "git_tag", "name": name }),
         SearchTarget::Project(id) => json!({ "kind": "project", "id": id }),
+        SearchTarget::Initiative(id) => json!({ "kind": "initiative", "id": id }),
+        SearchTarget::Milestone(id) => json!({ "kind": "milestone", "id": id }),
         SearchTarget::Cycle(id) => json!({ "kind": "cycle", "id": id }),
+        SearchTarget::Target(id) => json!({ "kind": "target", "id": id }),
         SearchTarget::Label(id) => json!({ "kind": "label", "id": id }),
         SearchTarget::Symbol { path, line, name } => {
             json!({ "kind": "symbol", "path": path, "line": line, "name": name })

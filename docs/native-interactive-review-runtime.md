@@ -42,4 +42,6 @@ the composition shell and named adapters; terminal RAII itself has no session de
 Piped patch input remains outside this lifecycle until startup has consumed it. Interactive routes
 retain the controlling terminal guard selected by the CLI, while Crossterm's `use-dev-tty` backend
 reads events from the terminal. Pager routes without an available controlling terminal use the
-static renderer. Merely viewing a review does not create `.agents/workdeck` state.
+static renderer. Merely viewing a review does not initialize authoritative planning files
+under `.workdeck/` or recreate the legacy `.agents/workdeck/` store. Existing machine-local
+review state remains separate from planning authority.

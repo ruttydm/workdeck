@@ -1,11 +1,12 @@
 use anyhow::{Context, Result, bail};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
-use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+
+mod legacy_transfer;
+pub use legacy_transfer::LegacyImportSummary;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Ord, PartialOrd)]
 #[serde(rename_all = "kebab-case")]
@@ -340,91 +341,65 @@ impl WorkdeckStore {
         &self.root
     }
 
-    pub fn init(&self) -> Result<()> {
-        fs::create_dir_all(self.issues_dir())
-            .with_context(|| format!("failed to create {}", self.issues_dir().display()))?;
-        fs::create_dir_all(self.agents_dir())
-            .with_context(|| format!("failed to create {}", self.agents_dir().display()))?;
-        fs::create_dir_all(self.root.join("index"))
-            .with_context(|| format!("failed to create {}", self.root.join("index").display()))?;
-
-        let config_path = self.root.join("config.toml");
-        if !config_path.exists() {
-            atomic_write(
-                &config_path,
-                r#"[ui]
-theme = "auto"
-preview = true
-
-[paths]
-data_dir = ".agents/workdeck"
-
-[git]
-base_branch = ""
-recent_commits = 30
-
-[refresh]
-auto = true
-interval_ms = 1500
-debounce_ms = 250
-
-[keys]
-quit = "q"
-refresh = "r"
-search = "/"
-help = "?"
-changes = "c"
-git = "G"
-files = "f"
-issues = "i"
-agents = "a"
-toggle_preview = "t"
-group_changes = "g"
-toggle_dirstat = "w"
-open_editor = "o"
-copy = "y"
-new_issue = "n"
-edit_issue = "e"
-status = "s"
-priority = "p"
-labels = "l"
-assign = "A"
-jump = "space"
-link_file = "L"
-base = "b"
-pull_requests = "p"
-"#,
-            )?;
+    fn ensure_legacy_format(&self) -> Result<()> {
+        if fs::symlink_metadata(&self.root)
+            .is_ok_and(|metadata| metadata.file_type().is_symlink() || !metadata.is_dir())
+        {
+            bail!(
+                "legacy data root must be an ordinary directory: {}",
+                self.root.display()
+            );
         }
-
-        for file in ["projects.toml", "cycles.toml", "labels.toml"] {
-            let path = self.root.join(file);
-            if !path.exists() {
-                atomic_write(&path, "")?;
-            }
+        if [
+            "config.yml",
+            "migration.yml",
+            "restore.yml",
+            "schema.yml",
+            "labels.yml",
+            "operations",
+            "tombstones",
+        ]
+        .iter()
+        .any(|name| fs::symlink_metadata(self.root.join(name)).is_ok())
+        {
+            bail!(
+                "native project-management authority cannot be opened by the legacy store: {}",
+                self.root.display()
+            );
         }
-
         Ok(())
     }
 
-    pub fn load_issues(&self) -> Result<Vec<Issue>> {
-        let dir = self.issues_dir();
-        if !dir.exists() {
-            return Ok(Vec::new());
+    fn entries(&self, directory: &str) -> Result<Vec<crate::bounded_files::Entry>> {
+        self.ensure_legacy_format()?;
+        let path = self.root.join(directory);
+        match fs::symlink_metadata(&path) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(error.into()),
+            Ok(_) => {}
         }
+        let (entries, truncated) =
+            crate::bounded_files::list(&self.root, Path::new(directory), 10_000)?;
+        if truncated {
+            bail!("legacy {directory} exceeds the 10,000-entry read limit");
+        }
+        Ok(entries)
+    }
 
+    pub fn load_issues(&self) -> Result<Vec<Issue>> {
         let mut issues = Vec::new();
-        for entry in fs::read_dir(&dir)
-            .with_context(|| format!("failed to read issues dir {}", dir.display()))?
-        {
-            let entry = entry?;
-            let path = entry.path();
+        let mut total_bytes = 0usize;
+        for entry in self.entries("issues")? {
+            let path = self.issues_dir().join(entry.name);
             if path.extension().and_then(|value| value.to_str()) != Some("toml") {
                 continue;
             }
 
-            let raw = fs::read_to_string(&path)
-                .with_context(|| format!("failed to read issue {}", path.display()))?;
+            let raw = read_legacy_text(&path, 2 * 1024 * 1024)?;
+            total_bytes += raw.len();
+            if total_bytes > 64 * 1024 * 1024 {
+                bail!("legacy issues exceed the 64 MiB read budget");
+            }
             let issue: Issue = toml::from_str(&raw)
                 .with_context(|| format!("failed to parse issue {}", path.display()))?;
             issues.push(issue);
@@ -435,6 +410,7 @@ pull_requests = "p"
     }
 
     pub fn load_reference_data(&self) -> Result<ReferenceData> {
+        self.ensure_legacy_format()?;
         Ok(ReferenceData {
             projects: read_toml_list::<ProjectsFile>(&self.root.join("projects.toml"))?.projects,
             cycles: read_toml_list::<CyclesFile>(&self.root.join("cycles.toml"))?.cycles,
@@ -442,243 +418,20 @@ pull_requests = "p"
         })
     }
 
-    pub fn upsert_project(
-        &self,
-        id: Option<String>,
-        name: String,
-        description: Option<String>,
-        status: Option<String>,
-    ) -> Result<Project> {
-        self.init()?;
-        if name.trim().is_empty() {
-            bail!("project name cannot be empty");
-        }
-        let id = normalized_reference_id(id, &name)?;
-        let mut reference_data = self.load_reference_data()?;
-        let project = if let Some(project) = reference_data
-            .projects
-            .iter_mut()
-            .find(|project| project.id == id)
-        {
-            project.name = name;
-            if let Some(description) = description {
-                project.description = description;
-            }
-            if let Some(status) = status {
-                project.status = status;
-            }
-            project.touch();
-            project.clone()
-        } else {
-            let mut project = Project::new(id.clone(), name);
-            if let Some(description) = description {
-                project.description = description;
-            }
-            if let Some(status) = status {
-                project.status = status;
-            }
-            reference_data.projects.push(project.clone());
-            project
-        };
-        reference_data.projects.sort_by(|a, b| a.id.cmp(&b.id));
-        self.save_projects(&reference_data.projects)?;
-        self.append_event("project_saved", json!({ "id": project.id }))?;
-        Ok(project)
-    }
-
-    pub fn upsert_cycle(
-        &self,
-        id: Option<String>,
-        name: String,
-        starts_at: Option<String>,
-        ends_at: Option<String>,
-        status: Option<String>,
-    ) -> Result<Cycle> {
-        self.init()?;
-        if name.trim().is_empty() {
-            bail!("cycle name cannot be empty");
-        }
-        let id = normalized_reference_id(id, &name)?;
-        let mut reference_data = self.load_reference_data()?;
-        let cycle = if let Some(cycle) = reference_data
-            .cycles
-            .iter_mut()
-            .find(|cycle| cycle.id == id)
-        {
-            cycle.name = name;
-            if let Some(starts_at) = starts_at {
-                cycle.starts_at = starts_at;
-            }
-            if let Some(ends_at) = ends_at {
-                cycle.ends_at = ends_at;
-            }
-            if let Some(status) = status {
-                cycle.status = status;
-            }
-            cycle.clone()
-        } else {
-            let mut cycle = Cycle::new(id.clone(), name);
-            if let Some(starts_at) = starts_at {
-                cycle.starts_at = starts_at;
-            }
-            if let Some(ends_at) = ends_at {
-                cycle.ends_at = ends_at;
-            }
-            if let Some(status) = status {
-                cycle.status = status;
-            }
-            reference_data.cycles.push(cycle.clone());
-            cycle
-        };
-        reference_data.cycles.sort_by(|a, b| a.id.cmp(&b.id));
-        self.save_cycles(&reference_data.cycles)?;
-        self.append_event("cycle_saved", json!({ "id": cycle.id }))?;
-        Ok(cycle)
-    }
-
-    pub fn upsert_label(
-        &self,
-        id: Option<String>,
-        name: String,
-        color: Option<String>,
-    ) -> Result<Label> {
-        self.init()?;
-        if name.trim().is_empty() {
-            bail!("label name cannot be empty");
-        }
-        let id = normalized_reference_id(id, &name)?;
-        let mut reference_data = self.load_reference_data()?;
-        let label = if let Some(label) = reference_data
-            .labels
-            .iter_mut()
-            .find(|label| label.id == id)
-        {
-            label.name = name;
-            if let Some(color) = color {
-                label.color = color;
-            }
-            label.clone()
-        } else {
-            let mut label = Label::new(id.clone(), name);
-            if let Some(color) = color {
-                label.color = color;
-            }
-            reference_data.labels.push(label.clone());
-            label
-        };
-        reference_data.labels.sort_by(|a, b| a.id.cmp(&b.id));
-        self.save_labels(&reference_data.labels)?;
-        self.append_event("label_saved", json!({ "id": label.id }))?;
-        Ok(label)
-    }
-
-    pub fn delete_project(&self, id: &str, force: bool) -> Result<Project> {
-        self.init()?;
-        if !force && self.load_issues()?.iter().any(|issue| issue.project == id) {
-            bail!("project {id} is used by issues; pass --force to clear references");
-        }
-        let mut reference_data = self.load_reference_data()?;
-        let index = reference_data
-            .projects
-            .iter()
-            .position(|project| project.id == id)
-            .with_context(|| format!("project {id} does not exist"))?;
-        let project = reference_data.projects.remove(index);
-        self.save_projects(&reference_data.projects)?;
-        if force {
-            for mut issue in self
-                .load_issues()?
-                .into_iter()
-                .filter(|issue| issue.project == id)
-            {
-                issue.project.clear();
-                issue.touch();
-                self.save_issue(&issue)?;
-            }
-        }
-        self.append_event("project_deleted", json!({ "id": id }))?;
-        Ok(project)
-    }
-
-    pub fn delete_cycle(&self, id: &str, force: bool) -> Result<Cycle> {
-        self.init()?;
-        if !force && self.load_issues()?.iter().any(|issue| issue.cycle == id) {
-            bail!("cycle {id} is used by issues; pass --force to clear references");
-        }
-        let mut reference_data = self.load_reference_data()?;
-        let index = reference_data
-            .cycles
-            .iter()
-            .position(|cycle| cycle.id == id)
-            .with_context(|| format!("cycle {id} does not exist"))?;
-        let cycle = reference_data.cycles.remove(index);
-        self.save_cycles(&reference_data.cycles)?;
-        if force {
-            for mut issue in self
-                .load_issues()?
-                .into_iter()
-                .filter(|issue| issue.cycle == id)
-            {
-                issue.cycle.clear();
-                issue.touch();
-                self.save_issue(&issue)?;
-            }
-        }
-        self.append_event("cycle_deleted", json!({ "id": id }))?;
-        Ok(cycle)
-    }
-
-    pub fn delete_label(&self, id: &str, force: bool) -> Result<Label> {
-        self.init()?;
-        if !force
-            && self
-                .load_issues()?
-                .iter()
-                .any(|issue| issue.labels.iter().any(|label| label == id))
-        {
-            bail!("label {id} is used by issues; pass --force to remove it from issues");
-        }
-        let mut reference_data = self.load_reference_data()?;
-        let index = reference_data
-            .labels
-            .iter()
-            .position(|label| label.id == id)
-            .with_context(|| format!("label {id} does not exist"))?;
-        let label = reference_data.labels.remove(index);
-        self.save_labels(&reference_data.labels)?;
-        if force {
-            for mut issue in self
-                .load_issues()?
-                .into_iter()
-                .filter(|issue| issue.labels.iter().any(|label| label == id))
-            {
-                issue.labels.retain(|label| label != id);
-                issue.touch();
-                self.save_issue(&issue)?;
-            }
-        }
-        self.append_event("label_deleted", json!({ "id": id }))?;
-        Ok(label)
-    }
-
     pub fn load_agent_sessions(&self) -> Result<Vec<AgentSession>> {
-        let dir = self.agents_dir();
-        if !dir.exists() {
-            return Ok(Vec::new());
-        }
-
         let mut sessions = Vec::new();
-        for entry in fs::read_dir(&dir)
-            .with_context(|| format!("failed to read agents dir {}", dir.display()))?
-        {
-            let entry = entry?;
-            let path = entry.path();
+        let mut total_bytes = 0usize;
+        for entry in self.entries("agents")? {
+            let path = self.agents_dir().join(entry.name);
             if path.extension().and_then(|value| value.to_str()) != Some("toml") {
                 continue;
             }
 
-            let raw = fs::read_to_string(&path)
-                .with_context(|| format!("failed to read agent session {}", path.display()))?;
+            let raw = read_legacy_text(&path, 2 * 1024 * 1024)?;
+            total_bytes += raw.len();
+            if total_bytes > 64 * 1024 * 1024 {
+                bail!("legacy sessions exceed the 64 MiB read budget");
+            }
             let session: AgentSession = toml::from_str(&raw)
                 .with_context(|| format!("failed to parse agent session {}", path.display()))?;
             sessions.push(session);
@@ -688,149 +441,14 @@ pull_requests = "p"
         Ok(sessions)
     }
 
-    pub fn save_agent_session(&self, session: &AgentSession) -> Result<()> {
-        self.init()?;
-        if session.id.trim().is_empty() {
-            bail!("agent session id cannot be empty");
-        }
-        if sanitize_key(&session.id).is_empty() {
-            bail!("agent session id must contain ASCII letters, numbers, or dashes");
-        }
-        if session.title.trim().is_empty() {
-            bail!("agent session title cannot be empty");
-        }
-        let path = self.agent_session_path(&session.id);
-        let raw = toml::to_string_pretty(session)?;
-        atomic_write(&path, &raw)?;
-        self.append_event("agent_session_saved", json!({ "id": session.id }))?;
-        Ok(())
-    }
-
-    pub fn create_issue(&self, title: String) -> Result<Issue> {
-        self.init()?;
-        let key = self.next_issue_key()?;
-        let issue = Issue::new(key, title);
-        self.save_issue(&issue)?;
-        self.append_event("issue_created", json!({ "key": issue.key }))?;
-        Ok(issue)
-    }
-
-    pub fn update_issue(&self, key: &str, update: IssueUpdate) -> Result<Issue> {
-        let mut issue = self
-            .load_issues()?
-            .into_iter()
-            .find(|issue| issue.key == key)
-            .with_context(|| format!("issue {key} does not exist"))?;
-
-        if let Some(title) = update.title {
-            if title.trim().is_empty() {
-                bail!("issue title cannot be empty");
-            }
-            issue.title = title;
-        }
-        if let Some(description) = update.description {
-            issue.description = description;
-        }
-        if let Some(status) = update.status {
-            issue.status = status;
-        }
-        if let Some(priority) = update.priority {
-            issue.priority = priority;
-        }
-        if let Some(project) = update.project {
-            issue.project = project;
-        }
-        if let Some(cycle) = update.cycle {
-            issue.cycle = cycle;
-        }
-        if let Some(assignee) = update.assignee {
-            issue.assignee = assignee;
-        }
-        if let Some(due_at) = update.due_at {
-            issue.due_at = due_at;
-        }
-        if let Some(labels) = update.labels {
-            issue.labels = labels;
-            issue.labels.sort();
-            issue.labels.dedup();
-        }
-        if let Some(linked_commits) = update.linked_commits {
-            issue.linked_commits.extend(linked_commits);
-            issue.linked_commits.sort();
-            issue.linked_commits.dedup();
-        }
-
-        issue.touch();
-        self.save_issue(&issue)?;
-        self.append_event("issue_updated", json!({ "key": issue.key }))?;
-        Ok(issue)
-    }
-
-    pub fn save_issue(&self, issue: &Issue) -> Result<()> {
-        self.init()?;
-        if !valid_issue_key(&issue.key) {
-            bail!("issue key must look like WD-1");
-        }
-
-        let path = self.issue_path(&issue.key);
-        let raw = toml::to_string_pretty(issue)?;
-        atomic_write(&path, &raw)?;
-        Ok(())
-    }
-
-    pub fn link_issue_file(&self, key: &str, file_path: &str) -> Result<Issue> {
-        let mut issues = self.load_issues()?;
-        let Some(issue) = issues.iter_mut().find(|issue| issue.key == key) else {
-            bail!("issue {key} does not exist");
-        };
-
-        if !issue.linked_files.iter().any(|path| path == file_path) {
-            issue.linked_files.push(file_path.to_string());
-            issue.linked_files.sort();
-            issue.touch();
-            self.save_issue(issue)?;
-            self.append_event(
-                "issue_file_linked",
-                json!({ "key": issue.key, "path": file_path }),
-            )?;
-        }
-
-        Ok(issue.clone())
-    }
-
-    pub fn issue_file_path(&self, key: &str) -> PathBuf {
-        self.issue_path(key)
-    }
-
-    pub fn agent_session_file_path(&self, id: &str) -> PathBuf {
-        self.agent_session_path(id)
-    }
-
-    pub fn append_event(&self, kind: &str, payload: serde_json::Value) -> Result<()> {
-        fs::create_dir_all(&self.root)
-            .with_context(|| format!("failed to create {}", self.root.display()))?;
-        let event = json!({
-            "kind": kind,
-            "payload": payload,
-            "created_at": now(),
-        });
-        let mut file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(self.root.join("events.jsonl"))
-            .with_context(|| "failed to open events.jsonl")?;
-        writeln!(file, "{event}")?;
-        Ok(())
-    }
-
     pub fn load_events(&self) -> Result<Vec<StoreEvent>> {
+        self.ensure_legacy_format()?;
         let path = self.root.join("events.jsonl");
-        if !path.exists() {
+        if missing(&path)? {
             return Ok(Vec::new());
         }
 
-        let raw = fs::read_to_string(&path)
-            .with_context(|| format!("failed to read events {}", path.display()))?;
+        let raw = read_legacy_text(&path, 64 * 1024 * 1024)?;
         let mut events = Vec::new();
         for (index, line) in raw.lines().enumerate() {
             if line.trim().is_empty() {
@@ -843,16 +461,6 @@ pull_requests = "p"
         Ok(events)
     }
 
-    pub fn next_issue_key(&self) -> Result<String> {
-        let max = self
-            .load_issues()?
-            .iter()
-            .filter_map(|issue| issue_key_number(&issue.key))
-            .max()
-            .unwrap_or(0);
-        Ok(format!("WD-{}", max + 1))
-    }
-
     fn issues_dir(&self) -> PathBuf {
         self.root.join("issues")
     }
@@ -860,56 +468,6 @@ pull_requests = "p"
     fn agents_dir(&self) -> PathBuf {
         self.root.join("agents")
     }
-
-    fn issue_path(&self, key: &str) -> PathBuf {
-        self.issues_dir()
-            .join(format!("{}.toml", sanitize_key(key)))
-    }
-
-    fn agent_session_path(&self, id: &str) -> PathBuf {
-        self.agents_dir().join(format!("{}.toml", sanitize_key(id)))
-    }
-
-    fn save_projects(&self, projects: &[Project]) -> Result<()> {
-        atomic_write(
-            &self.root.join("projects.toml"),
-            &toml::to_string_pretty(&ProjectsFile {
-                projects: projects.to_vec(),
-            })?,
-        )
-    }
-
-    fn save_cycles(&self, cycles: &[Cycle]) -> Result<()> {
-        atomic_write(
-            &self.root.join("cycles.toml"),
-            &toml::to_string_pretty(&CyclesFile {
-                cycles: cycles.to_vec(),
-            })?,
-        )
-    }
-
-    fn save_labels(&self, labels: &[Label]) -> Result<()> {
-        atomic_write(
-            &self.root.join("labels.toml"),
-            &toml::to_string_pretty(&LabelsFile {
-                labels: labels.to_vec(),
-            })?,
-        )
-    }
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct IssueUpdate {
-    pub title: Option<String>,
-    pub description: Option<String>,
-    pub status: Option<IssueStatus>,
-    pub priority: Option<Priority>,
-    pub project: Option<String>,
-    pub cycle: Option<String>,
-    pub assignee: Option<String>,
-    pub due_at: Option<String>,
-    pub labels: Option<Vec<String>>,
-    pub linked_commits: Option<Vec<String>>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -934,11 +492,11 @@ fn read_toml_list<T>(path: &Path) -> Result<T>
 where
     T: Default + for<'de> Deserialize<'de>,
 {
-    if !path.exists() {
+    if missing(path)? {
         return Ok(T::default());
     }
 
-    let raw = fs::read_to_string(path)?;
+    let raw = read_legacy_text(path, 2 * 1024 * 1024)?;
     if raw.trim().is_empty() {
         return Ok(T::default());
     }
@@ -946,30 +504,28 @@ where
     toml::from_str(&raw).with_context(|| format!("failed to parse {}", path.display()))
 }
 
-fn atomic_write(path: &Path, content: &str) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create {}", parent.display()))?;
+fn missing(path: &Path) -> Result<bool> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => Ok(false),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(true),
+        Err(error) => Err(error.into()),
     }
+}
 
-    let tmp_path = path.with_extension(format!(
-        "{}.{}.{}.tmp",
-        path.extension()
-            .and_then(|extension| extension.to_str())
-            .unwrap_or("workdeck"),
-        std::process::id(),
-        Utc::now().timestamp_nanos_opt().unwrap_or_default()
-    ));
-    fs::write(&tmp_path, content)
-        .with_context(|| format!("failed to write temp file {}", tmp_path.display()))?;
-    fs::rename(&tmp_path, path).with_context(|| {
-        format!(
-            "failed to atomically replace {} with {}",
-            path.display(),
-            tmp_path.display()
-        )
-    })?;
-    Ok(())
+fn read_legacy_text(path: &Path, limit: usize) -> Result<String> {
+    let parent = path.parent().context("legacy file has no parent")?;
+    let name = path.file_name().context("legacy file has no filename")?;
+    let read = crate::bounded_files::read(parent, Path::new(name), limit)
+        .with_context(|| format!("failed to read legacy file {}", path.display()))?;
+    if read.truncated {
+        bail!(
+            "legacy file exceeds its {}-byte read limit: {}",
+            limit,
+            path.display()
+        );
+    }
+    String::from_utf8(read.bytes)
+        .with_context(|| format!("legacy file is not UTF-8: {}", path.display()))
 }
 
 fn issue_key_number(key: &str) -> Option<u64> {
@@ -1046,49 +602,6 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
-    fn creates_sequential_issue_files() {
-        let dir = tempdir().unwrap();
-        let store = WorkdeckStore::new(dir.path().join(".agents/workdeck"));
-
-        let first = store.create_issue("First issue".to_string()).unwrap();
-        let second = store.create_issue("Second issue".to_string()).unwrap();
-
-        assert_eq!(first.key, "WD-1");
-        assert_eq!(second.key, "WD-2");
-        assert!(
-            dir.path()
-                .join(".agents/workdeck/issues/WD-1.toml")
-                .exists()
-        );
-        assert!(dir.path().join(".agents/workdeck/events.jsonl").exists());
-    }
-
-    #[test]
-    fn links_issue_to_file_once() {
-        let dir = tempdir().unwrap();
-        let store = WorkdeckStore::new(dir.path().join(".agents/workdeck"));
-        let issue = store.create_issue("Link me".to_string()).unwrap();
-
-        store.link_issue_file(&issue.key, "src/main.rs").unwrap();
-        store.link_issue_file(&issue.key, "src/main.rs").unwrap();
-
-        let issue = store.load_issues().unwrap().remove(0);
-        assert_eq!(issue.linked_files, vec!["src/main.rs"]);
-    }
-
-    #[test]
-    fn rejects_invalid_issue_keys() {
-        let dir = tempdir().unwrap();
-        let store = WorkdeckStore::new(dir.path().join(".agents/workdeck"));
-        let mut issue = Issue::new("../bad".to_string(), "Bad".to_string());
-        issue.key = "../bad".to_string();
-
-        let error = store.save_issue(&issue).unwrap_err().to_string();
-
-        assert!(error.contains("WD-1"));
-    }
-
-    #[test]
     fn parses_status_and_priority_aliases() {
         assert_eq!(
             "in-progress".parse::<IssueStatus>().unwrap(),
@@ -1098,191 +611,80 @@ mod tests {
     }
 
     #[test]
-    fn updates_issue_fields_and_deduplicates_labels() {
+    fn legacy_issue_reads_preserve_unknown_fields_and_file_bytes() {
         let dir = tempdir().unwrap();
-        let store = WorkdeckStore::new(dir.path().join(".agents/workdeck"));
-        let issue = store.create_issue("Original".to_string()).unwrap();
-
-        let updated = store
-            .update_issue(
-                &issue.key,
-                IssueUpdate {
-                    title: Some("Updated".to_string()),
-                    status: Some(IssueStatus::InProgress),
-                    priority: Some(Priority::High),
-                    due_at: Some("2026-05-31".to_string()),
-                    labels: Some(vec![
-                        "git".to_string(),
-                        "git".to_string(),
-                        "mvp".to_string(),
-                    ]),
-                    linked_commits: Some(vec![
-                        "abc123".to_string(),
-                        "abc123".to_string(),
-                        "def456".to_string(),
-                    ]),
-                    ..IssueUpdate::default()
-                },
-            )
-            .unwrap();
-
-        assert_eq!(updated.title, "Updated");
-        assert_eq!(updated.status, IssueStatus::InProgress);
-        assert_eq!(updated.priority, Priority::High);
-        assert_eq!(updated.due_at, "2026-05-31");
-        assert_eq!(updated.labels, vec!["git", "mvp"]);
-        assert_eq!(updated.linked_commits, vec!["abc123", "def456"]);
-    }
-
-    #[test]
-    fn issue_updates_preserve_unknown_toml_fields() {
-        let dir = tempdir().unwrap();
-        let store = WorkdeckStore::new(dir.path().join(".agents/workdeck"));
-        store.init().unwrap();
-        fs::write(
-            store.issue_file_path("WD-1"),
-            r#"key = "WD-1"
-title = "Has external metadata"
-external_id = "lin-123"
-
-[agent_context]
-model = "codex"
-"#,
-        )
-        .unwrap();
-
-        let updated = store
-            .update_issue(
-                "WD-1",
-                IssueUpdate {
-                    status: Some(IssueStatus::InProgress),
-                    ..IssueUpdate::default()
-                },
-            )
-            .unwrap();
-
-        assert_eq!(updated.extra["external_id"].as_str(), Some("lin-123"));
-        let raw = fs::read_to_string(store.issue_file_path("WD-1")).unwrap();
-        assert!(raw.contains("external_id = \"lin-123\""));
-        assert!(raw.contains("[agent_context]"));
-        assert!(raw.contains("model = \"codex\""));
-    }
-
-    #[test]
-    fn saves_reference_data_as_reviewable_toml() {
-        let dir = tempdir().unwrap();
-        let store = WorkdeckStore::new(dir.path().join(".agents/workdeck"));
-
-        let project = store
-            .upsert_project(
-                None,
-                "Workdeck MVP".to_string(),
-                Some("Initial release".to_string()),
-                None,
-            )
-            .unwrap();
-        let cycle = store
-            .upsert_cycle(
-                Some("mvp".to_string()),
-                "MVP".to_string(),
-                Some("2026-05-24".to_string()),
-                None,
-                None,
-            )
-            .unwrap();
-        let label = store
-            .upsert_label(None, "Git".to_string(), Some("green".to_string()))
-            .unwrap();
-
-        let reference_data = store.load_reference_data().unwrap();
-        assert_eq!(project.id, "workdeck-mvp");
-        assert_eq!(cycle.id, "mvp");
-        assert_eq!(label.id, "git");
-        assert_eq!(reference_data.projects[0].name, "Workdeck MVP");
-        assert_eq!(reference_data.cycles[0].starts_at, "2026-05-24");
-        assert_eq!(reference_data.labels[0].color, "green");
-        assert!(
-            fs::read_to_string(dir.path().join(".agents/workdeck/projects.toml"))
-                .unwrap()
-                .contains("[[projects]]")
+        fs::create_dir(dir.path().join("issues")).unwrap();
+        let path = dir.path().join("issues/WD-1.toml");
+        let raw = "key='WD-1'\ntitle='External metadata'\nexternal_id='lin-123'\nlinked_files=['src/main.rs']\n[agent_context]\nmodel='codex'\n";
+        fs::write(&path, raw).unwrap();
+        let store = WorkdeckStore::new(dir.path());
+        let issue = store.load_issues().unwrap().remove(0);
+        assert_eq!(issue.extra["external_id"].as_str(), Some("lin-123"));
+        assert_eq!(
+            issue.extra["agent_context"]["model"].as_str(),
+            Some("codex")
         );
+        assert_eq!(issue.linked_files, ["src/main.rs"]);
+        assert_eq!(fs::read_to_string(path).unwrap(), raw);
     }
 
     #[test]
-    fn saves_and_loads_agent_sessions() {
+    fn legacy_reference_reads_keep_project_cycle_and_label_fields() {
         let dir = tempdir().unwrap();
-        let store = WorkdeckStore::new(dir.path().join(".agents/workdeck"));
-        let mut session = AgentSession::new("Build shell".to_string());
-        session.agent = "codex".to_string();
-        session.touched_files.push(AgentTouchedFile {
-            path: "src/main.rs".to_string(),
-            change_type: "modified".to_string(),
-        });
-
-        store.save_agent_session(&session).unwrap();
-
-        let sessions = store.load_agent_sessions().unwrap();
-        assert_eq!(sessions.len(), 1);
-        assert_eq!(sessions[0].title, "Build shell");
-        assert_eq!(sessions[0].touched_files[0].path, "src/main.rs");
-    }
-
-    #[test]
-    fn agent_sessions_preserve_unknown_toml_fields() {
-        let dir = tempdir().unwrap();
-        let store = WorkdeckStore::new(dir.path().join(".agents/workdeck"));
-        store.init().unwrap();
+        fs::write(dir.path().join("projects.toml"), "[[projects]]\nid='workdeck-mvp'\nname='Workdeck MVP'\ncreated_at='2026-09-01T00:00:00Z'\nupdated_at='2026-09-02T00:00:00Z'\n").unwrap();
         fs::write(
-            store.agent_session_file_path("session-1"),
-            r#"id = "session-1"
-title = "Imported"
-external_trace_id = "trace-123"
-
-[runner]
-host = "local"
-"#,
+            dir.path().join("cycles.toml"),
+            "[[cycles]]\nid='mvp'\nname='MVP'\nstarts_at='2026-05-24'\n",
         )
         .unwrap();
-
-        let mut session = store.load_agent_sessions().unwrap().remove(0);
-        session.status = "done".to_string();
-        store.save_agent_session(&session).unwrap();
-
-        let raw = fs::read_to_string(store.agent_session_file_path("session-1")).unwrap();
-        assert!(raw.contains("external_trace_id = \"trace-123\""));
-        assert!(raw.contains("[runner]"));
-        assert!(raw.contains("host = \"local\""));
+        fs::write(
+            dir.path().join("labels.toml"),
+            "[[labels]]\nid='git'\nname='Git'\ncolor='green'\n",
+        )
+        .unwrap();
+        let refs = WorkdeckStore::new(dir.path())
+            .load_reference_data()
+            .unwrap();
+        assert_eq!(refs.projects[0].name, "Workdeck MVP");
+        assert_eq!(refs.projects[0].updated_at, "2026-09-02T00:00:00Z");
+        assert_eq!(refs.cycles[0].starts_at, "2026-05-24");
+        assert_eq!(refs.labels[0].color, "green");
     }
 
     #[test]
-    fn rejects_agent_sessions_without_safe_identity() {
+    fn legacy_session_reads_preserve_unknown_fields_and_touched_files() {
         let dir = tempdir().unwrap();
-        let store = WorkdeckStore::new(dir.path().join(".agents/workdeck"));
-        let mut session = AgentSession::new("Bad".to_string());
-
-        session.id = "///".to_string();
-        assert!(store.save_agent_session(&session).is_err());
-
-        session.id = "session-1".to_string();
-        session.title.clear();
-        assert!(store.save_agent_session(&session).is_err());
+        fs::create_dir(dir.path().join("agents")).unwrap();
+        let path = dir.path().join("agents/session-1.toml");
+        let raw = "id='session-1'\ntitle='Imported'\nexternal_trace_id='trace-123'\n[[touched_files]]\npath='src/main.rs'\nchange_type='modified'\n[runner]\nhost='local'\n";
+        fs::write(&path, raw).unwrap();
+        let session = WorkdeckStore::new(dir.path())
+            .load_agent_sessions()
+            .unwrap()
+            .remove(0);
+        assert_eq!(
+            session.extra["external_trace_id"].as_str(),
+            Some("trace-123")
+        );
+        assert_eq!(session.extra["runner"]["host"].as_str(), Some("local"));
+        assert_eq!(session.touched_files[0].path, "src/main.rs");
+        assert_eq!(fs::read_to_string(path).unwrap(), raw);
     }
 
     #[test]
     fn loads_events_without_initializing_store() {
         let dir = tempdir().unwrap();
-        let store = WorkdeckStore::new(dir.path().join(".agents/workdeck"));
-
+        let root = dir.path().join("legacy");
+        let store = WorkdeckStore::new(&root);
         assert!(store.load_events().unwrap().is_empty());
-        assert!(!dir.path().join(".agents/workdeck").exists());
-
-        store
-            .append_event("test_event", json!({ "key": "value" }))
-            .unwrap();
+        assert!(!root.exists());
+        fs::create_dir(&root).unwrap();
+        let raw = "{\"kind\":\"test_event\",\"payload\":{\"key\":\"value\"}}\n";
+        fs::write(root.join("events.jsonl"), raw).unwrap();
         let events = store.load_events().unwrap();
-
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].kind, "test_event");
         assert_eq!(events[0].payload["key"], "value");
+        assert_eq!(fs::read_to_string(root.join("events.jsonl")).unwrap(), raw);
     }
 }

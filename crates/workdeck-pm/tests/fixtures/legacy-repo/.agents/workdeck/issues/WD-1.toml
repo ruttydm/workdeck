@@ -1,0 +1,37 @@
+key = "WD-1"
+title = "Preserve redirected deep links"
+description = """
+## Outcome
+
+Keep the original `/projects/demo?tab=issues` URL through sign-in.
+
+- Preserve the query string.
+- Keep Unicode text: résumé / 日本語.
+
+```text
+Input: /projects/demo?tab=issues
+Expected: the same URL after sign-in
+```
+"""
+status = "in-review"
+priority = "high"
+project = "account_access"
+cycle = "week-37"
+assignee = "fixture-author"
+created_at = "2026-09-01T09:15:00+02:00"
+updated_at = "2026-09-07T14:03:02.123456+02:00"
+due_at = "2026-09-11"
+labels = ["bug", "review_needed"]
+linked_files = ["src/auth/redirect.rs", "docs/Auth flow.md"]
+linked_commits = ["abc123", "1111111111111111111111111111111111111111"]
+estimate = 3
+external_reference = "fixture:tracker/42"
+
+[custom]
+nullable_policy = "empty strings remain explicit in legacy metadata"
+risk_score = 0.75
+enabled = true
+owners = ["fixture-author", "fixture-reviewer"]
+
+[custom.links]
+design = "docs/Auth flow.md"

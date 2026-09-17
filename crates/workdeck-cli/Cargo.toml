@@ -20,7 +20,6 @@ flate2 = "1.1"
 rustix = { version = "1.1", features = ["fs"] }
 sha2 = "0.10"
 tar = "0.4"
-tempfile = "3.13"
 zip = { version = "2.4", default-features = false, features = ["deflate"] }
 arboard = "3.6"
 chrono = { version = "0.4", features = ["serde"] }
@@ -30,11 +29,11 @@ fuzzy-matcher = "0.3"
 git2 = "0.21"
 ignore = "0.4"
 indexmap = { version = "2.14", features = ["serde"] }
-ratatui = "0.29"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 semver = "1.0"
-syntect = "5.2"
+shell-words = "1.1"
+tempfile = "3.13"
 thiserror = "2.0"
 toml = { version = "0.8", features = ["preserve_order"] }
 toml_edit = "0.22"
@@ -44,6 +43,7 @@ workdeck-extension-api = { path = "../workdeck-extension-api" }
 workdeck-extension-host = { path = "../workdeck-extension-host" }
 workdeck-migration = { path = "../workdeck-migration" }
 workdeck-markup = { path = "../workdeck-markup" }
+workdeck-pm = { path = "../workdeck-pm" }
 workdeck-review = { path = "../workdeck-review" }
 workdeck-session = { path = "../workdeck-session" }
 workdeck-store = { path = "../workdeck-store" }
@@ -53,12 +53,13 @@ workdeck-vcs = { path = "../workdeck-vcs" }
 [dev-dependencies]
 base64 = "0.22"
 ureq = { version = "3.4", default-features = false }
+ed25519-dalek = "2.2"
+ratatui = "0.29"
 sha2 = "0.10"
 unicode-width = "0.2"
 assert_cmd = "2.0"
 predicates = "3.1"
 qwertty-term-vt = "0.4.0"
-tempfile = "3.13"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

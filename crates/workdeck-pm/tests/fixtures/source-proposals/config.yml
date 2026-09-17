@@ -1,0 +1,8 @@
+schema: 1
+repository: repo-01ARZ3NDEKTSV4RRFFQ69G5FAV
+prefix: WD
+sources:
+  mode: shared
+  accepted_ref: refs/heads/workdeck-planning
+  proposal_ref: refs/heads/proposal/WD-7
+  coordination_ref: refs/heads/workdeck-coordination

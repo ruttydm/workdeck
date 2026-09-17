@@ -19,11 +19,11 @@ use workdeck_review::{
 use workdeck_session::{
     AppliedCommentBatchResult, AppliedCommentResult, AppliedHighlightResult, ClearedCommentsResult,
     ClearedHighlightsResult, CommentDirection, CommentTargetInput, CommentToolInput,
-    HighlightToolInput, NavigateToHunkToolInput, NavigatedSelectionResult, RemovedCommentResult,
-    RevealedTarget, SelectedHunkSummary, SessionLineHighlightTone, SessionLiveCommentSummary,
-    SessionRegistrationBootstrap, SessionReloadReason as BrokerReloadReason,
-    SessionReviewNoteSummary, WorkdeckSessionSnapshot, create_initial_session_snapshot,
-    no_diff_file_matches_message, update_session_registration,
+    HighlightToolInput, NavigateToHunkToolInput, NavigatedSelectionResult, ReloadSessionOptions,
+    RemovedCommentResult, RevealedTarget, SelectedHunkSummary, SessionLineHighlightTone,
+    SessionLiveCommentSummary, SessionRegistrationBootstrap,
+    SessionReloadReason as BrokerReloadReason, SessionReviewNoteSummary, WorkdeckSessionSnapshot,
+    create_initial_session_snapshot, no_diff_file_matches_message, update_session_registration,
 };
 
 use crate::{
@@ -176,17 +176,24 @@ impl ReviewApp {
     ) {
         self.options.command_cwd = Some(host.command_cwd);
         self.options.repo = host.repo_root;
+        if let Some(provider) = host.repository_panels {
+            self.options.repository_panels = provider;
+        }
         self.options.startup_notices = host.startup_notices;
         self.options.custom_themes = host.custom_themes;
         self.options.keybindings = host.keybindings;
         self.options.keybinding_notices = host.keybinding_notices;
         self.options.view_preferences_config_path = host.view_preferences_config_path;
+        self.options.view_preferences_write_policy = host.view_preferences_write_policy;
         self.options.prompt_save_view_preferences = host.prompt_save_view_preferences;
         if let Some(transient) = host.transient_view_preferences {
             self.options.transient_view_preferences = transient;
         }
         if let Some(pending) = host.pending_extension_trust_repo_root {
             self.options.pending_extension_trust_repo_root = pending;
+        }
+        if let Some(directory) = host.pending_extension_trust_directory {
+            self.options.pending_extension_trust_directory = directory;
         }
         if let Some(handler) = host.extension_trust_handler {
             self.options.extension_trust_handler = Some(handler);
@@ -222,6 +229,8 @@ impl ReviewApp {
             self.options.transient_view_preferences,
             self.options.view_preferences_home_directory.clone(),
         );
+        self.view_preference_quit
+            .set_write_policy(self.options.view_preferences_write_policy);
         self.reconcile_extension_trust_repo_root(
             self.options.pending_extension_trust_repo_root.clone(),
         );
@@ -247,9 +256,10 @@ impl ReviewApp {
 
     pub(crate) fn session_commit_dynamic_reload(
         &mut self,
-        loaded: DynamicReviewLoad,
-        options: &workdeck_session::ReloadSessionOptions,
+        mut loaded: DynamicReviewLoad,
+        options: &ReloadSessionOptions,
     ) -> Result<workdeck_session::ReloadedSessionResult, String> {
+        self.prepare_workbench_checkout_host(&mut loaded.host_options)?;
         let DynamicReviewLoad {
             input,
             changeset,
@@ -291,7 +301,7 @@ impl ReviewApp {
         &mut self,
         input: &CliInput,
         changeset: workdeck_core::Changeset,
-        options: &workdeck_session::ReloadSessionOptions,
+        options: &ReloadSessionOptions,
         replace_broker_session: F,
     ) -> Result<workdeck_session::ReloadedSessionResult, String>
     where
@@ -315,7 +325,7 @@ impl ReviewApp {
         &mut self,
         input: &CliInput,
         changeset: workdeck_core::Changeset,
-        options: &workdeck_session::ReloadSessionOptions,
+        options: &ReloadSessionOptions,
         mut host_options: Option<DynamicReviewHostOptions>,
         mut replacement: Option<ProvisionalExtensionPaneRuntime>,
         replace_broker_session: F,
@@ -329,6 +339,32 @@ impl ReviewApp {
     {
         if self.shutdown_requested() {
             return Err("The Workdeck review is shutting down and cannot reload.".into());
+        }
+        self.validate_workbench_checkout(host_options.as_ref())?;
+        if let Some(host) = &host_options
+            && let Some(navigation) = &host.registry_navigation
+        {
+            navigation.revalidate().map_err(|error| error.message)?;
+            if host.repo_root.as_ref() != Some(&navigation.checkout().checkout) {
+                return Err(
+                    "Registered navigation does not match the loaded repository root".into(),
+                );
+            }
+            // Resolve symlinks and parent components before accepting a nested
+            // command directory. The selected review must not dispatch commands
+            // through another checkout's host context.
+            let command_cwd = host.command_cwd.canonicalize().map_err(|error| {
+                format!("Registered navigation command cwd is unavailable: {error}")
+            })?;
+            if !command_cwd.starts_with(&navigation.checkout().checkout) {
+                return Err("Registered navigation command cwd is outside its checkout".into());
+            }
+        }
+        if let Some(host) = &host_options
+            && let Some(Some(provider)) = &host.repository_panels
+            && host.repo_root.as_ref() != Some(&provider.source().root)
+        {
+            return Err("Reload panel provider does not match the selected repository root".into());
         }
         let source_capabilities = host_options
             .as_mut()
@@ -374,6 +410,10 @@ impl ReviewApp {
             .review_producer
             .reserve_publication(prepared.clone())
             .map_err(|error| error.to_string())?;
+        if let Err(error) = self.validate_workbench_checkout(host_options.as_ref()) {
+            reservation.cancel();
+            return Err(error);
+        }
         let session_id = match replace_broker_session(
             &registration_bootstrap,
             &prepared.publication,
@@ -387,6 +427,7 @@ impl ReviewApp {
         };
         let _ = reservation
             .commit(workdeck_review::ReviewPublicationCommitOptions { detach_store: true });
+        self.mark_workbench_checkout_committed();
         let reset_app = options.reset_app != Some(false);
         let source_capabilities = host_options
             .as_ref()
@@ -1152,7 +1193,7 @@ mod tests {
                     ..Default::default()
                 },
             },
-            &workdeck_session::ReloadSessionOptions {
+            &ReloadSessionOptions {
                 reset_app: Some(false),
                 ..Default::default()
             },
@@ -1586,6 +1627,58 @@ mod tests {
     }
 
     #[test]
+    fn preference_source_policy_is_replaced_on_soft_reload_without_global_fallback() {
+        let directory = tempfile::TempDir::new().unwrap();
+        let path = directory.path().join("legacy.toml");
+        let original = "# legacy\nmode='split'\n";
+        std::fs::write(&path, original).unwrap();
+        let input = patch_input("source.patch");
+        let mut app = ReviewApp::new(
+            changeset("before.rs", "old", "before"),
+            ReviewOptions::default(),
+        );
+        app.session_apply_host_options(
+            &input,
+            DynamicReviewHostOptions {
+                view_preferences_config_path: Some(path.clone()),
+                view_preferences_write_policy:
+                    workdeck_core::ViewPreferenceWritePolicy::LegacyReadOnly,
+                prompt_save_view_preferences: true,
+                ..DynamicReviewHostOptions::default()
+            },
+            false,
+        );
+        let current = app.current_view_preferences();
+        let error = app
+            .view_preference_quit
+            .save_view_preferences_and_schedule_quit(&current, std::time::Instant::now())
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            workdeck_core::ViewPreferencePersistenceError::LegacyReadOnly
+        ));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+        let native = directory.path().join(".workdeck/config.toml");
+        app.session_apply_host_options(
+            &input,
+            DynamicReviewHostOptions {
+                view_preferences_config_path: Some(native.clone()),
+                view_preferences_write_policy: workdeck_core::ViewPreferenceWritePolicy::Writable,
+                prompt_save_view_preferences: true,
+                ..DynamicReviewHostOptions::default()
+            },
+            false,
+        );
+        assert_eq!(
+            app.view_preference_quit
+                .save_view_preferences_and_schedule_quit(&current, std::time::Instant::now())
+                .unwrap(),
+            Some(native)
+        );
+        assert_eq!(std::fs::read_to_string(path).unwrap(), original);
+    }
+
+    #[test]
     fn dynamic_reload_commits_resolved_host_options_with_the_review() {
         let initial_input = patch_input("initial.patch");
         let mut app = ReviewApp::new(
@@ -1822,3 +1915,7 @@ mod tests {
         assert_eq!(app.scroll, expected_scroll);
     }
 }
+
+#[cfg(test)]
+#[path = "session_checkout_tests.rs"]
+mod checkout_tests;

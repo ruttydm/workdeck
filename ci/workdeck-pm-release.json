@@ -1,0 +1,77 @@
+{
+  "schema": 1,
+  "id": "standalone",
+  "purpose": "Run the source-bound Workdeck project-management checks, calibrated projection performance budgets, and release build without publishing.",
+  "validator": {
+    "source": "xtask/src/project_management.rs",
+    "sha256": "484f1b66816202a640fa2862d7739a83553dd98336a83486b5e4b9206ae0bc87",
+    "trusted_baseline": "refs/tags/workdeck-pm-reviewed-baseline-2026-09-11#sha256:484f1b66816202a640fa2862d7739a83553dd98336a83486b5e4b9206ae0bc87"
+  },
+  "checks": [
+    [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "workdeck-pm",
+      "--all-targets",
+      "--no-fail-fast"
+    ],
+    [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "workdeck-cli",
+      "--test",
+      "pm_catalog",
+      "--test",
+      "pm_green_gate",
+      "--test",
+      "pm_imported_check",
+      "--test",
+      "pm_dogfood",
+      "--test",
+      "pm_fault_matrix",
+      "--no-fail-fast"
+    ],
+    [
+      "cargo",
+      "run",
+      "--locked",
+      "--release",
+      "-p",
+      "workdeck-pm",
+      "--example",
+      "projection_bench",
+      "--",
+      "features",
+      "40000",
+      "--enforce-targets"
+    ],
+    [
+      "cargo",
+      "run",
+      "--locked",
+      "--release",
+      "-p",
+      "workdeck-pm",
+      "--example",
+      "projection_bench",
+      "--",
+      "issues",
+      "10000",
+      "--enforce-targets"
+    ]
+  ],
+  "release_build": [
+    "cargo",
+    "build",
+    "--locked",
+    "--release",
+    "--package",
+    "workdeck-cli",
+    "--bin",
+    "workdeck"
+  ]
+}

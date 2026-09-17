@@ -75,13 +75,20 @@ The examples demonstrate these surfaces:
 | `[extensions] paths` in `~/.config/workdeck/config.toml` | User-owned configuration; starts immediately. |
 | `~/.config/workdeck/extensions/` | Global discovery; starts immediately. |
 | managed installs below `~/.config/workdeck/extensions/installed/` | Global discovery after an explicit install. |
-| `.agents/workdeck/extensions/` or repository-configured paths | Omitted until the repository trust decision is allowed. |
+| `.workdeck/extensions/` or repository-configured paths | Omitted until the repository trust decision is allowed. |
 
 A path may name a manifest, a directory containing one manifest, or a directory whose immediate
 children contain manifests. Relative user-config paths resolve from the invocation directory;
 repository-config paths resolve from the repository root. Canonical path identity removes duplicate
 aliases. Discovery order is explicit paths, user-configured paths, global paths, then trusted
 repository paths; compatible extension IDs are first-wins.
+
+The repository-root `.workdeck/extensions/` directory is the canonical automatic source.
+Before a native `.workdeck/` root exists, discovery can read an existing
+`.agents/workdeck/extensions/` directory for compatibility. Creating the native root stops
+that automatic legacy discovery; migrate the extensions or configure their existing paths
+explicitly. Discovery never copies or rewrites the legacy directory. Repository trust still
+applies to the selected directory and repository-configured paths.
 
 An explicit path is consent even when it points inside the repository. Read the manifest and the
 code that produced its binary before suggesting or executing it. Native extensions run with the

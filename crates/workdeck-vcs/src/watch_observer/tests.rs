@@ -5,6 +5,8 @@ use std::fs;
 use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
 
+use notify::event::{CreateKind, MetadataKind, ModifyKind, RenameMode};
+use notify::{Event, EventKind};
 use tempfile::tempdir;
 
 use crate::VcsWatchTargetSource;
@@ -222,6 +224,29 @@ fn recursive_filter_suppresses_paths_inside_ignored_roots() {
     assert!(!filter.matches(&["/repo/node_modules/pkg/index.js".into()]));
     assert!(!filter.matches(&["/repo/.git/objects/pack/data".into()]));
     assert!(filter.matches(&["/repo/src/index.ts".into()]));
+}
+
+#[test]
+fn recursive_filter_suppresses_watch_root_markers_but_keeps_root_children() {
+    let target = tree_target("/repo");
+    let filter = EventFilter::new(&target);
+    assert!(!filter.matches_event(
+        &Event::new(EventKind::Create(CreateKind::Folder)).add_path("/repo".into())
+    ));
+    assert!(
+        !filter.matches_event(
+            &Event::new(EventKind::Modify(ModifyKind::Metadata(
+                MetadataKind::Extended
+            )))
+            .add_path("/repo".into())
+        )
+    );
+    assert!(filter.matches_event(
+        &Event::new(EventKind::Create(CreateKind::File)).add_path("/repo/README.md".into())
+    ));
+    assert!(filter.matches_event(
+        &Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::Any))).add_path("/repo".into())
+    ));
 }
 
 #[test]

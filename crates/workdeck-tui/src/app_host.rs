@@ -53,17 +53,25 @@ pub struct DynamicReviewLoad {
 pub struct DynamicReviewHostOptions {
     /// Replacement runtime source authority, installed only after publication commits.
     pub source_capabilities: Option<workdeck_vcs::VcsSourceCapabilities>,
+    /// Exact registered navigation admission, checked again before reload publication.
+    pub registry_navigation: Option<workdeck_pm::registry::RegistryNavigation>,
     pub command_cwd: PathBuf,
     pub repo_root: Option<PathBuf>,
+    /// None preserves the current provider; Some(None) explicitly clears it.
+    /// A replacement must match repo_root and is adopted only after reload commits.
+    pub repository_panels: Option<Option<Arc<dyn crate::workbench::RepositoryPanelProvider>>>,
     pub startup_notices: Vec<StartupNotice>,
     pub custom_themes: Vec<NamedCustomThemeConfig>,
     pub keybindings: Vec<UserKeyBindingEntry>,
     pub keybinding_notices: Vec<String>,
     pub view_preferences_config_path: Option<PathBuf>,
+    pub view_preferences_write_policy: workdeck_core::ViewPreferenceWritePolicy,
     pub prompt_save_view_preferences: bool,
     pub transient_view_preferences: Option<bool>,
     /// `None` preserves the existing discovery result; `Some(None)` clears it.
     pub pending_extension_trust_repo_root: Option<Option<PathBuf>>,
+    /// `None` preserves the displayed discovery directory; `Some(None)` clears it.
+    pub pending_extension_trust_directory: Option<Option<PathBuf>>,
     pub extension_trust_handler: Option<ExtensionTrustHandler>,
 }
 
@@ -144,6 +152,24 @@ impl AppHostReloadCoordinator {
             cwd: validated.cwd,
             options,
         })
+    }
+
+    /// Only the mounted native switch path calls this preparation method. It
+    /// creates a candidate coordinator with one selected root; ordinary broker
+    /// requests continue to use the current coordinator until publication succeeds.
+    pub(crate) fn for_native_checkout(
+        &self,
+        next_input: &Value,
+        checkout: &workdeck_pm::registry::RegisteredCheckout,
+    ) -> Result<Self, String> {
+        checkout.resolve().map_err(|error| error.message)?;
+        let input = serde_json::from_value::<workdeck_session::DaemonCliInput>(next_input.clone())
+            .map_err(|error| format!("Invalid checkout reload input: {error}"))?;
+        let mut candidate = self.clone();
+        candidate.bounds =
+            create_session_reload_bounds(&input, Some(&checkout.checkout), &checkout.checkout)
+                .map_err(|error| error.to_string())?;
+        Ok(candidate)
     }
 
     pub fn commit(&mut self, plan: &AppHostReloadPlan) {
@@ -787,6 +813,58 @@ mod tests {
             }
             thread::yield_now();
         }
+    }
+
+    #[test]
+    fn native_checkout_preparation_replaces_only_the_selected_reload_boundary() {
+        let origin = tempfile::tempdir().unwrap();
+        let target = tempfile::tempdir().unwrap();
+        workdeck_pm::Repository::init(target.path(), "WD").unwrap();
+        let checkout = workdeck_pm::registry::inspect_checkout(
+            "target",
+            target.path(),
+            workdeck_pm::SourceSelector::WorkingTree,
+        )
+        .unwrap();
+        let initial = CliInput::Vcs(VcsDiffCommandInput {
+            range: None,
+            range_endpoints: None,
+            staged: false,
+            pathspecs: Vec::new(),
+            options: CommonOptions {
+                extensions: Some(false),
+                ..Default::default()
+            },
+        });
+        let original =
+            AppHostReloadCoordinator::new(initial.clone(), origin.path(), Some(origin.path()))
+                .unwrap();
+        let mut requested = initial.clone();
+        requested.options_mut().extensions = Some(true);
+        let wire = serde_json::to_value(core_cli_input_to_daemon(requested)).unwrap();
+        let options = ReloadSessionOptions {
+            source_path: Some(checkout.checkout.display().to_string()),
+            ..Default::default()
+        };
+        assert!(original.plan(&wire, options.clone()).is_err());
+        let mut selected = original.for_native_checkout(&wire, &checkout).unwrap();
+        let plan = selected.plan(&wire, options.clone()).unwrap();
+        assert_eq!(plan.input.options().extensions, Some(false));
+        assert!(selected.requires_extension_reload(&plan));
+        selected.commit(&plan);
+        assert_eq!(selected.current_cwd(), checkout.checkout);
+        assert!(
+            original.plan(&wire, options).is_err(),
+            "preparation widened the active coordinator before commit"
+        );
+        let old_root = ReloadSessionOptions {
+            source_path: Some(origin.path().display().to_string()),
+            ..Default::default()
+        };
+        assert!(
+            selected.plan(&wire, old_root).is_err(),
+            "selected coordinator retained unrelated root authority"
+        );
     }
 
     #[test]

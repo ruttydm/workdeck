@@ -95,8 +95,35 @@ pub const BUILT_IN_CLI_COMMAND_NAMES: &[&str] = &[
     "doctor",
     "export",
     "issue",
+    "wiki",
+    "view",
+    "init",
+    "operation",
+    "question",
+    "handoff",
+    "protocol",
+    "context",
+    "command",
+    "check",
+    "claim",
+    "source",
+    "repository",
+    "index",
+    "hooks",
+    "next",
+    "capabilities",
+    "schema",
+    "time",
+    "user",
+    "organization",
+    "feature",
+    "gate",
+    "evidence",
     "agent",
     "project",
+    "initiative",
+    "milestone",
+    "target",
     "cycle",
     "label",
 ];
@@ -1884,7 +1911,7 @@ mod tests {
         for invalid in ["", "1lint", "Lint", "lint_me", "lint/me"] {
             assert!(!is_valid_extension_cli_command_name(invalid), "{invalid}");
         }
-        for reserved in ["diff", "session", "ext", "help", "issue"] {
+        for reserved in ["diff", "session", "ext", "help", "issue", "init"] {
             assert!(is_reserved_extension_cli_command_name(reserved));
         }
         assert!(!is_reserved_extension_cli_command_name("greptile"));

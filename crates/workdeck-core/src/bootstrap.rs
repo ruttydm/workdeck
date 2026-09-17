@@ -50,6 +50,7 @@ pub struct AppBootstrap<ExtensionState = (), VcsCatalogState = ()> {
     pub initial_cursor_line: InputCursorLine,
     pub startup_notices: Vec<StartupNotice>,
     pub view_preferences_config_path: Option<PathBuf>,
+    pub view_preferences_write_policy: crate::ViewPreferenceWritePolicy,
     pub keybindings: Vec<UserKeyBindingEntry>,
     pub keybinding_notices: Vec<String>,
     pub extensions: Option<ExtensionState>,
@@ -85,6 +86,7 @@ impl<ExtensionState, VcsCatalogState> AppBootstrap<ExtensionState, VcsCatalogSta
             initial_cursor_line: options.cursor_line.unwrap_or_default(),
             startup_notices: Vec::new(),
             view_preferences_config_path: None,
+            view_preferences_write_policy: crate::ViewPreferenceWritePolicy::Writable,
             keybindings: Vec::new(),
             keybinding_notices: Vec::new(),
             extensions: None,
@@ -156,6 +158,7 @@ mod tests {
             initial_cursor_line: InputCursorLine::Number,
             startup_notices: vec![StartupNotice::new("notice", "message")],
             view_preferences_config_path: Some(PathBuf::from("/config/workdeck/config.toml")),
+            view_preferences_write_policy: crate::ViewPreferenceWritePolicy::LegacyReadOnly,
             keybindings: vec![UserKeyBindingEntry::new(
                 "workdeck.app.quit",
                 UserKeyBinding::Chord("ctrl+q".into()),
@@ -178,6 +181,7 @@ mod tests {
         expected.initial_theme_mode = None;
         expected.startup_notices.clear();
         expected.view_preferences_config_path = None;
+        expected.view_preferences_write_policy = crate::ViewPreferenceWritePolicy::Writable;
         expected.keybindings.clear();
         expected.keybinding_notices.clear();
         expected.extensions = None;

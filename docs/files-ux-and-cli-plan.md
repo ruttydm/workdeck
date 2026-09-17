@@ -1,5 +1,10 @@
 # Files UX and Headless CLI Plan
 
+Historical prototype plan. The [standalone project-management implementation
+plan](project-management-implementation-plan.md) now owns PM root cutover and unified
+workbench delivery. Older `.agents/workdeck/` examples here describe the prototype;
+the canonical planning root is `.workdeck/`.
+
 Workdeck has two equally important product surfaces:
 
 1. The TUI sidecar for a compact mental model while coding.

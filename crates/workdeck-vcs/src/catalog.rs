@@ -480,7 +480,8 @@ pub fn find_project_root_candidate_with_catalog(
 ) -> Option<PathBuf> {
     let mut current = cwd.canonicalize().ok()?;
     loop {
-        if current.join(".agents/workdeck").is_dir()
+        if current.join(".workdeck").is_dir()
+            || current.join(".agents/workdeck").is_dir()
             || catalog.map_or_else(
                 || {
                     [".jj", ".sl", ".git"]
@@ -792,6 +793,30 @@ mod tests {
         fs::create_dir_all(other.path().join(".agents")).unwrap();
         fs::write(other.path().join(".agents/workdeck"), "not a directory\n").unwrap();
         assert_eq!(find_project_root_candidate(&nested), None);
+    }
+
+    #[test]
+    fn cutover_native_and_legacy_workdeck_boundaries_preserve_nearest_project() {
+        for boundary in [".workdeck", ".agents/workdeck"] {
+            let temp = tempdir().unwrap();
+            fs::create_dir(temp.path().join(".git")).unwrap();
+            let nested = temp.path().join("nested");
+            fs::create_dir_all(nested.join(boundary)).unwrap();
+            fs::create_dir(nested.join("src")).unwrap();
+            assert_eq!(
+                find_project_root_candidate(&nested.join("src")),
+                Some(nested.canonicalize().unwrap()),
+                "{boundary}"
+            );
+        }
+        let temp = tempdir().unwrap();
+        fs::write(
+            temp.path().join(".workdeck"),
+            "file is not a project boundary",
+        )
+        .unwrap();
+        fs::create_dir(temp.path().join("src")).unwrap();
+        assert_eq!(find_project_root_candidate(&temp.path().join("src")), None);
     }
 
     #[test]

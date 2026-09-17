@@ -36,6 +36,7 @@ mod nix;
 mod port_history;
 mod port_oracles;
 mod process;
+mod project_management;
 mod provenance;
 mod pty_harness;
 mod release_artifacts;
@@ -249,6 +250,7 @@ fn run() -> Result<()> {
         Some("ci-changes") => ci_changes::run(args),
         Some("ci-host") => ci_host::run(args),
         Some("extension-catalog") => extension_catalog::run(args),
+        Some("pm") => project_management::run(&repo_root()?, args),
         Some("themes") => match args.next().as_deref() {
             Some("probe") => theme_probe::run(args),
             Some("diff-colors") => {
@@ -1554,8 +1556,19 @@ fn package_release(options: PackageOptions) -> Result<()> {
             archive.file_name().unwrap_or_default().to_string_lossy()
         ),
     )?;
+    let (entry_count, declared_bytes) = install::inspect_package_archive(&archive)?;
+    let verified_digest = install::verify_checksum_manifest(&archive, &checksum)?;
+    if verified_digest != digest {
+        bail!(
+            "generated checksum changed while inspecting {}",
+            archive.display()
+        );
+    }
     println!("packaged {}", relative_to(&repo, &archive));
     println!("checksum {}", relative_to(&repo, &checksum));
+    println!(
+        "inspected {entry_count} package entries ({declared_bytes} declared bytes); checksum verified"
+    );
     Ok(())
 }
 
@@ -1954,11 +1967,14 @@ fn verify() -> Result<()> {
             format!("new {index}\n"),
         )?;
     }
-    let binary = repo.join("target/release").join(if cfg!(windows) {
-        "workdeck.exe"
-    } else {
-        "workdeck"
-    });
+    let configured_target = env::var_os("CARGO_TARGET_DIR").map(PathBuf::from);
+    let binary = cargo_target_root(&repo, configured_target.as_deref())
+        .join("release")
+        .join(if cfg!(windows) {
+            "workdeck.exe"
+        } else {
+            "workdeck"
+        });
     let help = Command::new(&binary)
         .arg("--help")
         .env_remove("HOME")
@@ -1993,6 +2009,39 @@ fn verify() -> Result<()> {
     }
     println!("Workdeck Rust verification and large-repository smoke passed.");
     Ok(())
+}
+
+fn cargo_target_root(repo: &Path, configured: Option<&Path>) -> PathBuf {
+    configured.map_or_else(
+        || repo.join("target"),
+        |path| {
+            if path.is_absolute() {
+                path.to_owned()
+            } else {
+                repo.join(path)
+            }
+        },
+    )
+}
+
+#[cfg(test)]
+mod target_dir_tests {
+    use super::cargo_target_root;
+    use std::path::Path;
+
+    #[test]
+    fn target_root_resolves_default_relative_and_absolute_overrides() {
+        let repo = Path::new("/tmp/workdeck-repo");
+        assert_eq!(cargo_target_root(repo, None), repo.join("target"));
+        assert_eq!(
+            cargo_target_root(repo, Some(Path::new(".cache/workdeck-target"))),
+            repo.join(".cache/workdeck-target")
+        );
+        assert_eq!(
+            cargo_target_root(repo, Some(Path::new("/tmp/workdeck-target"))),
+            Path::new("/tmp/workdeck-target")
+        );
+    }
 }
 
 fn run_checked(cwd: &Path, program: &str, args: &[&str]) -> Result<()> {
@@ -2926,6 +2975,7 @@ fn print_help() {
     println!("cargo xtask benchmark release-run [--version VERSION] [--samples N] [--out PATH]");
     println!("cargo xtask ci-changes <base-revision> <head-revision>");
     println!("cargo xtask ci-host <expected-native-target>");
+    println!("cargo xtask pm <check|performance|release-check|profile> [--profile ID]");
     println!("cargo xtask benchmark non-ascii-stream");
     println!("cargo xtask benchmark wrapped-cjk");
     println!("cargo xtask benchmark terminal-width");

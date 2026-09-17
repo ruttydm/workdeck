@@ -1,10 +1,16 @@
 //! Native filesystem observation for hybrid watch plans.
 
+use std::fs;
+#[cfg(target_vendor = "apple")]
+use std::os::darwin::fs::MetadataExt;
+#[cfg(all(unix, not(target_vendor = "apple")))]
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 
-use notify::{RecommendedWatcher, RecursiveMode, Watcher};
+use notify::event::{CreateKind, ModifyKind};
+use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use thiserror::Error;
 
 use crate::{VcsWatchCoverage, VcsWatchPlan, VcsWatchTarget, WatchPlatform};
@@ -107,7 +113,7 @@ impl WatchBackend for NotifyWatchBackend {
         let on_error = Arc::clone(&callbacks.on_error);
         let mut watcher = notify::recommended_watcher(
             move |result: notify::Result<notify::Event>| match result {
-                Ok(event) if event_filter.matches(&event.paths) => on_event(),
+                Ok(event) if event_filter.matches_event(&event) => on_event(),
                 Ok(_) => {}
                 Err(error) => on_error(WatchSourceError::from_notify(error)),
             },
@@ -128,11 +134,41 @@ enum EventFilter {
     Entries {
         directory: PathBuf,
         entries: Vec<PathBuf>,
+        fingerprints: Arc<Mutex<Vec<Option<EntryFingerprint>>>>,
     },
     Tree {
         directory: PathBuf,
         ignored_roots: Vec<PathBuf>,
     },
+}
+
+/// A metadata snapshot lets an exact-entry watcher discard unchanged setup
+/// replays emitted by macOS FSEvents after registration. Events that actually
+/// change the entry update the snapshot before notification, so repeated
+/// delivery of the same event remains harmless. Metadata failures stay
+/// conservative and notify the caller.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct EntryFingerprint {
+    length: u64,
+    modified: Option<std::time::SystemTime>,
+    readonly: bool,
+    #[cfg(unix)]
+    changed: (i64, i64),
+}
+
+fn entry_fingerprint(path: &Path) -> std::io::Result<Option<EntryFingerprint>> {
+    let metadata = match fs::metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    Ok(Some(EntryFingerprint {
+        length: metadata.len(),
+        modified: metadata.modified().ok(),
+        readonly: metadata.permissions().readonly(),
+        #[cfg(unix)]
+        changed: (metadata.st_ctime(), metadata.st_ctime_nsec()),
+    }))
 }
 
 impl EventFilter {
@@ -142,6 +178,14 @@ impl EventFilter {
                 directory, entries, ..
             } => Self::Entries {
                 directory: absolute_path(directory),
+                fingerprints: Arc::new(Mutex::new(
+                    entries
+                        .iter()
+                        .map(Path::new)
+                        .map(absolute_path)
+                        .map(|path| entry_fingerprint(&path).unwrap_or(None))
+                        .collect(),
+                )),
                 entries: entries.iter().map(Path::new).map(absolute_path).collect(),
             },
             VcsWatchTarget::DirectoryTree {
@@ -171,7 +215,60 @@ impl EventFilter {
         }
     }
 
+    #[cfg(test)]
     fn matches(&self, paths: &[PathBuf]) -> bool {
+        self.matches_paths(paths, false)
+    }
+
+    fn matches_event(&self, event: &Event) -> bool {
+        if let Self::Entries {
+            entries,
+            fingerprints,
+            ..
+        } = self
+        {
+            if event.paths.is_empty() {
+                return true;
+            }
+            let mut fingerprints = fingerprints
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            for path in &event.paths {
+                let path = absolute_path(path);
+                let Some(index) = entries
+                    .iter()
+                    .position(|entry| paths_equal(entry, &path, WatchPlatform::current()))
+                else {
+                    continue;
+                };
+                let Ok(current) = entry_fingerprint(&path) else {
+                    return true;
+                };
+                if fingerprints[index] == current {
+                    continue;
+                }
+                fingerprints[index] = current;
+                return true;
+            }
+            return false;
+        }
+        let suppress_root_marker = matches!(
+            self,
+            Self::Tree { directory, .. }
+                if WatchPlatform::current() == WatchPlatform::MacOs
+                    && event.paths.iter().any(|path| {
+                        paths_equal(directory, &absolute_path(path), WatchPlatform::MacOs)
+                    })
+                    && matches!(
+                        event.kind,
+                        EventKind::Create(CreateKind::Folder)
+                            | EventKind::Modify(ModifyKind::Metadata(_))
+                    )
+        );
+        self.matches_paths(&event.paths, suppress_root_marker)
+    }
+
+    fn matches_paths(&self, paths: &[PathBuf], suppress_root_marker: bool) -> bool {
         if paths.is_empty() {
             return true;
         }
@@ -183,11 +280,20 @@ impl EventFilter {
                         .any(|entry| paths_equal(entry, &path, WatchPlatform::current()))
                 })
             }
-            Self::Tree { ignored_roots, .. } => {
+            Self::Tree {
+                directory,
+                ignored_roots,
+            } => {
                 paths.iter().map(|path| absolute_path(path)).any(|path| {
-                    !ignored_roots
-                        .iter()
-                        .any(|root| path_is_within(&path, root, WatchPlatform::current()))
+                    let platform = WatchPlatform::current();
+                    // macOS FSEvents can replay a coarse event for the watched root while
+                    // delivering metadata churn from an ignored subtree. The root marker does
+                    // not identify a changed worktree entry; retain child paths so legitimate
+                    // files created or changed directly below the root still notify callers.
+                    (!suppress_root_marker || !paths_equal(directory, &path, platform))
+                        && !ignored_roots
+                            .iter()
+                            .any(|root| path_is_within(&path, root, platform))
                 })
             }
         }

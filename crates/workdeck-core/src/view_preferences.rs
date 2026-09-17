@@ -14,6 +14,24 @@ use crate::{InputCursorLine, InputLayoutMode, resolve_global_config_path};
 
 pub const VIEW_PREFERENCES_PROMPT_CONFIG_KEY: &str = "prompt_save_view_preferences";
 
+/// Host-resolved write admission for the selected preference layer. This is not
+/// a user-overridable setting and is independent of the path's spelling.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ViewPreferenceWritePolicy {
+    #[default]
+    Writable,
+    LegacyReadOnly,
+}
+
+impl ViewPreferenceWritePolicy {
+    pub fn ensure_writable(self) -> Result<(), ViewPreferencePersistenceError> {
+        match self {
+            Self::Writable => Ok(()),
+            Self::LegacyReadOnly => Err(ViewPreferencePersistenceError::LegacyReadOnly),
+        }
+    }
+}
+
 /// The mutable view state offered for persistence when an interactive review exits.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PersistedViewPreferences {
@@ -54,6 +72,10 @@ pub struct ViewPreferenceChange {
 
 #[derive(Debug, Error)]
 pub enum ViewPreferencePersistenceError {
+    #[error(
+        "Legacy repository preferences are read-only. Run `workdeck config init` to preserve them in .workdeck/config.toml, then reopen the review to save preferences."
+    )]
+    LegacyReadOnly,
     #[error("Could not resolve a config path because HOME/XDG_CONFIG_HOME is unset.")]
     MissingConfigPath,
     #[error("failed to create config directory {path}: {source}")]

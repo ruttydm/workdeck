@@ -17,6 +17,9 @@ struct Session {
     parser: Stream<TerminalHandler>,
     directory: tempfile::TempDir,
     broker: Option<Broker>,
+    first_frame: Option<String>,
+    startup_diagnostics: Vec<String>,
+    startup_diagnostic_bytes: usize,
 }
 
 struct Broker(Child);
@@ -30,6 +33,15 @@ impl Drop for Broker {
 
 impl Drop for Session {
     fn drop(&mut self) {
+        if std::thread::panicking() {
+            let _ = writeln!(
+                std::io::stderr().lock(),
+                "PTY child status before cleanup: {:?}\nRetained startup diagnostics (bounded):\n{}\nFirst visible frame (bounded):\n{}",
+                self.child.try_wait(),
+                self.startup_diagnostics.join("\n"),
+                self.first_frame.as_deref().unwrap_or("<none>")
+            );
+        }
         let _ = self.child.kill();
         // Closing the last master releases macOS tty teardown before waitpid.
         self.master.take();
@@ -76,6 +88,21 @@ impl Session {
         port: Option<u16>,
         cwd: Option<&std::path::Path>,
         config: Option<&std::path::Path>,
+    ) -> Self {
+        Self::launch_in_environment(patch, args, file_stdin, cols, rows, port, cwd, config, &[])
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn launch_in_environment(
+        patch: &str,
+        args: &[&str],
+        file_stdin: bool,
+        cols: u16,
+        rows: u16,
+        port: Option<u16>,
+        cwd: Option<&std::path::Path>,
+        config: Option<&std::path::Path>,
+        environment: &[(&str, &std::ffi::OsStr)],
     ) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let config = config
@@ -170,6 +197,7 @@ impl Session {
                 .env("WORKDECK_MCP_DISABLE", "0")
                 .env("WORKDECK_MCP_PORT", port.to_string());
         }
+        command.envs(environment.iter().copied());
         // SAFETY: only async-signal-safe operations run before exec. Stdout is the PTY
         // even when stdin contains patch bytes; establish that PTY as controlling terminal.
         unsafe {
@@ -195,6 +223,9 @@ impl Session {
             master: Some(master),
             directory,
             broker,
+            first_frame: None,
+            startup_diagnostics: Vec::new(),
+            startup_diagnostic_bytes: 0,
             parser: Stream::new(TerminalHandler::new(Terminal::new(Options {
                 cols,
                 rows,
@@ -257,6 +288,7 @@ impl Session {
         let deadline = Instant::now() + timeout;
         loop {
             let text = self.parser.terminal().plain_string();
+            self.retain_startup_diagnostics(&text);
             if !self
                 .parser
                 .terminal()
@@ -297,6 +329,35 @@ impl Session {
             let replies = self.parser.handler.take_output();
             if !replies.is_empty() {
                 self.write(&replies);
+            }
+        }
+    }
+
+    // Footer notices can expire before an unrelated interaction assertion fails.
+    // Retain bounded evidence without changing readiness predicates or deadlines.
+    fn retain_startup_diagnostics(&mut self, text: &str) {
+        const LIMIT: usize = 16 * 1024;
+        if self.first_frame.is_none() && !text.trim().is_empty() {
+            let mut end = text.len().min(LIMIT);
+            while !text.is_char_boundary(end) {
+                end -= 1;
+            }
+            self.first_frame = Some(text[..end].to_owned());
+        }
+        for line in text.lines().map(str::trim).filter(|line| !line.is_empty()) {
+            let normalized = line.to_ascii_lowercase();
+            if (normalized.contains("extension")
+                || normalized.contains("failed")
+                || normalized.contains("error")
+                || normalized.contains("timed out"))
+                && self.startup_diagnostic_bytes + line.len() < LIMIT
+                && !self
+                    .startup_diagnostics
+                    .iter()
+                    .any(|previous| previous == line)
+            {
+                self.startup_diagnostic_bytes += line.len() + 1;
+                self.startup_diagnostics.push(line.to_owned());
             }
         }
     }
@@ -401,6 +462,12 @@ fn draft_save_accepts_tmux_csi_u_bytes_through_real_terminal_input() {
     assert!(saved.contains("Save from tmux CSI-u."), "{saved}");
     session.quit();
 }
+
+#[path = "terminal_pager/workbench.rs"]
+mod workbench;
+
+#[path = "terminal_pager/workbench_panels.rs"]
+mod workbench_panels;
 
 fn patch(lines: usize) -> String {
     let mut patch = format!(
