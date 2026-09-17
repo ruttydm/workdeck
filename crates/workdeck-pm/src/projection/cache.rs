@@ -2,8 +2,11 @@
 use crate::{ContentHash, ErrorCode, PmError, Result, sources::fs};
 use std::{
     fs::File,
-    io::Write,
     path::{Path, PathBuf},
+};
+#[cfg(unix)]
+use std::{
+    io::Write,
     time::{Duration, Instant},
 };
 

@@ -1306,6 +1306,7 @@ impl ReviewCliOptions {
             keybindings: self.keybindings.clone(),
             keybinding_notices: self.keybinding_notices.clone(),
             startup_notices: Vec::new(),
+            startup_notice_lookup: None,
             extension_panes: Vec::new(),
             extension_notifications: None,
             pending_extension_trust_repo_root: None,
@@ -8446,6 +8447,13 @@ fn run_app_bootstrap(
     options.review_input = Some(input.clone());
     options.extension_notifications = Some(notifications.clone());
     options.startup_notices = startup_notices;
+    options.startup_notice_lookup = Some(|| {
+        workdeck_cli::update_notice::StartupUpdateNoticeContext::current()
+            .ok()
+            .and_then(|context| {
+                workdeck_cli::update_notice::resolve_startup_update_notice(&context)
+            })
+    });
     options.view_preferences_config_path = view_preferences_config_path;
     options.view_preferences_write_policy = view_preferences_write_policy;
     options.prompt_save_view_preferences =

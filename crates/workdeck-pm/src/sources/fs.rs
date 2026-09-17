@@ -2,10 +2,11 @@
 use crate::{ErrorCode, PmError, Result};
 use std::{
     fs::File,
-    io::Read,
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
     time::SystemTime,
 };
+#[cfg(unix)]
+use std::{io::Read, path::Component};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Identity(pub u64, pub u64);
@@ -260,6 +261,13 @@ pub(crate) fn stamp_relative_cached(
         return Err(unsafe_path(&path));
     }
     Ok(stamp(&metadata))
+}
+#[cfg(not(unix))]
+pub(crate) fn open(_: &Path, _: bool) -> Result<File> {
+    Err(PmError::new(
+        ErrorCode::Unsupported,
+        "source capture requires qualified Unix descriptor reads",
+    ))
 }
 #[cfg(not(unix))]
 pub(crate) fn directory(_: &Path) -> Result<Identity> {

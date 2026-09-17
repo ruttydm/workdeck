@@ -108,7 +108,10 @@ jobs:
         with:
           tool: zola@0.23.4
       - name: Fetch pinned evidence
-        run: cargo xtask port fetch
+        run: |
+          git fetch --no-tags https://github.com/ruttydm/workdeck.git 'refs/upstream/hunk/archive/*:refs/upstream/hunk/archive/*' 'refs/tags/hunk-port/*:refs/tags/hunk-port/*'
+          cargo xtask port audit-upstream
+          cargo xtask port fetch
       - name: Validate native source and architecture
         run: cargo xtask verify
       - name: Check static website

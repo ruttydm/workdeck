@@ -363,6 +363,8 @@ pub struct ReviewOptions {
     pub keybinding_notices: Vec<String>,
     /// Ordered, deduplicated notices shown transiently on the startup footer row.
     pub startup_notices: Vec<StartupNotice>,
+    /// Composition-owned lookup, executed off the terminal thread after startup.
+    pub startup_notice_lookup: Option<fn() -> Option<StartupNotice>>,
     pub extension_panes: Vec<ExtensionPaneView>,
     pub extension_notifications: Option<ExtensionNotificationHub>,
     /// Repository whose native extensions are waiting on an explicit trust decision.
@@ -417,6 +419,7 @@ impl Default for ReviewOptions {
             keybindings: Vec::new(),
             keybinding_notices: Vec::new(),
             startup_notices: Vec::new(),
+            startup_notice_lookup: None,
             extension_panes: Vec::new(),
             extension_notifications: None,
             pending_extension_trust_repo_root: None,
@@ -11253,6 +11256,10 @@ fn run_loop(
 ) -> Result<()> {
     let mut next_reload = Instant::now() + Duration::from_millis(250);
     let job_control = JobControlSupport::default();
+    let mut startup_notice_lookup = app
+        .options
+        .startup_notice_lookup
+        .map(|lookup| startup_notices::StartupNoticeLookup::new(lookup, Instant::now()));
     let staged_initial_input = take_staged_initial_input();
     for key in staged_initial_input {
         deliver_loop_key(terminal, app, &job_control, key)?;
@@ -11322,6 +11329,13 @@ fn run_loop(
             .map(|_| ())
         });
         app.poll_workbench();
+        let now = Instant::now();
+        if let Some(notice) = startup_notice_lookup
+            .as_mut()
+            .and_then(|lookup| lookup.poll(now))
+        {
+            app.startup_notices.enqueue(Some(notice), now);
+        }
         app.poll_extension_commands();
         app.poll_source_requests();
         app.tick_extension_notifications(Instant::now());

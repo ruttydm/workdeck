@@ -22,7 +22,10 @@ jobs:
           components: clippy,rustfmt
       - uses: Swatinem/rust-cache@v2
       - name: Refresh namespaced Hunk refs
-        run: cargo xtask port fetch
+        run: |
+          git fetch --no-tags https://github.com/ruttydm/workdeck.git 'refs/upstream/hunk/archive/*:refs/upstream/hunk/archive/*' 'refs/tags/hunk-port/*:refs/tags/hunk-port/*'
+          cargo xtask port audit-upstream
+          cargo xtask port fetch
       - name: Verify complete Hunk ledger
         run: cargo xtask port audit
       - name: Formatting

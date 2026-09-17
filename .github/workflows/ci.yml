@@ -86,7 +86,10 @@ jobs:
         run: cargo fmt --all --check
 
       - name: Fetch pinned upstream evidence for native tests
-        run: cargo xtask port fetch
+        run: |
+          git fetch --no-tags https://github.com/ruttydm/workdeck.git 'refs/upstream/hunk/archive/*:refs/upstream/hunk/archive/*' 'refs/tags/hunk-port/*:refs/tags/hunk-port/*'
+          cargo xtask port audit-upstream
+          cargo xtask port fetch
 
       - name: Validate Hunk ledger structure
         if: matrix.target == 'x86_64-unknown-linux-gnu'
@@ -141,7 +144,10 @@ jobs:
         with:
           tool: zola@0.23.4
       - name: Fetch pinned Hunk evidence
-        run: cargo xtask port fetch
+        run: |
+          git fetch --no-tags https://github.com/ruttydm/workdeck.git 'refs/upstream/hunk/archive/*:refs/upstream/hunk/archive/*' 'refs/tags/hunk-port/*:refs/tags/hunk-port/*'
+          cargo xtask port audit-upstream
+          cargo xtask port fetch
       - name: Validate ledger structure
         run: cargo xtask port audit
       - name: Formatting

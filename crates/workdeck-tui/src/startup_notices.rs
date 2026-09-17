@@ -11,6 +11,50 @@ pub const DEFAULT_STARTUP_NOTICE_DELAY: Duration = Duration::from_millis(1_200);
 pub const DEFAULT_STARTUP_NOTICE_DURATION: Duration = Duration::from_millis(7_000);
 pub const DEFAULT_STARTUP_NOTICE_REPEAT: Duration = Duration::from_millis(21_600_000);
 
+pub(crate) struct StartupNoticeLookup {
+    lookup: fn() -> Option<StartupNotice>,
+    next_check: Instant,
+    pending: Option<std::sync::mpsc::Receiver<Option<StartupNotice>>>,
+}
+
+impl StartupNoticeLookup {
+    pub(crate) fn new(lookup: fn() -> Option<StartupNotice>, now: Instant) -> Self {
+        Self {
+            lookup,
+            next_check: now + DEFAULT_STARTUP_NOTICE_DELAY,
+            pending: None,
+        }
+    }
+
+    pub(crate) fn poll(&mut self, now: Instant) -> Option<StartupNotice> {
+        if let Some(receiver) = &self.pending {
+            match receiver.try_recv() {
+                Ok(notice) => {
+                    self.pending = None;
+                    return notice;
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => self.pending = None,
+                Err(std::sync::mpsc::TryRecvError::Empty) => return None,
+            }
+        }
+        if now >= self.next_check {
+            self.next_check = now + DEFAULT_STARTUP_NOTICE_REPEAT;
+            let (sender, receiver) = std::sync::mpsc::channel();
+            let lookup = self.lookup;
+            if std::thread::Builder::new()
+                .name("startup-notice".into())
+                .spawn(move || {
+                    let _ = sender.send(lookup());
+                })
+                .is_ok()
+            {
+                self.pending = Some(receiver);
+            }
+        }
+        None
+    }
+}
+
 /// Queue local and asynchronously resolved startup notices for one shared footer surface.
 #[derive(Debug, Clone)]
 pub struct StartupNoticeQueue {
@@ -119,6 +163,36 @@ mod tests {
 
     fn notice(key: &str, message: &str) -> StartupNotice {
         StartupNotice::new(key, message)
+    }
+
+    #[test]
+    fn delayed_background_lookup_delivers_to_the_existing_notice_queue() {
+        let start = Instant::now();
+        let mut lookup = StartupNoticeLookup::new(
+            || Some(StartupNotice::new("update", "New version available")),
+            start,
+        );
+        assert_eq!(lookup.poll(start), None);
+        let ready = start + DEFAULT_STARTUP_NOTICE_DELAY;
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let resolved = loop {
+            if let Some(notice) = lookup.poll(ready) {
+                break notice;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "background notice was never delivered"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        };
+        let mut queue = StartupNoticeQueue::new(true, DEFAULT_STARTUP_NOTICE_DURATION);
+        queue.enqueue(Some(resolved), ready);
+        assert_eq!(queue.text(), Some("New version available"));
+        assert_eq!(
+            lookup.poll(ready),
+            None,
+            "do not repeat before the six-hour interval"
+        );
     }
 
     #[test]

@@ -92,6 +92,14 @@ file with equal size and timestamp still invalidates the signature. The colocate
 Git adapter test exercises this invariant on Unix and Windows; a host-only test
 run does not establish the other platform's behavior.
 
+The retired CLI dashboard is no longer a port-ledger destination. Its supplementary
+paths have been removed while preserving the already mapped native TUI owners,
+upstream byte spans and retained behavioral evidence. The CLI supplies the native
+TUI with a background update-notice lookup: it starts after the existing startup
+delay, polls without blocking terminal input, and feeds the shared deduplicated
+notice queue. Only one lookup is in flight; subsequent checks retain the six-hour
+interval. Provider failures remain silent and do not prevent startup.
+
 ## Migration policy
 
 Migration is incremental, not a bulk rename:

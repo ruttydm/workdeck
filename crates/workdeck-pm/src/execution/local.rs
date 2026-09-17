@@ -245,11 +245,12 @@ impl RunLock {
                 .at(path));
             }
         }
-        #[cfg(not(unix))]
-        return Err(PmError::new(
-            ErrorCode::Unsupported,
-            "foreground execution requires supported process-group and local-lock semantics",
-        ));
+        if !cfg!(unix) {
+            return Err(PmError::new(
+                ErrorCode::Unsupported,
+                "foreground execution requires supported process-group and local-lock semantics",
+            ));
+        }
         Ok(Self { file })
     }
 }

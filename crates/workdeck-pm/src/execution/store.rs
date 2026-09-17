@@ -45,9 +45,7 @@ impl Repository {
         control.cleanup.store(false, Ordering::SeqCst);
         control.cleanup_failed.store(false, Ordering::SeqCst);
         let _cleanup = Cleanup(control);
-        #[cfg(not(unix))]
-        {
-            let _ = (input, request, &mut fault);
+        if !cfg!(unix) {
             return Err(PmError::new(
                 ErrorCode::Unsupported,
                 "foreground execution has not been qualified on this platform",

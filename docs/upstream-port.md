@@ -14,6 +14,20 @@ object, reordered commit, missing destination, or missing test fails the audit.
 
 ## Ownership areas
 
+A clean clone must hydrate the committed archive receipts before fetching mutable
+upstream branches. CI uses the published immutable archive namespace and then
+validates every receipt; it never discards receipts to make a clean checkout pass:
+
+```sh
+git fetch --no-tags https://github.com/ruttydm/workdeck.git 'refs/upstream/hunk/archive/*:refs/upstream/hunk/archive/*' 'refs/tags/hunk-port/*:refs/tags/hunk-port/*'
+cargo xtask port audit-upstream
+cargo xtask port fetch
+```
+
+The ordinary fetch command retains its refusal to overwrite missing or changed
+historical evidence. These namespaced Hunk provenance refs are not Workdeck product
+release tags and do not qualify a Workdeck release.
+
 | Area | Native owner | Evidence |
 | --- | --- | --- |
 | session | `workdeck-session` | broker lifecycle tests |

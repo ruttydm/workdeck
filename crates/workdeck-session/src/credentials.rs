@@ -23,7 +23,9 @@ use crate::{
 const CREDENTIAL_VERSION: u32 = 1;
 const CREDENTIAL_LIFETIME_MS: u64 = 10 * 365 * 24 * 60 * 60 * 1_000;
 const MAX_CREDENTIAL_FILE_BYTES: u64 = 64 * 1_024;
+#[cfg(unix)]
 const PRIVATE_MODE: u32 = 0o600;
+#[cfg(unix)]
 const DIRECTORY_MODE: u32 = 0o700;
 
 // The hard-link adoption below keeps credential publication atomic between
@@ -401,10 +403,10 @@ fn temporary_suffix() -> Result<String, CredentialStoreError> {
         .collect())
 }
 
-fn sync_parent_directory(path: &Path) -> Result<(), CredentialStoreError> {
+fn sync_parent_directory(_path: &Path) -> Result<(), CredentialStoreError> {
     #[cfg(unix)]
     {
-        let directory = File::open(path)?;
+        let directory = File::open(_path)?;
         if let Err(error) = directory.sync_all()
             && !matches!(
                 error.kind(),

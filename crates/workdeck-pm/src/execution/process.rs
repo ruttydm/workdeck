@@ -7,9 +7,10 @@ use std::{
     fs::File,
     io::{Read, Write},
     path::{Path, PathBuf},
-    sync::atomic::Ordering,
-    time::{Duration, Instant},
+    time::Instant,
 };
+#[cfg(unix)]
+use std::{sync::atomic::Ordering, time::Duration};
 
 pub(super) fn execute(
     planning: &Path,

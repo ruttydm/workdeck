@@ -152,10 +152,11 @@ pub(crate) fn verify_website_workflow(repo: &Path) -> Result<()> {
         "uses: actions/checkout@v5",
         "uses: dtolnay/rust-toolchain@stable",
         "tool: zola@0.23.4",
+        "cargo xtask port fetch",
         "cargo xtask site check",
         "cargo xtask site build",
         "cargo xtask site preview-check",
-        "cargo test --locked -p xtask site_links site_markdown site_preview",
+        "cargo test --locked -p xtask site_",
     ] {
         ensure!(
             native.contains(marker),
