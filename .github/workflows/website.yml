@@ -39,4 +39,4 @@ jobs:
       - name: Run native preview isolation checks
         run: cargo xtask site preview-check
       - name: Verify website-owned Rust tests
-        run: cargo test --locked -p xtask site_links site_markdown site_preview
+        run: cargo test --locked -p xtask site_

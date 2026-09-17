@@ -138,11 +138,11 @@ fn binary_transport_patch(safe_path: &str, mode: &str) -> String {
     )
 }
 
-fn regular_file_mode(metadata: &fs::Metadata) -> &'static str {
+fn regular_file_mode(_metadata: &fs::Metadata) -> &'static str {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        if metadata.permissions().mode() & 0o111 != 0 {
+        if _metadata.permissions().mode() & 0o111 != 0 {
             return "100755";
         }
     }

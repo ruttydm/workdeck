@@ -54,13 +54,15 @@ impl Repository {
         self.store()?.with_snapshot(|snapshot| {
             let config = crate::repository::config_from_snapshot(self.root(), snapshot)?;
             let mut records = list_planning(self.root(), snapshot, kind)?;
-            for record in &mut records {
-                record.retirement = crate::retirement::read_tombstone(
-                    self.root(),
-                    snapshot,
-                    &config,
-                    &crate::RetirementTarget::new(kind.into(), record.metadata.id.clone())?,
-                )?;
+            if !records.is_empty() {
+                let retirement =
+                    crate::retirement::RetirementIndex::capture(self.root(), snapshot, &config)?;
+                for record in &mut records {
+                    record.retirement = retirement.get(&crate::RetirementTarget::new(
+                        kind.into(),
+                        record.metadata.id.clone(),
+                    )?)?;
+                }
             }
             Ok(records)
         })
@@ -697,6 +699,37 @@ fn planning_paths(snapshot: &Snapshot<'_>, kind: PlanningKind) -> Result<Vec<std
 #[cfg(test)]
 mod scale_tests {
     use super::*;
+
+    #[test]
+    fn listing_planning_parses_retirement_history_once() {
+        let temporary = tempfile::tempdir().unwrap();
+        let repository = Repository::init(temporary.path(), "WD").unwrap();
+        repository
+            .create_issue(
+                &crate::CreateIssue::new("Receipt fixture", "Scope"),
+                &RequestId::new(),
+            )
+            .unwrap();
+        for index in 0..4 {
+            let id = format!("project-{index}");
+            let path = repository.root().join(format!("projects/{id}/item.md"));
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, format!("---\nschema: 1\nid: {id}\nrevision: 1\nname: Project {index}\ncreated_at: 2026-09-18T00:00:00Z\nupdated_at: 2026-09-18T00:00:00Z\n---\nScope\n")).unwrap();
+        }
+        crate::retirement::take_retirement_parse_count();
+        assert_eq!(
+            repository
+                .list_planning(PlanningKind::Project)
+                .unwrap()
+                .len(),
+            4
+        );
+        assert_eq!(
+            crate::retirement::take_retirement_parse_count(),
+            1,
+            "the same durable history must not be reparsed for every planning record"
+        );
+    }
 
     #[test]
     fn listing_planning_scans_the_namespace_once() {

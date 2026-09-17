@@ -36,6 +36,50 @@ fn limit(path: &Path) -> PmError {
     PmError::new(ErrorCode::InvalidInput,"complete execution input capture exceeds configured bounds; select explicit source/dependency/toolchain inputs").at(path)
 }
 
+#[cfg(all(test, unix))]
+mod large_source_tests {
+    use super::*;
+    use std::io::{Seek, SeekFrom, Write};
+
+    #[test]
+    fn large_source_is_fully_hashed_while_file_and_aggregate_bounds_remain_enforced() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().canonicalize().unwrap();
+        let path = root.join("catalog.md");
+        let mut file = std::fs::File::create(&path).unwrap();
+        file.set_len(65 * 1024 * 1024).unwrap();
+        let selection = InputSelection {
+            files: vec!["catalog.md".into()],
+            ..Default::default()
+        };
+        let limits = InputLimits::default();
+        let original = capture(&root, &selection, &limits)
+            .expect("a 65 MiB canonical source must fit the bounded default capture");
+        assert_eq!(original.total_bytes, 65 * 1024 * 1024);
+        file.seek(SeekFrom::End(-1)).unwrap();
+        file.write_all(&[1]).unwrap();
+        file.sync_all().unwrap();
+        let changed = capture(&root, &selection, &limits).unwrap();
+        assert_ne!(
+            original.entries, changed.entries,
+            "bytes beyond 64 MiB must affect identity"
+        );
+        let tighter = InputLimits {
+            max_total_bytes: 64 * 1024 * 1024,
+            ..limits.clone()
+        };
+        assert_eq!(
+            capture(&root, &selection, &tighter).unwrap_err().code,
+            ErrorCode::InvalidInput
+        );
+        file.set_len(limits.max_file_bytes + 1).unwrap();
+        assert_eq!(
+            capture(&root, &selection, &limits).unwrap_err().code,
+            ErrorCode::InvalidInput
+        );
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct FileIdentity {
     pub dev: u64,

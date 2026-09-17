@@ -840,6 +840,13 @@ invocations and 64 MiB of declared retained logs/artifacts. Current planning is
 stricter at 128 invocations. These are admission and retention bounds, not a disk
 sandbox for arbitrary recipe writes.
 
+Selected input capture defaults to at most 20,000 entries, 256 MiB per file and
+1 GiB in aggregate. File hashing streams every selected byte, including bytes
+beyond 64 MiB; exceeding either byte bound fails explicitly. This accommodates
+large source catalogs and local tool binaries without omitting their content.
+Planning-record lists reuse one validated retirement index within their snapshot,
+so listing a large portfolio does not reparse operation history for every record.
+
 Execute a reviewed plan explicitly with:
 
 ```sh

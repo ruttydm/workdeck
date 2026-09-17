@@ -85,6 +85,13 @@ native extension host. Provider commands, source readers, and colocated tests
 live in the VCS crate, rather than the former `extensions/default/vcs/<provider>/`
 tree. CLI composition chooses and wires these services.
 
+VCS observation uses portable Unix `ctime`/`ctime_nsec` metadata and stable Windows
+handle information (`winapi-util`) for file identity. Untracked-file signatures
+retain identity in addition to path, size and modification time, so replacing a
+file with equal size and timestamp still invalidates the signature. The colocated
+Git adapter test exercises this invariant on Unix and Windows; a host-only test
+run does not establish the other platform's behavior.
+
 ## Migration policy
 
 Migration is incremental, not a bulk rename:

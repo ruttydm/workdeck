@@ -104,24 +104,29 @@ pub fn stat_signature(path: &Path) -> String {
         "{}:{}:{modified_ms}:{}",
         path.display(),
         metadata.len(),
-        metadata_inode(&metadata)
+        metadata_inode(path, &metadata)
     )
 }
 
 #[cfg(unix)]
-fn metadata_inode(metadata: &fs::Metadata) -> u64 {
+fn metadata_inode(_path: &Path, metadata: &fs::Metadata) -> u64 {
     use std::os::unix::fs::MetadataExt;
     metadata.ino()
 }
 
 #[cfg(windows)]
-fn metadata_inode(metadata: &fs::Metadata) -> u64 {
-    use std::os::windows::fs::MetadataExt;
-    metadata.file_index().unwrap_or(0)
+fn metadata_inode(path: &Path, _metadata: &fs::Metadata) -> u64 {
+    use std::os::windows::fs::OpenOptionsExt;
+    // Query identity without requiring read permission on the file's contents.
+    fs::OpenOptions::new()
+        .access_mode(0)
+        .open(path)
+        .and_then(|file| winapi_util::file::information(&file))
+        .map_or(0, |information| information.file_index())
 }
 
 #[cfg(not(any(unix, windows)))]
-fn metadata_inode(_metadata: &fs::Metadata) -> u64 {
+fn metadata_inode(_path: &Path, _metadata: &fs::Metadata) -> u64 {
     0
 }
 

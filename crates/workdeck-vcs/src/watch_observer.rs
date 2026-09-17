@@ -1,9 +1,7 @@
 //! Native filesystem observation for hybrid watch plans.
 
 use std::fs;
-#[cfg(target_vendor = "apple")]
-use std::os::darwin::fs::MetadataExt;
-#[cfg(all(unix, not(target_vendor = "apple")))]
+#[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -167,7 +165,7 @@ fn entry_fingerprint(path: &Path) -> std::io::Result<Option<EntryFingerprint>> {
         modified: metadata.modified().ok(),
         readonly: metadata.permissions().readonly(),
         #[cfg(unix)]
-        changed: (metadata.st_ctime(), metadata.st_ctime_nsec()),
+        changed: (metadata.ctime(), metadata.ctime_nsec()),
     }))
 }
 

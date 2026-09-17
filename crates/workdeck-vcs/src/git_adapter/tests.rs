@@ -606,3 +606,21 @@ fn stat_signature_distinguishes_present_and_missing_paths() {
         format!("{}:missing", missing.display())
     );
 }
+
+#[test]
+#[cfg(any(unix, windows))]
+fn stat_signature_detects_replacement_with_the_same_size_and_modified_time() {
+    let directory = TempDir::new().unwrap();
+    let path = directory.path().join("untracked.txt");
+    fs::write(&path, "first").unwrap();
+    let modified = fs::metadata(&path).unwrap().modified().unwrap();
+    let before = stat_signature(&path);
+    assert_eq!(before, stat_signature(&path));
+    // Retain the old file so the filesystem cannot reuse its identity.
+    fs::rename(&path, directory.path().join("original.txt")).unwrap();
+    let mut replacement = fs::File::create(&path).unwrap();
+    std::io::Write::write_all(&mut replacement, b"other").unwrap();
+    replacement.set_modified(modified).unwrap();
+    drop(replacement);
+    assert_ne!(before, stat_signature(&path));
+}

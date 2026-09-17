@@ -51,7 +51,9 @@ impl Default for InputLimits {
     fn default() -> Self {
         Self {
             max_entries: 20_000,
-            max_file_bytes: 64 * 1024 * 1024,
+            // Large source catalogs and local tools are streamed into the hash;
+            // retain the aggregate bound independently of this per-file limit.
+            max_file_bytes: 256 * 1024 * 1024,
             max_total_bytes: 1024 * 1024 * 1024,
         }
     }
