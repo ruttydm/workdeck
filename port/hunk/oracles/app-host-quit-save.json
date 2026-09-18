@@ -1,0 +1,31 @@
+{
+  "sourcePath": "src/ui/AppHost.interactions.test.tsx",
+  "sourceTest": "quit prompt saves changed view preferences",
+  "baselineInterval": {
+    "byteStart": 110611,
+    "byteEnd": 112495,
+    "lineStart": 3752,
+    "lineEnd": 3807,
+    "sha256": "417b9575a09fc0f047d36a9fa02af3a0ab54d2ed7d18958efd8935108d6a2825"
+  },
+  "runs": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/main/src/ui/AppHost.interactions.test.tsx:\nThe current testing environment is not configured to support act(...)\n(pass) App interactions > quit prompt saves changed view preferences [449.83ms]\n\n 1 pass\n 75 filtered out\n 0 fail\n 2 expect() calls\nRan 1 test across 1 file. [1024.00ms]\n"
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/stable/src/ui/AppHost.interactions.test.tsx:\nThe current testing environment is not configured to support act(...)\n(pass) App interactions > quit prompt saves changed view preferences [426.82ms]\n\n 1 pass\n 73 filtered out\n 0 fail\n 2 expect() calls\nRan 1 test across 1 file. [832.00ms]\n"
+    }
+  ],
+  "native": {
+    "test": "tests::theme_change_quit_save_writes_theme_and_requests_one_delayed_exit",
+    "passed": 1,
+    "failed": 0,
+    "filtered": 1137,
+    "seconds": 0.8
+  },
+  "scope": "240x24 t/Down/Enter/q/Enter; real temporary workdeck/config.toml contains github-dark-dimmed. No config before save; no immediate quit; tick at +140ms yields one consumable quit request. Native advances production timer explicitly rather than sleeping; terminal teardown is not covered."
+}

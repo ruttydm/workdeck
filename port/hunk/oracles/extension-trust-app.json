@@ -1,0 +1,41 @@
+{
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "source": "src/ui/App.extension-trust.test.tsx",
+  "sourceBlob": "7c922f980f81eefc8b8f2d44f768256178981eea",
+  "stableBlob": "7c922f980f81eefc8b8f2d44f768256178981eea",
+  "oracleCommand": "bun test src/ui/App.extension-trust.test.tsx",
+  "oracleResult": {
+    "tests": 1,
+    "assertions": 7,
+    "passed": 1,
+    "failed": 0
+  },
+  "terminal": {
+    "width": 140,
+    "height": 24,
+    "modalWidth": 72,
+    "modalHeight": 12,
+    "title": "Run this repository's extensions?",
+    "initialRepoRoot": "/repo/alpha",
+    "changedRepoRoot": "/repo/beta"
+  },
+  "stateSequence": [
+    "initial pending alpha opens",
+    "escape dismisses without persistence",
+    "same alpha pending root stays dismissed",
+    "changed beta pending root reopens",
+    "cleared pending root closes"
+  ],
+  "keyOwnership": {
+    "trust": ["enter", "t"],
+    "dismiss": ["escape"],
+    "deny": ["n"],
+    "unmatched": "owned while visible"
+  },
+  "allowedNormalization": {
+    "productName": "Workdeck",
+    "repositoryExtensionDirectory": ".agents/workdeck/extensions",
+    "renderer": "Ratatui cell buffer replaces OpenTUI character frame"
+  }
+}

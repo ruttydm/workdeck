@@ -1,0 +1,51 @@
+{
+  "id": "2c00f4358b89:src/ui/highlights/useLineHighlights.ts:0-16054",
+  "reason": "Full cache lifecycle parity is not established; prior mapping reopened. These paths are progress references, not a completed mapping.",
+  "allRegistrationsDisabledRegression": {
+    "tests": [
+      "line_highlights::tests::disabling_all_highlighters_retires_cached_and_pending_results_before_reenable",
+      "line_highlights::tests::disabling_highlighters_retains_registration_scoped_warning_history"
+    ],
+    "behavior": "An empty registration list clears marks and cached derivations, cancels queued work, and retires deadlines. Re-enabling the same registration reruns both completed and previously blocked files without accepting the retired completion. Warning deduplication remains scoped to the original registration across absence.",
+    "evidenceType": "Native executable lifecycle tests informed by the pinned hook; not a new dual-baseline runtime oracle.",
+    "validation": "All 1259 workdeck-tui library tests passed with zero ignored; workdeck-tui all-targets Clippy with denied warnings passed."
+  },
+  "postDeferredProjectionValidation": {
+    "commit": "0fb2296a",
+    "command": "CARGO_INCREMENTAL=0 cargo test -p workdeck-examples --test line_highlighter",
+    "passed": 25,
+    "failed": 0,
+    "ignored": 0,
+    "filteredOut": 0,
+    "seconds": 10.69,
+    "scope": "Compiled subprocess concurrency, source reads, cancellation, deadlines, saved-note updates and live cell painting. Does not complete the source hook interval."
+  },
+  "settledGenerationFastPath": "Unchanged fully cached generations with no pending requests reuse their published map without rebuilding retention/publication maps. Retired completion messages are still drained. Lifecycle tests cover invalidation, reordered/removed registrations and late-result cleanup. This is not a measured release-benchmark result.",
+  "provenanceGate": "For the pinned Hunk baseline, cargo xtask port audit verifies the reorder/removal fixtures name both exact pins and resolves their recorded source blob at each pin. It also requires nonblank runtime/capture metadata, an explicit boolean declaration that both pinned results are identical, and a nonempty trace object. Native TUI tests independently compare actual execution results against the complete frozen trace. These checks validate metadata consistency and replay parity, not capture honesty or complete behavioral coverage.",
+  "registrationReorderRegression": {
+    "test": "line_highlights::tests::reordering_live_registrations_reuses_parts_but_reorders_published_marks",
+    "behavior": "Reordering existing registrations reuses cached contributions, changes merged mark order without extension calls, and retains map identity on the next unchanged frame.",
+    "evidenceType": "Native executable regression compares marks, calls and identity transitions with the dual-pin source trace in port/hunk/oracles/highlighter-registration-reorder.json."
+  },
+  "destinations": [
+    "crates/workdeck-tui/src/line_highlights.rs",
+    "crates/workdeck-tui/src/lib.rs",
+    "crates/workdeck-extension-api/src/file_views.rs",
+    "crates/workdeck-extension-host/src/lib.rs",
+    "crates/workdeck-extension-host/src/line_highlights.rs",
+    "examples/extensions/line-highlighter/extension.rs"
+  ],
+  "evidence": [
+    "port/hunk/oracles/highlighter-registration-removal.json",
+    "port/hunk/oracles/highlighter-registration-reorder.json",
+    "port/hunk/highlighter-verification-07a6d924.json",
+    "crates/workdeck-tui/src/line_highlights.rs",
+    "crates/workdeck-tui/src/lib.rs",
+    "crates/workdeck-extension-api/src/file_views.rs",
+    "crates/workdeck-extension-host/src/lib.rs",
+    "crates/workdeck-extension-host/src/line_highlights.rs",
+    "examples/extensions/line-highlighter/extension.rs",
+    "examples/tests/line_highlighter.rs",
+    "port/hunk/oracles/use-line-highlights.json"
+  ]
+}

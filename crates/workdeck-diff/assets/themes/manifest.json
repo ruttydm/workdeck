@@ -1,0 +1,450 @@
+{
+  "generated_by": "cargo xtask themes vendor",
+  "notices": [
+    {
+      "bytes": 1121,
+      "path": "third_party/themes/tm-themes-LICENSE",
+      "sha256": "7a9d8d01038aeacf9e5bcdabbddf2a7815200dce9fc1118468cc553e00ae3eee"
+    },
+    {
+      "bytes": 85138,
+      "path": "third_party/themes/tm-themes-NOTICE",
+      "sha256": "dcfef6e3b5642d22523c2559df627fbaf26d08bf7814fa49d1f30fdc08dd71be"
+    },
+    {
+      "bytes": 10899,
+      "path": "third_party/themes/pierre-theme-LICENSE",
+      "sha256": "13d92be18d5ceac526f33cc96b6902a14d168f3e1d4b16be738f0fa70da7fe98"
+    },
+    {
+      "bytes": 1503,
+      "path": "third_party/themes/pierre-theme-NOTICE.md",
+      "sha256": "d64db9acda54bde8eb5ca1a679166b9376fc8bd8059967a396a156b3db8a1983"
+    }
+  ],
+  "packages": [
+    {
+      "name": "@shikijs/themes",
+      "role": "semantic oracle for all 65 Shiki module payloads",
+      "sha256": "3ede8069dbdf87d16534256f06d9ff972fb317cd599c2ebfff4614e723430b0b",
+      "version": "3.23.0"
+    },
+    {
+      "name": "tm-themes",
+      "role": "byte-retained JSON and per-theme notices",
+      "sha256": "dbcb0b853e04825304bea19a4b255862da211a884eaa86c7644c312d7f02812d",
+      "version": "1.12.0"
+    },
+    {
+      "name": "@pierre/theme",
+      "role": "byte-retained Pierre default themes",
+      "sha256": "47a78fa060c13411bb91ec5b8bfefb64059d89a7b69ebe6aa1d13f93d8a6ed62",
+      "version": "2.0.0"
+    }
+  ],
+  "schema_version": 1,
+  "themes": [
+    {
+      "bytes": 11303,
+      "id": "andromeeda",
+      "path": "crates/workdeck-diff/assets/themes/andromeeda.json",
+      "sha256": "7a02578e92e5cf56584107156fda0a64d29a2633296d16c06b0ac03337bcc225"
+    },
+    {
+      "bytes": 18501,
+      "id": "aurora-x",
+      "path": "crates/workdeck-diff/assets/themes/aurora-x.json",
+      "sha256": "8b0b31deb4cf1457f736b73f81a6b6c35d79da5b794ac82c0da1835896e883b5"
+    },
+    {
+      "bytes": 26533,
+      "id": "ayu-dark",
+      "path": "crates/workdeck-diff/assets/themes/ayu-dark.json",
+      "sha256": "d12ec5d45edf0c6dd1b70eafffd1a1990800614dbddcb67ae9722a48bc73afd3"
+    },
+    {
+      "bytes": 26604,
+      "id": "ayu-light",
+      "path": "crates/workdeck-diff/assets/themes/ayu-light.json",
+      "sha256": "5ccdc6750d014d51a1ea0b8eedf236d9b6d84dbc91770d653fa040098d3c2b3e"
+    },
+    {
+      "bytes": 26537,
+      "id": "ayu-mirage",
+      "path": "crates/workdeck-diff/assets/themes/ayu-mirage.json",
+      "sha256": "bfcb47de92bb5891ec0d2a324c17a5410680dd790349c39d5b22032a992e1003"
+    },
+    {
+      "bytes": 62413,
+      "id": "catppuccin-frappe",
+      "path": "crates/workdeck-diff/assets/themes/catppuccin-frappe.json",
+      "sha256": "e6c762d66d2f8104e4ef69cac94d290134dec3715cf792476bfe7a3d1126fba4"
+    },
+    {
+      "bytes": 62411,
+      "id": "catppuccin-latte",
+      "path": "crates/workdeck-diff/assets/themes/catppuccin-latte.json",
+      "sha256": "b8738fedce253854cb53ebae82d8b874d99a7dbfd5be07917f6613d4caff71d9"
+    },
+    {
+      "bytes": 62418,
+      "id": "catppuccin-macchiato",
+      "path": "crates/workdeck-diff/assets/themes/catppuccin-macchiato.json",
+      "sha256": "ca08dc225c75235771b2ce0fc510c7e6fa400b2f373ed02d5f2a700e969cf556"
+    },
+    {
+      "bytes": 62410,
+      "id": "catppuccin-mocha",
+      "path": "crates/workdeck-diff/assets/themes/catppuccin-mocha.json",
+      "sha256": "aa030d67dbd4a6b66995c89ba31ef90ac3c2da23a30f712277acb50c6e94d102"
+    },
+    {
+      "bytes": 13419,
+      "id": "dark-plus",
+      "path": "crates/workdeck-diff/assets/themes/dark-plus.json",
+      "sha256": "9defc2bdb15852177f5937bd4b4d5a822c8bc1eeffddb6b741890a887f0683be"
+    },
+    {
+      "bytes": 28840,
+      "id": "dracula",
+      "path": "crates/workdeck-diff/assets/themes/dracula.json",
+      "sha256": "f026b056d5321f7e8469fd811ced975d98e0222a2515d27879f149f751763573"
+    },
+    {
+      "bytes": 28850,
+      "id": "dracula-soft",
+      "path": "crates/workdeck-diff/assets/themes/dracula-soft.json",
+      "sha256": "e03231d5b1b17910a1f71db90b3bdaa6bc4dc0aae9f9d8bba552fbeb7e13bd39"
+    },
+    {
+      "bytes": 68582,
+      "id": "everforest-dark",
+      "path": "crates/workdeck-diff/assets/themes/everforest-dark.json",
+      "sha256": "cd9bf71333f0296d3cb6b83e25cab67356ce9631cba415762719a9232c2f5a98"
+    },
+    {
+      "bytes": 68585,
+      "id": "everforest-light",
+      "path": "crates/workdeck-diff/assets/themes/everforest-light.json",
+      "sha256": "5a1d79eb1d563e6d560bf95fc787d1f02e02c74c88ecbc99803e0c180553f281"
+    },
+    {
+      "bytes": 15123,
+      "id": "github-dark",
+      "path": "crates/workdeck-diff/assets/themes/github-dark.json",
+      "sha256": "69b7a9693e9814d478a7d1fdafa52c24cb609b0b0832f50c0a415bf988364d91"
+    },
+    {
+      "bytes": 18883,
+      "id": "github-dark-default",
+      "path": "crates/workdeck-diff/assets/themes/github-dark-default.json",
+      "sha256": "82ed36bb46a16e69056d2b8f67d217bb6e1ae465cc03479548040ef78bde8632"
+    },
+    {
+      "bytes": 18881,
+      "id": "github-dark-dimmed",
+      "path": "crates/workdeck-diff/assets/themes/github-dark-dimmed.json",
+      "sha256": "d862633306756cdbc299fb7652cb996883067b3f6e1dde36243605f13572c60d"
+    },
+    {
+      "bytes": 19067,
+      "id": "github-dark-high-contrast",
+      "path": "crates/workdeck-diff/assets/themes/github-dark-high-contrast.json",
+      "sha256": "5804aa288ff5efebf57d650be8a65e7020ea444d67feb17ed4371399ee002162"
+    },
+    {
+      "bytes": 14878,
+      "id": "github-light",
+      "path": "crates/workdeck-diff/assets/themes/github-light.json",
+      "sha256": "711147741f72fc0db072b09a28de8bedb8984997d572cee9c52c47fa409f17d8"
+    },
+    {
+      "bytes": 18505,
+      "id": "github-light-default",
+      "path": "crates/workdeck-diff/assets/themes/github-light-default.json",
+      "sha256": "6254983def23d3bb79bf10ee0b95b923c810e50242deacb283ee9761093937e8"
+    },
+    {
+      "bytes": 18642,
+      "id": "github-light-high-contrast",
+      "path": "crates/workdeck-diff/assets/themes/github-light-high-contrast.json",
+      "sha256": "0d5ea6c82c5113f429873170391dea84642e978c497988aad77b9b8b42270ad2"
+    },
+    {
+      "bytes": 31184,
+      "id": "gruvbox-dark-hard",
+      "path": "crates/workdeck-diff/assets/themes/gruvbox-dark-hard.json",
+      "sha256": "9be0598abfdf9b0e1e0790aed1ff76f39cb752a4d0903c8ec558cce92adff69c"
+    },
+    {
+      "bytes": 31188,
+      "id": "gruvbox-dark-medium",
+      "path": "crates/workdeck-diff/assets/themes/gruvbox-dark-medium.json",
+      "sha256": "8d301867af3eb863e1ae289e8657264e244ffbf2c12f4c40cd13635b102f0046"
+    },
+    {
+      "bytes": 31184,
+      "id": "gruvbox-dark-soft",
+      "path": "crates/workdeck-diff/assets/themes/gruvbox-dark-soft.json",
+      "sha256": "18af82a9166c19dfb93abf535ac6a50264213440779f23f193a4194b85e41df7"
+    },
+    {
+      "bytes": 31187,
+      "id": "gruvbox-light-hard",
+      "path": "crates/workdeck-diff/assets/themes/gruvbox-light-hard.json",
+      "sha256": "84d9987e9eb3d2cd690a0ba20b265d25cb1d9f9f8907c24d9ab1be6cfd90d7fc"
+    },
+    {
+      "bytes": 31191,
+      "id": "gruvbox-light-medium",
+      "path": "crates/workdeck-diff/assets/themes/gruvbox-light-medium.json",
+      "sha256": "0fee7e7311f0c1c7b15d01cdb327b9651f7220b1702a3bdfcf9b1ead55752d5b"
+    },
+    {
+      "bytes": 31187,
+      "id": "gruvbox-light-soft",
+      "path": "crates/workdeck-diff/assets/themes/gruvbox-light-soft.json",
+      "sha256": "5f2077c4830cda0fc8e325b77ba42bbce1a0c3875ad02f869c3ba10d72e19814"
+    },
+    {
+      "bytes": 11592,
+      "id": "horizon",
+      "path": "crates/workdeck-diff/assets/themes/horizon.json",
+      "sha256": "9efc612d085200c30766c92420382bb4904f7526701d223ef2a17f6a70ab455b"
+    },
+    {
+      "bytes": 11585,
+      "id": "horizon-bright",
+      "path": "crates/workdeck-diff/assets/themes/horizon-bright.json",
+      "sha256": "4b7097feaf0be5530d116bc1da4333a46bd07f4d01ba1c2dd50735f2d10bd0b7"
+    },
+    {
+      "bytes": 48688,
+      "id": "houston",
+      "path": "crates/workdeck-diff/assets/themes/houston.json",
+      "sha256": "89b705970a1bde0a9c6b76a9be737851c69fa080fd0ddbf723b78fbf7f5b49e1"
+    },
+    {
+      "bytes": 23303,
+      "id": "kanagawa-dragon",
+      "path": "crates/workdeck-diff/assets/themes/kanagawa-dragon.json",
+      "sha256": "7bc83fa0cf06eb4f3caa041ddf3f9aaf5d78b04b6732d6e365c9ebf6a2a2f54e"
+    },
+    {
+      "bytes": 23302,
+      "id": "kanagawa-lotus",
+      "path": "crates/workdeck-diff/assets/themes/kanagawa-lotus.json",
+      "sha256": "6a43b17291201d24d944c7eee5d45a2d190f46ef440ff797dd0910c61da609f4"
+    },
+    {
+      "bytes": 23299,
+      "id": "kanagawa-wave",
+      "path": "crates/workdeck-diff/assets/themes/kanagawa-wave.json",
+      "sha256": "b3ded90f07b5a8372aaa7ec9c0643f7ec1921ec7e44195a13b2d115a44d65dfd"
+    },
+    {
+      "bytes": 15208,
+      "id": "laserwave",
+      "path": "crates/workdeck-diff/assets/themes/laserwave.json",
+      "sha256": "55b33280084adf04a188073eec8ed6412b800169d18b85bd33e1f0807170d700"
+    },
+    {
+      "bytes": 14478,
+      "id": "light-plus",
+      "path": "crates/workdeck-diff/assets/themes/light-plus.json",
+      "sha256": "704d9d039c566596c85d2d2e0a8e16153b260b3f953278102fbdd70f19cc95ff"
+    },
+    {
+      "bytes": 23821,
+      "id": "material-theme",
+      "path": "crates/workdeck-diff/assets/themes/material-theme.json",
+      "sha256": "211a8e2026c27b1a039bada9e3f06128b01a76c1791d81e7989cb41130d3a32f"
+    },
+    {
+      "bytes": 23835,
+      "id": "material-theme-darker",
+      "path": "crates/workdeck-diff/assets/themes/material-theme-darker.json",
+      "sha256": "c906002a1229bc5e4e699ff7f0913f3429bcd6cf532702a969ac28cde189cfd6"
+    },
+    {
+      "bytes": 23840,
+      "id": "material-theme-lighter",
+      "path": "crates/workdeck-diff/assets/themes/material-theme-lighter.json",
+      "sha256": "ff5725bd2d243d2e10028443af828d61d837099660aec8ea7f55048ef26872f9"
+    },
+    {
+      "bytes": 23835,
+      "id": "material-theme-ocean",
+      "path": "crates/workdeck-diff/assets/themes/material-theme-ocean.json",
+      "sha256": "ebe798f6238dc9e4a431aeceaafaec484d363ab23f2f74f40966a9e6f511a0fc"
+    },
+    {
+      "bytes": 23841,
+      "id": "material-theme-palenight",
+      "path": "crates/workdeck-diff/assets/themes/material-theme-palenight.json",
+      "sha256": "bc9a2a21201b38c23549b77772956d5a190289166635f337ee5dec7aa5b9f6db"
+    },
+    {
+      "bytes": 8399,
+      "id": "min-dark",
+      "path": "crates/workdeck-diff/assets/themes/min-dark.json",
+      "sha256": "cb02499c9e59675edd0a80f83ceace1493deb60b167d6c8b1c65d62364b8dbc2"
+    },
+    {
+      "bytes": 9192,
+      "id": "min-light",
+      "path": "crates/workdeck-diff/assets/themes/min-light.json",
+      "sha256": "b8b5be2b8e1ba7f8c2e3bfb9aed4b1b87969980a602bec7eb2b14e56e21a64fc"
+    },
+    {
+      "bytes": 10927,
+      "id": "monokai",
+      "path": "crates/workdeck-diff/assets/themes/monokai.json",
+      "sha256": "773bd87eac8eb9fa9d98ff0dab37faecffd7c8017e9a426b22407b2dcb984800"
+    },
+    {
+      "bytes": 41755,
+      "id": "night-owl",
+      "path": "crates/workdeck-diff/assets/themes/night-owl.json",
+      "sha256": "dda3b16f82e8cf18c429401a5a07cd5b60253f6b252657c0a7a51a36d1ad74f6"
+    },
+    {
+      "bytes": 37877,
+      "id": "night-owl-light",
+      "path": "crates/workdeck-diff/assets/themes/night-owl-light.json",
+      "sha256": "ca4a996704d562e7eb46cbacdc8e32b128c6118ec79181749566488c8ff4a6ba"
+    },
+    {
+      "bytes": 35676,
+      "id": "nord",
+      "path": "crates/workdeck-diff/assets/themes/nord.json",
+      "sha256": "0ea054997b6bbe5ca17baae04576190ca34ab06e52908d8831a6cca91b49d090"
+    },
+    {
+      "bytes": 48169,
+      "id": "one-dark-pro",
+      "path": "crates/workdeck-diff/assets/themes/one-dark-pro.json",
+      "sha256": "f8154cef4e56ff3ee9eee1857deed551842bc7fe6e2fd27023ae6f0655a94c39"
+    },
+    {
+      "bytes": 38702,
+      "id": "one-light",
+      "path": "crates/workdeck-diff/assets/themes/one-light.json",
+      "sha256": "cd90b4b872605b8bc5bb5c2148927e19f8376ed2740a8100b1c9b525da7cc864"
+    },
+    {
+      "bytes": 44806,
+      "id": "pierre-dark",
+      "path": "crates/workdeck-diff/assets/themes/pierre-dark.json",
+      "sha256": "86eb6bc3cc3f37603093e152b6b58ecb6dc0dd39c78a0a054c21f95a9e3dbcaf"
+    },
+    {
+      "bytes": 44809,
+      "id": "pierre-light",
+      "path": "crates/workdeck-diff/assets/themes/pierre-light.json",
+      "sha256": "829dcd327bee8c4f792f00fa51d84e9194f47c7325750b2b1a785ec3883396b3"
+    },
+    {
+      "bytes": 11422,
+      "id": "plastic",
+      "path": "crates/workdeck-diff/assets/themes/plastic.json",
+      "sha256": "dde7dfb791cf32ba9871e1d769f6bf025847f67eba028baa59ba082bc3091d38"
+    },
+    {
+      "bytes": 43077,
+      "id": "poimandres",
+      "path": "crates/workdeck-diff/assets/themes/poimandres.json",
+      "sha256": "29f90ecf3e070306216868227b38ec81b458d931d2759256064abc05600cf817"
+    },
+    {
+      "bytes": 8957,
+      "id": "red",
+      "path": "crates/workdeck-diff/assets/themes/red.json",
+      "sha256": "50ae970bb275e2e83c780cef9908dd22def8e00c5a078f5a0ed4c0167ac09f5b"
+    },
+    {
+      "bytes": 26488,
+      "id": "rose-pine",
+      "path": "crates/workdeck-diff/assets/themes/rose-pine.json",
+      "sha256": "59687deb2b80b22fe60b15164f7611fdae0db74c80fc3621151d1db570b26f11"
+    },
+    {
+      "bytes": 26499,
+      "id": "rose-pine-dawn",
+      "path": "crates/workdeck-diff/assets/themes/rose-pine-dawn.json",
+      "sha256": "c1ee43a3885d3ca2078920603abf1854077217f82d6339fef02716fe33720f3b"
+    },
+    {
+      "bytes": 26498,
+      "id": "rose-pine-moon",
+      "path": "crates/workdeck-diff/assets/themes/rose-pine-moon.json",
+      "sha256": "9b0bb8ac303a733e48d9872f0eedc40702c55bbfff30a38c038f73425429e47e"
+    },
+    {
+      "bytes": 13236,
+      "id": "slack-dark",
+      "path": "crates/workdeck-diff/assets/themes/slack-dark.json",
+      "sha256": "8934af48cc12a75afaf8a84d52e94624c9bf83cbf0c774eb2b6542bbf3d98240"
+    },
+    {
+      "bytes": 12722,
+      "id": "slack-ochin",
+      "path": "crates/workdeck-diff/assets/themes/slack-ochin.json",
+      "sha256": "84c17b25450fbe2730bd95554ce02981b00b4188f1fef5de37bc916490c7fda3"
+    },
+    {
+      "bytes": 31316,
+      "id": "snazzy-light",
+      "path": "crates/workdeck-diff/assets/themes/snazzy-light.json",
+      "sha256": "2d5fb123df63a346aa768d19970969319bbb7ec90e9aa23f123b51bac96df08a"
+    },
+    {
+      "bytes": 9521,
+      "id": "solarized-dark",
+      "path": "crates/workdeck-diff/assets/themes/solarized-dark.json",
+      "sha256": "074424f097d9909637de68b5ade8c1edba4ecfe5a955eab15ae0af2c3b4f3e91"
+    },
+    {
+      "bytes": 9107,
+      "id": "solarized-light",
+      "path": "crates/workdeck-diff/assets/themes/solarized-light.json",
+      "sha256": "e6ddb7a39b65ad3e49a9ec84dcff54e2f892aff5e23cf382d9edd6aaed7fe511"
+    },
+    {
+      "bytes": 19810,
+      "id": "synthwave-84",
+      "path": "crates/workdeck-diff/assets/themes/synthwave-84.json",
+      "sha256": "72fbd749421a297dcb8f5c05b81b48cbb2755dc2e102b4f7595def76b76227f1"
+    },
+    {
+      "bytes": 46114,
+      "id": "tokyo-night",
+      "path": "crates/workdeck-diff/assets/themes/tokyo-night.json",
+      "sha256": "b77b29c07cceabd70495101d64f1acd350965be209fc13f33ec246cc5f06da01"
+    },
+    {
+      "bytes": 17334,
+      "id": "vesper",
+      "path": "crates/workdeck-diff/assets/themes/vesper.json",
+      "sha256": "7278b4bed01b515886f64aff77d3b3866f60c0ce848105f7849d7779a9f1bc06"
+    },
+    {
+      "bytes": 18547,
+      "id": "vitesse-black",
+      "path": "crates/workdeck-diff/assets/themes/vitesse-black.json",
+      "sha256": "300c2bc38cb890b7c37c1a7ba473ef1256309cd12dc3679d30f5e8e1259aa494"
+    },
+    {
+      "bytes": 18629,
+      "id": "vitesse-dark",
+      "path": "crates/workdeck-diff/assets/themes/vitesse-dark.json",
+      "sha256": "fde16183d942cc7beb22b8bb19e41fcd203656e0ee151e7af8fea703c2a0db22"
+    },
+    {
+      "bytes": 18474,
+      "id": "vitesse-light",
+      "path": "crates/workdeck-diff/assets/themes/vitesse-light.json",
+      "sha256": "4af3c41a3e41a78cf0105066f40482764c0bedaa28045267675662b1b5b31581"
+    }
+  ]
+}

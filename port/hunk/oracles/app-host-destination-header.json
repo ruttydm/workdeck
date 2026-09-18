@@ -1,0 +1,31 @@
+{
+  "sourcePath": "src/ui/AppHost.interactions.test.tsx",
+  "sourceTest": "hunk navigation makes the destination file own the top of the review pane",
+  "baselineInterval": {
+    "byteStart": 97022,
+    "byteEnd": 98079,
+    "lineStart": 3291,
+    "lineEnd": 3329,
+    "sha256": "0e12c39e69bb18f43c3c71403df24b182be9b90de6518388a1e14c4b4f7ac722"
+  },
+  "runs": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/main/src/ui/AppHost.interactions.test.tsx:\n(pass) App interactions > hunk navigation makes the destination file own the top of the review pane [286.40ms]\n\n 1 pass\n 75 filtered out\n 0 fail\n 3 expect() calls\nRan 1 test across 1 file. [871.00ms]\n"
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/stable/src/ui/AppHost.interactions.test.tsx:\n(pass) App interactions > hunk navigation makes the destination file own the top of the review pane [236.15ms]\n\n 1 pass\n 73 filtered out\n 0 fail\n 3 expect() calls\nRan 1 test across 1 file. [657.00ms]\n"
+    }
+  ],
+  "native": {
+    "test": "tests::next_hunk_gives_destination_file_the_review_header_after_scrolling",
+    "passed": 1,
+    "failed": 0,
+    "filtered": 1129,
+    "seconds": 0.84
+  },
+  "scope": "220x10 first.ts lines 1-16 and second.ts lines 17-32; values +100, line-2 annotations. Ten Down events with frames, then ]. first.ts appears once after navigation and second.ts remains visible; native also asserts selected file index 1. Text/selection assertions do not prove all cell geometry or asynchronous header races."
+}

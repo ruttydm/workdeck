@@ -1,0 +1,84 @@
+{
+  "oracle": "Hunk rendered-markdown extension using marked 17.0.1",
+  "baselineCommits": [
+    "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+    "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"
+  ],
+  "source": "1. first\n2. second with ![alt](img.png)\n\nline one\\\nline two &copy; &#65; &#x42;\n\n<div>Hello <b>world</b></div>\n\n    indented\n    code\n\n~~~\ntilde\n~~~\n\n<https://example.com>\n\n[ref]: https://ref.example\n",
+  "width": 7,
+  "changes": [],
+  "hunks": [
+    { "index": 0, "header": "@@ -1,18 +1,18 @@", "newRange": [1, 18] }
+  ],
+  "layout": {
+    "rows": [
+      {
+        "id": "rendered:0",
+        "spans": [
+          { "text": "1. ", "tone": "muted" },
+          { "text": "first" }
+        ],
+        "sourceRanges": [{ "side": "new", "range": [1, 2] }]
+      },
+      {
+        "id": "rendered:1",
+        "spans": [
+          { "text": "2. ", "tone": "muted" },
+          { "text": "second with " },
+          { "text": "▣ alt", "tone": "accent", "attributes": ["underline"] }
+        ]
+      },
+      { "id": "rendered:2", "spans": [{ "text": " " }] },
+      {
+        "id": "rendered:3",
+        "spans": [{ "text": "line one" }],
+        "sourceRanges": [{ "side": "new", "range": [4, 5] }]
+      },
+      { "id": "rendered:4", "spans": [{ "text": "line two &copy; A B" }] },
+      { "id": "rendered:5", "spans": [{ "text": " " }] },
+      {
+        "id": "rendered:6",
+        "spans": [{ "text": "Hello world" }],
+        "sourceRanges": [{ "side": "new", "range": [7, 8] }]
+      },
+      {
+        "id": "rendered:7",
+        "spans": [{ "text": "  indented", "tone": "syntax" }],
+        "sourceRanges": [{ "side": "new", "range": [9, 9] }]
+      },
+      {
+        "id": "rendered:8",
+        "spans": [{ "text": "  code", "tone": "syntax" }],
+        "sourceRanges": [{ "side": "new", "range": [10, 10] }]
+      },
+      {
+        "id": "rendered:9",
+        "spans": [{ "text": "┌─", "tone": "muted" }],
+        "sourceRanges": [{ "side": "new", "range": [12, 12] }]
+      },
+      {
+        "id": "rendered:10",
+        "spans": [{ "text": "│ tilde", "tone": "syntax" }],
+        "sourceRanges": [{ "side": "new", "range": [13, 13] }]
+      },
+      {
+        "id": "rendered:11",
+        "spans": [{ "text": "└─", "tone": "muted" }],
+        "sourceRanges": [{ "side": "new", "range": [14, 14] }]
+      },
+      { "id": "rendered:12", "spans": [{ "text": " " }] },
+      {
+        "id": "rendered:13",
+        "spans": [{ "text": "https://example.com", "tone": "accent", "attributes": ["underline"] }],
+        "sourceRanges": [{ "side": "new", "range": [16, 16] }]
+      },
+      { "id": "rendered:14", "spans": [{ "text": " " }] },
+      {
+        "id": "rendered:15",
+        "spans": [{ "text": " " }],
+        "sourceRanges": [{ "side": "new", "range": [18, 18] }]
+      }
+    ],
+    "hunkRows": [{ "startRow": 0, "endRow": 15 }]
+  }
+}

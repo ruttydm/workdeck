@@ -1,0 +1,19 @@
+{
+  "sourcePath": "src/ui/AppHost.interactions.test.tsx",
+  "sourceTest": "toggling wrap preserves the current viewport anchor instead of snapping to the top",
+  "baselineInterval": {"byteStart":66207,"byteEnd":67995,"lineStart":2213,"lineEnd":2273,"sha256":"5498acd26257af67fccb79ace4dc4c0a434db08eb9be4a5130c714e3d0992d26"},
+  "runtime": "Bun 1.3.14 (0d9b296a), disposable oracle only",
+  "runs": [
+    {"commit":"2c00f4358b89cfc0a6b04459ffc538ba601aa3c2","exitCode":0,"passed":1,"failed":0,"filteredOut":75,"assertions":9,"testMilliseconds":492.40,"totalMilliseconds":1162},
+    {"commit":"4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd","exitCode":0,"passed":1,"failed":0,"filteredOut":73,"assertions":9,"testMilliseconds":459.85,"totalMilliseconds":935,"warning":"The current testing environment is not configured to support act(...)"}
+  ],
+  "native": {
+    "destination":"crates/workdeck-tui/src/lib.rs",
+    "test":"tests::wrap_toggle_preserves_first_visible_added_line_after_arrow_scrolling",
+    "command":"CARGO_INCREMENTAL=0 cargo test -p workdeck-tui --lib -- --exact tests::annotation_toggle_shows_notes_for_both_files_in_current_viewport tests::arrow_keys_scroll_visible_lines_and_return_to_top_in_review_and_pager tests::wrap_toggle_preserves_first_visible_added_line_after_arrow_scrolling",
+    "exitCode":0,"passed":3,"failed":0,"ignored":0,"filteredOut":1109,"seconds":1.05,
+    "assertions":"102x12 split fixture, 18 numbered assignments, exact long added-line suffix, helper-default agent annotation on line two. Down loop reveals line08 while hiding line01; first added-line match remains identical after both w toggles."
+  },
+  "fixtureCorrection":"Inspection of test/helpers/diff-helpers.ts found its default annotation at [2,2]. Wrap and arrow fixtures now use line two; viewport-note alpha uses line two while beta retains its explicit line-one override. All three affected tests were executed together and passed.",
+  "limitations":["Only the named 1788-byte test interval is mapped.","Source run results are recorded as counts and timing, not full terminal-cell captures.","The helper's firstVisibleAddedLine regex is reproduced with a fixed ASCII pattern scan; whole-frame equivalence and all layout/theme combinations remain separate gates."]
+}

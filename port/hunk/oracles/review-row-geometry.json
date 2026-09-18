@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "source": {
+    "path": "src/ui/diff/reviewRowGeometry.ts",
+    "baselineBlob": "3e08fcb09fcc96d23e4e13cc423ed0bc143a0de0",
+    "baselineSha256": "c744cb3cc961b6ee10b27e463883227c3f37a8f8bf60d86a267b2f1267c87309",
+    "baselineBytes": 4563,
+    "baselineLines": 144,
+    "stableBlob": "48cdc4b83349d2fe06d870d8bd865aa335c5a7ed",
+    "stableSha256": "91af46af536a277582068182dda63631451efd46770f1bc5de9a72b2b69e8452",
+    "stableBytes": 4370,
+    "stableLines": 134
+  },
+  "test": {
+    "path": "src/ui/diff/reviewRowGeometry.test.ts",
+    "baselineBlob": "83a494fb9765aa54178dfa3c4d505f1f0a785dd0",
+    "baselineSha256": "076ccec75c654f108b30eb62d64846f68d25fd8b543a916f3fda158c68761952",
+    "baselineBytes": 6567,
+    "baselineLines": 246,
+    "stableBlob": "a7fa84f8d8722dcc34e30c909fad13b12d29ed42",
+    "stableSha256": "85f418aa99fabc64272a2f92571c01881ab242d467c02e50c408a8c31461e0c9",
+    "stableBytes": 4912,
+    "stableLines": 184
+  },
+  "destinations": [
+    {"path":"crates/workdeck-tui/src/review_row_geometry.rs","sha256":"1b1032228a53c10d6285c5328b4ba1a9e9bf6b9b95075a3eb89a660526466b62"},
+    {"path":"crates/workdeck-tui/src/planned_review_row.rs","sha256":"2a54a3615c1b2b360a99264e77a424fbad60a837d46ed56d4efa68106607ed4e"},
+    {"path":"crates/workdeck-tui/src/lib.rs","sha256":"596043eda721e26b35c22b16c503f501525fe6109a96f79d6ddbe820d0d9d8a7"}
+  ],
+  "baselineOracle": {
+    "runtime":"bun 1.3.5",
+    "command":"bun test src/ui/diff/reviewRowGeometry.test.ts",
+    "passed":5,
+    "failed":0,
+    "expectations":21
+  },
+  "stableOracle": {
+    "runtime":"bun 1.3.5",
+    "command":"bun test src/ui/diff/reviewRowGeometry.test.ts",
+    "passed":3,
+    "failed":0,
+    "expectations":14,
+    "relationship":"Pinned main adds hunk-gap geometry and threaded-note depth after stable. None of the five stable-only commits modifies either reviewRowGeometry file."
+  },
+  "projectionVectors": {
+    "noteHeight":6,
+    "bodyHeight":12,
+    "hunkAnchorRows":[[0,0],[1,10]],
+    "hunkBounds":[
+      [0,{"top":0,"height":9,"startRowId":"review-row:h0","endRowId":"review-row:guide"}],
+      [1,{"top":10,"height":2,"startRowId":"review-row:h1","endRowId":"review-row:line-1"}]
+    ],
+    "hiddenGap": {
+      "bodyHeight":4,
+      "hunkAnchorRows":[[0,0],[1,3]],
+      "hunkBounds":[
+        [0,{"top":0,"height":1,"startRowId":"review-row:line-0","endRowId":"review-row:line-0"}],
+        [1,{"top":3,"height":1,"startRowId":"review-row:line-1","endRowId":"review-row:line-1"}]
+      ]
+    },
+    "contributes":[false,true,false,false]
+  },
+  "sourceCoverage": [
+    {"lines":[1,14],"bytes":[0,773],"destination":"architecture contract, imports, and layout inputs"},
+    {"lines":[15,35],"bytes":[773,1508],"destination":"planned layout, hunk bounds, and section geometry vocabulary"},
+    {"lines":[36,62],"bytes":[1508,2186],"destination":"collapsed, expanded, note, code, header, and spacer hunk-bound contribution policy"},
+    {"lines":[63,93],"bytes":[2186,2918],"destination":"note, spacer, header, code height and visibility measurement"},
+    {"lines":[94,144],"bytes":[2918,4563],"destination":"body height, navigation anchor rows, and first-to-last visible hunk bounds"}
+  ],
+  "testCoverage": [
+    {"lines":[1,126],"bytes":[0,2745],"destination":"native header, collapsed, code, guide, note, spacer, and layout fixtures"},
+    {"lines":[127,147],"bytes":[2745,3608],"destination":"row height and visibility translation"},
+    {"lines":[148,178],"bytes":[3608,4632],"destination":"collapsed gap, note, guide, anchor, and multi-hunk bounds translation"},
+    {"lines":[179,205],"bytes":[4632,5395],"destination":"decorative hunk-gap bounds translation"},
+    {"lines":[206,228],"bytes":[5395,6004],"destination":"hidden-header hunk-gap height translation"},
+    {"lines":[229,246],"bytes":[6004,6567],"destination":"hidden-header navigation anchor translation"}
+  ],
+  "testMapping": [
+    {"sourceTest":"row height and visibility match the terminal rows each planned row renders","rustTest":"review_row_geometry::tests::row_height_and_visibility_match_rendered_terminal_rows"},
+    {"sourceTest":"measured hunk bounds ignore collapsed gaps but include inline notes and guide rows","rustTest":"review_row_geometry::tests::bounds_ignore_collapsed_gaps_but_include_notes_and_guides"},
+    {"sourceTest":"measured hunk bounds ignore decorative hunk-gap rows","rustTest":"review_row_geometry::tests::decorative_hunk_gaps_occupy_body_but_not_hunk_bounds"},
+    {"sourceTest":"hunk-gap rows still occupy height when hunk headers are hidden","rustTest":"review_row_geometry::tests::hunk_gap_height_survives_hidden_headers"},
+    {"sourceTest":"hidden hunk headers can anchor navigation without widening visible hunk bounds","rustTest":"review_row_geometry::tests::hidden_header_anchors_navigation_without_widening_bounds"}
+  ],
+  "nativeValidation": {
+    "command":"cargo test -p workdeck-tui review_row_geometry::tests -- --nocapture",
+    "passed":7,
+    "failed":0,
+    "translatedSourceTests":5,
+    "frozenDifferentialTests":1,
+    "additionalTests":1
+  }
+}

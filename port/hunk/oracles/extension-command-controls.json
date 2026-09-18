@@ -1,0 +1,39 @@
+{
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "stablePresence": "identical",
+  "sources": [
+    {
+      "path": "src/ui/lib/extensionCommandControls.ts",
+      "blob": "cd2d69dd1eafd67fe66d8210abc76dbe0807aeae"
+    }
+  ],
+  "tests": [
+    {
+      "path": "src/ui/lib/extensionCommandControls.test.ts",
+      "blob": "7c334e12a25ed1fc78c796380efaf85877885116",
+      "cases": 5
+    }
+  ],
+  "executedOracle": {
+    "runtime": "bun 1.3.5",
+    "passed": 5,
+    "failed": 0,
+    "expectations": 31
+  },
+  "invariants": [
+    "only enabled public product-owned commands may be probed or executed",
+    "compatibility aliases resolve to the one canonical command",
+    "every operation reads the current live command table",
+    "unknown disabled private extension-owned and stale commands are refused",
+    "probes return false for malformed ids",
+    "execution validates ids and counts before checking liveness",
+    "counts are positive integers no greater than 10000"
+  ],
+  "nativeProtocolAdaptation": {
+    "productNamespace": "workdeck replaces hunk in public command ids",
+    "probe": "each command keyboard-mode and dialog-continuation callback receives the enabled canonical ids and aliases from the current live Ratatui table",
+    "execution": "the SDK constructs a declarative action only for an enabled id and the host validates it again before dispatch",
+    "liveness": "extension command epochs discard actions returned by retired review handlers"
+  }
+}

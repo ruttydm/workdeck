@@ -1,0 +1,110 @@
+diff --git a/src/format.rs b/src/format.rs
+index 1111111..2222222 100644
+--- a/src/format.rs
++++ b/src/format.rs
+@@ -1,13 +1,22 @@
+ use super::tasks::{Task, TaskState};
+
+-#[must_use]
+-pub fn render_task_line(task: &Task) -> String {
+-    let marker = match task.state {
+-        TaskState::Done => "✓",
+-        TaskState::Doing => "•",
+-        TaskState::Todo => "○",
+-    };
+-    let blocked = if task.blocked { " (blocked)" } else { "" };
++fn status_chip(task: &Task) -> &'static str {
++    if task.blocked {
++        return "[blocked]";
++    }
++
++    if task.state == TaskState::Done {
++        return "[done]";
++    }
+
+-    format!("{marker} {} — {}{blocked}", task.title, task.owner)
++    if task.state == TaskState::Doing {
++        "[active]"
++    } else {
++        "[queued]"
++    }
++}
++
++#[must_use]
++pub fn format_task(task: &Task) -> String {
++    format!("{} {} — {}", status_chip(task), task.title, task.owner)
+ }
+diff --git a/src/group_tasks.rs b/src/group_tasks.rs
+new file mode 100644
+index 0000000..3333333
+--- /dev/null
++++ b/src/group_tasks.rs
+@@ -0,0 +1,18 @@
++use super::tasks::{Task, TaskState};
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct GroupedTasks<'a> {
++    pub shipping_today: Vec<&'a Task>,
++    pub needs_help: Vec<&'a Task>,
++}
++
++#[must_use]
++pub fn group_tasks(tasks: &[Task]) -> GroupedTasks<'_> {
++    GroupedTasks {
++        shipping_today: tasks
++            .iter()
++            .filter(|task| matches!(task.state, TaskState::Done | TaskState::Doing))
++            .collect(),
++        needs_help: tasks.iter().filter(|task| task.blocked).collect(),
++    }
++}
+diff --git a/src/main.rs b/src/main.rs
+index 4444444..5555555 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -1,12 +1,23 @@
+ mod format;
++mod group_tasks;
+ mod tasks;
+
+-use format::render_task_line;
++use format::format_task;
++use group_tasks::group_tasks;
+ use tasks::TASKS;
+
+ #[must_use]
+ pub fn render_morning_summary() -> String {
+-    std::iter::once("Morning summary".to_owned())
+-        .chain(TASKS.iter().map(render_task_line))
++    let grouped = group_tasks(TASKS);
++
++    std::iter::once("Morning summary".to_owned())
++        .chain(std::iter::once(String::new()))
++        .chain(std::iter::once("Shipping today".to_owned()))
++        .chain(grouped.shipping_today.into_iter().map(format_task))
++        .chain(std::iter::once(String::new()))
++        .chain(std::iter::once("Needs help".to_owned()))
++        .chain(grouped.needs_help.into_iter().map(format_task))
+         .collect::<Vec<_>>()
+         .join("\n")
+ }
+diff --git a/test/main_demo.rs b/test/main_demo.rs
+index 6666666..7777777 100644
+--- a/test/main_demo.rs
++++ b/test/main_demo.rs
+@@ -1,9 +1,11 @@
+-use crate::mini_app_before::render_morning_summary;
++use crate::mini_app_after::render_morning_summary;
+
+ #[test]
+-fn renders_a_flat_morning_summary() {
++fn renders_grouped_sections_for_the_morning_summary() {
+     let output = render_morning_summary();
+
+-    assert!(output.contains("Morning summary"));
+-    assert!(output.contains("Document keyboard shortcuts"));
++    assert!(output.contains("Shipping today"));
++    assert!(output.contains("[active] Polish dashboard empty state"));
++    assert!(output.contains("Needs help"));
++    assert!(output.contains("[blocked] Document keyboard shortcuts"));
+ }

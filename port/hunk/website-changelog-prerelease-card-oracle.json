@@ -1,0 +1,86 @@
+{
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "generator": "Pinned main buildSeriesCard prerelease behavior under Bun 1.3.14",
+  "cases": [
+    {
+      "input": "## 1.2.0-beta.1\n### Fixed\n- Beta.\n",
+      "dates": {},
+      "expected": {
+        "slug": "1.2",
+        "title": "Hunk 1.2",
+        "tagline": "An editorial summary.",
+        "meta": "Unreleased · 1 release · 1 change",
+        "alt": "Hunk 1.2 release notes — Unreleased · 1 release · 1 change"
+      }
+    },
+    {
+      "input": "## 1.2.0-beta.1\n### Fixed\n- Beta.\n",
+      "dates": {
+        "1.2.0-beta.1": "2026-08-01"
+      },
+      "expected": {
+        "slug": "1.2",
+        "title": "Hunk 1.2",
+        "tagline": "An editorial summary.",
+        "meta": "Prerelease · August 1, 2026 · 1 release · 1 change",
+        "alt": "Hunk 1.2 release notes — Prerelease · August 1, 2026 · 1 release · 1 change"
+      }
+    },
+    {
+      "input": "## 1.2.0-beta.1\n### Fixed\n- Beta.\n",
+      "dates": {
+        "1.2.0": "2026-08-02",
+        "1.2.0-beta.1": "2026-08-01"
+      },
+      "expected": {
+        "slug": "1.2",
+        "title": "Hunk 1.2",
+        "tagline": "An editorial summary.",
+        "meta": "Prerelease · August 1, 2026 · 1 release · 1 change",
+        "alt": "Hunk 1.2 release notes — Prerelease · August 1, 2026 · 1 release · 1 change"
+      }
+    },
+    {
+      "input": "## 1.2.0\n## 1.2.0-beta.1\n### Fixed\n- Beta.\n",
+      "dates": {},
+      "expected": {
+        "slug": "1.2",
+        "title": "Hunk 1.2",
+        "tagline": "An editorial summary.",
+        "meta": "Unreleased · 2 releases · 1 change",
+        "alt": "Hunk 1.2 release notes — Unreleased · 2 releases · 1 change"
+      }
+    },
+    {
+      "input": "## 1.2.0\n## 1.2.0-beta.1\n### Fixed\n- Beta.\n",
+      "dates": {
+        "1.2.0-beta.1": "2026-08-01"
+      },
+      "expected": {
+        "slug": "1.2",
+        "title": "Hunk 1.2",
+        "tagline": "An editorial summary.",
+        "meta": "Prerelease · August 1, 2026 · 2 releases · 1 change",
+        "alt": "Hunk 1.2 release notes — Prerelease · August 1, 2026 · 2 releases · 1 change"
+      }
+    },
+    {
+      "input": "## 1.2.0\n## 1.2.0-beta.1\n### Fixed\n- Beta.\n",
+      "dates": {
+        "1.2.0": "2026-08-02",
+        "1.2.0-beta.1": "2026-08-01"
+      },
+      "expected": {
+        "slug": "1.2",
+        "title": "Hunk 1.2",
+        "tagline": "An editorial summary.",
+        "meta": "August 1, 2026 – August 2, 2026 · 2 releases · 1 change",
+        "chips": [
+          "1.2.0",
+          "1.2.0-beta.1"
+        ],
+        "alt": "Hunk 1.2 release notes — August 1, 2026 – August 2, 2026 · 2 releases · 1 change"
+      }
+    }
+  ]
+}

@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 1,
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "source": {
+    "path": "src/ui/components/panes/DiffSection.tsx",
+    "baselineBlob": "206a44e66054a4f5f553431587502e22cbafdb19",
+    "baselineSha256": "c32dfbb73cb0d68c692f822a3bd0fb2a82764c5eb2c57c560c97219cf9553e94",
+    "baselineBytes": 9474,
+    "baselineLines": 263,
+    "stableBlob": "3302365a512e510b8b8cbaf92d25bf2871f2582e",
+    "stableSha256": "aeae3f98ac55c231c5db75b51459740b9c6ec494bed87dbf90e01bc092118f04",
+    "stableBytes": 8873,
+    "stableLines": 241,
+    "stableDifference": "Pinned main supersedes v0.20.1 by moving CursorHighlight to its focused module, adding configurable hunkGap forwarding, and replacing the stable boolean one-row divider with numeric separatorHeight whose final row carries the divider."
+  },
+  "destinations": [
+    {
+      "path": "crates/workdeck-tui/src/diff_section_view.rs",
+      "sha256": "b29117605874b11761d94f59a869e82c187f35dc2e8810f29c95344d3a9c7f8d"
+    },
+    {
+      "path": "crates/workdeck-tui/src/lib.rs",
+      "sha256": "07abfa00c1ceba0ef356593d58c07124307ce378d0cf82b18b2aaee76034102f"
+    },
+    {
+      "path": "crates/workdeck-tui/src/public_review.rs",
+      "sha256": "fba63844e94e37bed1dc3c97f6dc9e6f6e45bbe408461b7ae42165554085b154"
+    }
+  ],
+  "directOracle": {
+    "runtime": "bun 1.3.5",
+    "temporaryTest": "src/ui/components/panes/DiffSection.oracle.test.tsx",
+    "baseline": {
+      "passed": 1,
+      "failed": 0,
+      "separatorAndHeader": "                              \n                              \n ──────────────────────────   \n oracle.ts             +1 -1  \n▌@@ -1,1 +1,1 @@              \n▌1   -  export const value =  \n▌  1 +  export const value =  \n                              \n                              \n                              \n                              \n                              \n",
+      "noSeparatorNoHeader": "▌@@ -1,1 +1,1 @@              \n▌1   -  export const value =  \n▌  1 +  export const value =  \n                              \n                              \n                              \n                              \n                              \n                              \n                              \n                              \n                              \n"
+    },
+    "stable": {
+      "passed": 1,
+      "failed": 0,
+      "separatorAndHeader": " ──────────────────────────   \n oracle.ts             +1 -1  \n▌@@ -1,1 +1,1 @@              \n▌1   -  export const value =  \n▌  1 +  export const value =  \n                              \n                              \n                              \n                              \n                              \n                              \n                              \n",
+      "noSeparatorNoHeader": "▌@@ -1,1 +1,1 @@              \n▌1   -  export const value =  \n▌  1 +  export const value =  \n                              \n                              \n                              \n                              \n                              \n                              \n                              \n                              \n                              \n"
+    }
+  },
+  "observableContract": {
+    "sectionId": "diff-section:oracle",
+    "outerBox": {
+      "width": "100%",
+      "direction": "column",
+      "background": "theme.panel",
+      "overflow": "visible"
+    },
+    "separator": {
+      "height": "separatorHeight",
+      "blankRows": "separatorHeight - 1",
+      "ruleRow": "one left cell, separatorWidth box-drawing cells, one right cell",
+      "foreground": "theme.border",
+      "background": "theme.panel"
+    },
+    "rawDiffScrollOwnership": false,
+    "missingFileViewGeometry": {
+      "bodyHeight": 0,
+      "lineNumberDigits": 1,
+      "collections": "empty"
+    },
+    "memoIgnoredCallbacks": ["onHover", "onSelect", "onToggleGap"]
+  },
+  "sourceCoverage": [
+    [[1, 19], [0, 1179], "imports and provider-neutral section dependencies"],
+    [[20, 61], [1179, 2763], "complete section property and callback contract"],
+    [[62, 112], [2763, 3764], "resolved inputs and full-width panel-owned section box"],
+    [[113, 149], [3764, 4716], "numeric separator height, blank spacing, padding, fitted divider, and theme paint"],
+    [[150, 160], [4716, 4977], "conditional file header and selection handoff"],
+    [[161, 180], [4977, 5637], "alternate file view route and zero-geometry fallback"],
+    [[181, 225], [5637, 7498], "raw diff-body forwarding, hunk gap, highlight, hover, note, and parent scroll ownership"],
+    [[226, 263], [7498, 9474], "explicit referential memo comparator and deliberately ignored callbacks"]
+  ],
+  "rustTests": [
+    "diff_section_view::tests::plans_exact_outer_box_header_and_body_routes",
+    "diff_section_view::tests::numeric_separator_height_places_the_rule_on_the_last_padded_row",
+    "diff_section_view::tests::memo_comparator_covers_every_source_field_and_ignores_three_callbacks",
+    "public_review::tests::public_stream_can_hide_headers_keep_separators_and_report_file_hits"
+  ],
+  "nativeAdaptation": {
+    "rendering": "Ratatui lines replace OpenTUI boxes while retaining exact content width, padding, row count, palette, and section order.",
+    "routing": "The live review stream selects its already validated native file-view layout before falling through to raw diff rows.",
+    "events": "Stable host interaction tokens replace React callback references; row and header hit maps remain owned by the shell.",
+    "memoization": "The native signature names every compared scalar/reference identity and proves the source's three omitted callbacks remain non-invalidating."
+  }
+}

@@ -1,0 +1,118 @@
+{
+  "runtime": "Bun 1.3.14 macOS arm64",
+  "source": "website/src/data/extensions.ts",
+  "nativeCommit": "7af511e3",
+  "baselineCommit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stableCommit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "status": "Known unresolved exact serialization differences; not a passing parity fixture.",
+  "sourceCaptures": [
+    {
+      "kind": "main",
+      "cases": [
+        {
+          "input": "{\"n\":1.0}",
+          "expected": "{\"n\":1}"
+        },
+        {
+          "input": "{\"n\":-0.0}",
+          "expected": "{\"n\":0}"
+        },
+        {
+          "input": "{\"n\":1e-7}",
+          "expected": "{\"n\":1e-7}"
+        },
+        {
+          "input": "{\"n\":1e20}",
+          "expected": "{\"n\":100000000000000000000}"
+        },
+        {
+          "input": "{\"z\":1,\"a\":2}",
+          "expected": "{\"z\":1,\"a\":2}"
+        },
+        {
+          "input": "{\"10\":\"ten\",\"2\":\"two\",\"a\":\"</script>\"}",
+          "expected": "{\"2\":\"two\",\"10\":\"ten\",\"a\":\"\\u003c/script>\"}"
+        }
+      ]
+    },
+    {
+      "kind": "stable",
+      "cases": [
+        {
+          "input": "{\"n\":1.0}",
+          "expected": "{\"n\":1}"
+        },
+        {
+          "input": "{\"n\":-0.0}",
+          "expected": "{\"n\":0}"
+        },
+        {
+          "input": "{\"n\":1e-7}",
+          "expected": "{\"n\":1e-7}"
+        },
+        {
+          "input": "{\"n\":1e20}",
+          "expected": "{\"n\":100000000000000000000}"
+        },
+        {
+          "input": "{\"z\":1,\"a\":2}",
+          "expected": "{\"z\":1,\"a\":2}"
+        },
+        {
+          "input": "{\"10\":\"ten\",\"2\":\"two\",\"a\":\"</script>\"}",
+          "expected": "{\"2\":\"two\",\"10\":\"ten\",\"a\":\"\\u003c/script>\"}"
+        }
+      ]
+    }
+  ],
+  "native": [
+    {
+      "input": "{\"n\":1.0}",
+      "chunk_id": "e34506",
+      "wall_time_seconds": 0.000001917,
+      "exit_code": 0,
+      "original_token_count": 3,
+      "output": "{\"n\":1.0}\n"
+    },
+    {
+      "input": "{\"n\":-0.0}",
+      "chunk_id": "dd7837",
+      "wall_time_seconds": 0.000003667,
+      "exit_code": 0,
+      "original_token_count": 3,
+      "output": "{\"n\":-0.0}\n"
+    },
+    {
+      "input": "{\"n\":1e-7}",
+      "chunk_id": "d51f7c",
+      "wall_time_seconds": 0.00000225,
+      "exit_code": 0,
+      "original_token_count": 3,
+      "output": "{\"n\":1e-7}\n"
+    },
+    {
+      "input": "{\"n\":1e20}",
+      "chunk_id": "fd4745",
+      "wall_time_seconds": 0.000002042,
+      "exit_code": 0,
+      "original_token_count": 3,
+      "output": "{\"n\":1e+20}\n"
+    },
+    {
+      "input": "{\"z\":1,\"a\":2}",
+      "chunk_id": "89982a",
+      "wall_time_seconds": 0.0000025,
+      "exit_code": 0,
+      "original_token_count": 4,
+      "output": "{\"z\":1,\"a\":2}\n"
+    },
+    {
+      "input": "{\"10\":\"ten\",\"2\":\"two\",\"a\":\"</script>\"}",
+      "chunk_id": "af1db1",
+      "wall_time_seconds": 0.000001833,
+      "exit_code": 0,
+      "original_token_count": 11,
+      "output": "{\"10\":\"ten\",\"2\":\"two\",\"a\":\"\\u003c/script>\"}\n"
+    }
+  ]
+}

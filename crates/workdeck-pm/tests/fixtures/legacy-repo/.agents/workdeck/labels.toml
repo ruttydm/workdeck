@@ -1,0 +1,9 @@
+[[labels]]
+id = "bug"
+name = "Bug"
+color = "red"
+
+[[labels]]
+id = "review_needed"
+name = "Review needed"
+color = "#abcdef"

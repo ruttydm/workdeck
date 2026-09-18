@@ -1,0 +1,121 @@
+{
+  "version": 1,
+  "generatedAt": "2026-09-07T23:23:52.087Z",
+  "gitSha": "28a8854a49e4acabc9c27a03a02dc69f3857680c",
+  "packageVersion": "0.1.0",
+  "runtime": {
+    "platform": "darwin",
+    "arch": "arm64"
+  },
+  "samplesPerBenchmark": 3.0,
+  "results": [
+    {
+      "name": "large-stream/cold_first_frame_ms",
+      "unit": "ms",
+      "samples": [
+        234.61,
+        237.89,
+        237.62
+      ],
+      "median": 237.62,
+      "p75": 237.89,
+      "p95": 237.89,
+      "min": 234.61,
+      "max": 237.89,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "large-stream"
+    },
+    {
+      "name": "large-stream/files",
+      "unit": "count",
+      "samples": [
+        180.0,
+        180.0,
+        180.0
+      ],
+      "median": 180.0,
+      "p75": 180.0,
+      "p95": 180.0,
+      "min": 180.0,
+      "max": 180.0,
+      "comparable": false,
+      "source": "large-stream"
+    },
+    {
+      "name": "large-stream/lines_per_file",
+      "unit": "count",
+      "samples": [
+        120.0,
+        120.0,
+        120.0
+      ],
+      "median": 120.0,
+      "p75": 120.0,
+      "p95": 120.0,
+      "min": 120.0,
+      "max": 120.0,
+      "comparable": false,
+      "source": "large-stream"
+    },
+    {
+      "name": "large-stream/scroll_ticks",
+      "unit": "count",
+      "samples": [
+        4.0,
+        4.0,
+        4.0
+      ],
+      "median": 4.0,
+      "p75": 4.0,
+      "p95": 4.0,
+      "min": 4.0,
+      "max": 4.0,
+      "comparable": false,
+      "source": "large-stream"
+    },
+    {
+      "name": "large-stream/warm_first_frame_ms",
+      "unit": "ms",
+      "samples": [
+        272.16,
+        234.92,
+        235.13
+      ],
+      "median": 235.13,
+      "p75": 272.16,
+      "p95": 272.16,
+      "min": 234.92,
+      "max": 272.16,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "large-stream"
+    },
+    {
+      "name": "large-stream/windowed_scroll_ticks_ms",
+      "unit": "ms",
+      "samples": [
+        1814.48,
+        1822.79,
+        1815.55
+      ],
+      "median": 1815.55,
+      "p75": 1822.79,
+      "p95": 1822.79,
+      "min": 1814.48,
+      "max": 1822.79,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "large-stream"
+    }
+  ]
+}

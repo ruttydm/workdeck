@@ -1,0 +1,37 @@
+{
+  "commit": "ee1b008fbf9baf0159b853418b45a4825323be22",
+  "worktree": "clean",
+  "host": "Darwin arm64",
+  "profile": "release (optimized)",
+  "buildCommand": "CARGO_INCREMENTAL=0 cargo build --release -p xtask",
+  "command": "target/release/xtask benchmark huge-stream-diagnostic",
+  "binarySha256": "8d19c244bc818999555798f1a3a712d263f555997123b5ac8429f451cc49aebb",
+  "exitCode": 0,
+  "report": {
+    "diagnosticOnly": true,
+    "files": 1001,
+    "firstFrameMs": 43.84775,
+    "rendererSetupMs": 754.7422499999999,
+    "beforeRenderer": {"rssBytes": 211894272, "mallocInUseBytes": 110006400},
+    "afterRenderer": {"rssBytes": 1218166784, "mallocInUseBytes": 552851584},
+    "peakBeforeRendererBytes": 211894272,
+    "peakAfterRendererBytes": 1284800512,
+    "scrollTickMs": [11.321792, 12.692292, 11.159625, 11.840333, 11.467875000000001, 12.613125],
+    "navigationPressMs": [33.115959000000004, 32.56525, 33.260375, 31.92425],
+    "afterFirstFrame": {"rssBytes": 1251131392, "mallocInUseBytes": 561140096},
+    "afterNavigation": {"rssBytes": 1259814912, "mallocInUseBytes": 561938400},
+    "sequence": "one renderer: first frame, two settle frames, six scroll ticks, four navigation presses",
+    "memorySemantics": "Current native RSS and available malloc usage; not peak RSS or JavaScript heapUsed",
+    "peakProcessRssBytes": 1284800512,
+    "peakMemorySemantics": "Process lifetime peak resident/working-set bytes, including fixture construction; not JavaScript heapUsed",
+    "fixtureBuildMs": 740.405083,
+    "linesPerFile": 300,
+    "giantFileLines": 50000
+  },
+  "limitations": [
+    "Single fresh native process, not a paired source/native acceptance comparison.",
+    "Source/native render and async-flush boundaries remain unverified.",
+    "Cumulative peak differences do not identify individual allocations or exact phase allocation totals.",
+    "Clippy and release compilation finished before capture; the filtered test command was still finishing and other host activity was uncontrolled."
+  ]
+}

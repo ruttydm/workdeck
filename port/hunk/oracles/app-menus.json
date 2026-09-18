@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "capture": {
+    "runtime": "Bun 1.3.5",
+    "method": "executed each pinned source tree directly from its disposable git archive",
+    "paths": [
+      "src/ui/lib/appMenus.ts",
+      "src/ui/lib/appMenus.test.ts",
+      "src/ui/hooks/useMenuController.ts",
+      "src/ui/hooks/useMenuController.test.tsx",
+      "src/ui/components/chrome/MenuBar.tsx",
+      "src/ui/components/chrome/MenuDropdown.tsx"
+    ],
+    "baselineMenuAndControllerResult": "16 pass, 0 fail, 42 expectations",
+    "stableMenuAndControllerResult": "16 pass, 0 fail, 42 expectations",
+    "baselineDropdownFrameResult": "2 pass, 0 fail, 14 expectations",
+    "stableDropdownFrameResult": "2 pass, 0 fail, 14 expectations",
+    "sourceIdentical": true
+  },
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "workdeckBrandingNormalization": "hunk command IDs and title chrome renamed to workdeck",
+  "projection": {
+    "menuOrder": ["file", "view", "navigate", "agent", "extensions", "help"],
+    "toggleKey": "F10",
+    "selection": "first selectable row; wrap and skip separators; re-anchor after live entry changes",
+    "extensions": "absent when empty; preserve registration order; separate owner groups; duplicate titles remain distinct by command ID",
+    "accelerators": "resolved command hints stay live and execute through the shared command dispatcher",
+    "geometry": "one-cell menu-bar gutter; terminal-cell widths; horizontally clamped dropdown",
+    "mouse": "toggle and hover top-level menus; hover and activate selectable dropdown rows"
+  }
+}

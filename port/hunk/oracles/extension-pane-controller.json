@@ -1,0 +1,38 @@
+{
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "authoritative": "baseline",
+  "source": {
+    "path": "src/ui/hooks/useExtensionPaneController.ts",
+    "blob": "d00be0c5c4c050f7a8a980298a756a07a9848b9f"
+  },
+  "test": {
+    "path": "src/ui/hooks/useExtensionPaneController.test.tsx",
+    "blob": "e77913f169721ead22da9f40dc83e45087d7a466"
+  },
+  "baselineOracle": {
+    "runtime": "bun 1.3.5",
+    "passed": 13,
+    "failed": 0,
+    "expectations": 54
+  },
+  "stableOracle": {
+    "status": "absent",
+    "source": false,
+    "test": false
+  },
+  "invariants": [
+    "availability executes after committed state and false panes remain logically open",
+    "callback and render failures quarantine one registration identity and restore the built-in files role",
+    "a same-key reload is fresh authority and cannot inherit quarantine, pending retention, or a drag",
+    "retired pane controls cannot mutate state and authorized side-pane opens reveal responsive space",
+    "current-line panes remain mounted only while the exact previously accepted registration waits for fresh paint",
+    "responsive fractions remain automatic until a drag creates an axis-tagged override",
+    "right and bottom drags invert pointer movement and terminal shrink cancels stale ownership"
+  ],
+  "nativeAdaptation": {
+    "lifecycle": "ExtensionPaneControllerState owns the state React hooks and layout effects owned upstream.",
+    "mouse": "Boolean ownership results replace OpenTUI preventDefault and stopPropagation calls; Crossterm dispatch consumes claimed events.",
+    "availability": "workdeck/pane/available is a deadline-bounded JSON-RPC request returning one strict boolean."
+  }
+}

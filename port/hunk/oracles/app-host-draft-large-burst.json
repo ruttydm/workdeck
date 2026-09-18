@@ -1,0 +1,33 @@
+{
+  "sourcePath": "src/ui/AppHost.interactions.test.tsx",
+  "sourceTest": "draft note survives a large burst of input in one chunk",
+  "baselineInterval": {
+    "byteStart": 91167,
+    "byteEnd": 92091,
+    "lineStart": 3077,
+    "lineEnd": 3108,
+    "sha256": "e3bcee67117c7420b45f4cb174c67378288a92206f75d91dd1aa62f6b7706e96"
+  },
+  "runtime": "Bun 1.3.14 (0d9b296a), disposable oracle only",
+  "command": "GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null bun test <pinned-checkout>/src/ui/AppHost.interactions.test.tsx -t 'draft note survives a large burst'",
+  "runs": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/main/src/ui/AppHost.interactions.test.tsx:\nThe current testing environment is not configured to support act(...)\n(pass) App interactions > draft note survives a large burst of input in one chunk [208.90ms]\n\n 1 pass\n 75 filtered out\n 0 fail\n 3 expect() calls\nRan 1 test across 1 file. [759.00ms]\n"
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/stable/src/ui/AppHost.interactions.test.tsx:\nThe current testing environment is not configured to support act(...)\n(pass) App interactions > draft note survives a large burst of input in one chunk [195.37ms]\n\n 1 pass\n 73 filtered out\n 0 fail\n 3 expect() calls\nRan 1 test across 1 file. [597.00ms]\n"
+    }
+  ],
+  "native": {
+    "test": "tests::draft_note_retains_large_synchronous_input_burst",
+    "passed": 1,
+    "failed": 0,
+    "filtered": 1125,
+    "seconds": 0.85
+  },
+  "scope": "160x40, identical repeated ASCII body in one synchronous event burst without intermediate frames. Draft heading and both ends remain visible; exact stored body is additionally checked. Does not test raw terminal byte decoding or bracketed paste protocol."
+}

@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 1,
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "source": {
+    "path": "src/ui/hooks/useExtensionRuntimeBridge.ts",
+    "blob": "ee432f1332158ef486e8e579a1fa880a66bce211",
+    "sha256": "f2881f99caae2bac8e153d75933a8fbc3da5a00d15164ff91108b2af28148fe0",
+    "bytes": 10570,
+    "lines": 264
+  },
+  "sourceTest": {
+    "path": "src/ui/hooks/useExtensionRuntimeBridge.test.tsx",
+    "blob": "db480c88f836a9db0fe9507957d75a646405dd39",
+    "sha256": "54369a9a0910ad678fc16553458159efaf907b271b214d88ec80318a2ed365ac",
+    "bytes": 11424,
+    "lines": 315
+  },
+  "introducedBy": {
+    "commit": "3127c19fec0f1183efee7326fe0d7cc29ff915c3",
+    "subject": "refactor(ui): commit extension runtime authority (#891)"
+  },
+  "baselineOracle": {
+    "runtime": "bun 1.3.5",
+    "command": "bun test src/ui/hooks/useExtensionRuntimeBridge.test.tsx",
+    "passed": 5,
+    "failed": 0,
+    "assertions": 25
+  },
+  "stableOracle": {
+    "status": "absent",
+    "evidence": "Neither the runtime bridge hook nor its test path exists in the pinned v0.20.1 tree."
+  },
+  "destinations": [
+    {
+      "path": "crates/workdeck-tui/src/extension_runtime_bridge.rs",
+      "sha256": "395c694c2ea7f6c021866b2c39c711c11af853d7e58988443357d6d08cc5fa63"
+    },
+    {
+      "path": "crates/workdeck-tui/src/lib.rs",
+      "sha256": "2a899bc74691fb1f7fecdc5e7ab8ae3ed494938e6bdf3db54f22159ffddbca65"
+    }
+  ],
+  "sourceCoverage": [
+    [[[[1, 11], [0, 666]]], "ownership contract and React commit-boundary overview"],
+    [[[[12, 30], [666, 1481]]], "bootstrap, file, review, extension API, projection, command, lease, navigation, selection, and cursor dependencies"],
+    [[[[31, 62], [1481, 3317]]], "complete public navigation bindings and runtime bridge interface"],
+    [[[[63, 78], [3317, 3843]]], "review producer and selection inputs plus unavailable navigation defaults"],
+    [[[[79, 126], [3843, 5492]]], "mounted liveness, active registry and review generation, committed selection, bindings, file-view cache, and synchronous cleanup"],
+    [[[[127, 144], [5492, 6302]]], "committed and render file projections plus registry-scoped command controls"],
+    [[[[145, 154], [6302, 6751]]], "review-generation capability lease construction"],
+    [[[[155, 177], [6751, 7667]]], "frozen committed selection, render selection, and selected-file projection"],
+    [[[[178, 197], [7667, 8317]]], "live navigation resolving files and callbacks after awaited extension work"],
+    [[[[198, 211], [8317, 8981]]], "review snapshot controls guarded by the captured review lease"],
+    [[[[212, 222], [8981, 9411]]], "committed command and navigation bindings"],
+    [[[[223, 246], [9411, 10127]]], "complete returned runtime authority and public projection surface"],
+    [[[[247, 264], [10127, 10570]]], "post-render binding commit effect and dependency identity" ]
+  ],
+  "testCoverage": [
+    [[[[1, 124], [0, 4146]]], "test imports, mutable runtime facts, command fixture, mounted bridge harness, render settlement, bootstrap identity, and teardown"],
+    [[[[125, 149], [4146, 5019]]], "StrictMode replay restores authority and layout cleanup revokes retained controls"],
+    [[[[150, 210], [5019, 7375]]], "hard remount retires predecessor controls while a same-registry successor remains live"],
+    [[[[211, 255], [7375, 9254]]], "content reload preserves runtime commands and expires review leases, snapshots, and navigation"],
+    [[[[256, 279], [9254, 10184]]], "registry replacement retires predecessor command controls"],
+    [[[[280, 315], [10184, 11424]]], "selection freezes at invocation while navigation uses latest committed bindings"]
+  ],
+  "testMappings": [
+    {
+      "source": "restores authority after StrictMode replay and revokes it during layout cleanup",
+      "rust": "extension_runtime_bridge::tests::restores_authority_after_mount_replay_and_revokes_it_during_cleanup"
+    },
+    {
+      "source": "hard remount retires predecessor controls while the same-registry successor stays live",
+      "rust": "extension_runtime_bridge::tests::hard_remount_retires_predecessor_while_same_registry_successor_stays_live"
+    },
+    {
+      "source": "keeps runtime commands across content reloads while expiring review-bound controls",
+      "rust": "extension_runtime_bridge::tests::runtime_commands_survive_content_reload_while_review_controls_expire"
+    },
+    {
+      "source": "retires controls from a replaced registry without letting them drive its successor",
+      "rust": "extension_runtime_bridge::tests::replacing_registry_retires_predecessor_controls_without_driving_successor"
+    },
+    {
+      "source": "freezes invocation selection while navigation reads the latest committed bindings",
+      "rust": "extension_runtime_bridge::tests::invocation_selection_is_frozen_while_navigation_reads_latest_commit"
+    }
+  ],
+  "integrationTests": [
+    "tests::review_app_commits_extension_runtime_authority_across_selection_reload_and_registry_change",
+    "tests::async_navigation_from_a_retired_review_generation_is_discarded"
+  ],
+  "adaptations": [
+    "React layout-effect commits become an owned synchronous ExtensionRuntimeCommit published before native lifecycle callbacks.",
+    "Registry pointer identity becomes a monotonic registry generation because Workdeck isolates extensions in native subprocesses rather than sharing in-process JavaScript closures.",
+    "Retained capabilities hold weak owned generation leases; hard app teardown, registry replacement, and review reload revoke the appropriate scope without keeping an app alive.",
+    "Command execution is declarative in extension API v1. Runtime controls expose the latest enabled command table and produce host-validated ExecuteReviewCommand actions.",
+    "Navigation resolutions carry the latest binding revision and selected file facts; ReviewApp performs the resolved action against its current state after the lease check.",
+    "Rust-owned values replace Object.freeze while preserving invocation-time selection and snapshot immutability."
+  ]
+}

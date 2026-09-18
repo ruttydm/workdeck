@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "captured_with": "bun 1.3.5 importing untouched pinned src/core/run/config.ts",
+  "baselines": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "result": "identical"
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "result": "identical"
+    }
+  ],
+  "expected": {
+    "default": {
+      "enabled": true,
+      "paths": [],
+      "repoPaths": [],
+      "extensionConfigs": {}
+    },
+    "paths": {
+      "enabled": true,
+      "paths": ["~/dev/copy-as.ts"],
+      "repoPaths": ["./tools/policy.ts"],
+      "extensionConfigs": {}
+    },
+    "precedence": {
+      "repoFalse": false,
+      "repoTrue": true,
+      "hardOff": false
+    },
+    "configs": {
+      "copy-as": {
+        "severity": "blocking",
+        "wrap": true,
+        "nested": {
+          "replace": "repo"
+        }
+      },
+      "blame": {
+        "max_age_days": 30
+      }
+    },
+    "notices": [
+      {
+        "key": "extension:repo-config:copy-as",
+        "message": "Repo config overrides settings for extension(s): copy-as"
+      }
+    ],
+    "malformed": [
+      "Expected extensions to contain a TOML table.",
+      "Expected extension to contain per-extension TOML tables.",
+      "Expected [extension.copy-as] to contain a TOML table."
+    ]
+  },
+  "native_adaptation": {
+    "branding": "Hunk config directories and command names become Workdeck names during migration.",
+    "paths": "Rust PathBuf values retain the exact configured strings until discovery resolves them.",
+    "hard_off": "The CLI --no-extensions flag is applied after layered config resolution and cannot be re-enabled by either layer.",
+    "bundled_tier": "The switch controls user-native extensions only; bundled Git, Jujutsu, and Sapling support remains available."
+  },
+  "rust_tests": [
+    "config::tests::extension_configuration_merges_top_level_keys_without_interpreting_nested_values",
+    "config::tests::extension_discovery_paths_retain_user_and_repository_provenance",
+    "config::tests::extension_discovery_paths_ignore_empty_and_non_string_entries",
+    "config::tests::repository_extension_enablement_overrides_user_and_defaults_true",
+    "config::tests::empty_repo_extension_table_does_not_emit_an_override_notice",
+    "config::tests::malformed_extension_sections_are_rejected",
+    "review_cli_option_tests::extension_configuration_flows_from_config_into_review_startup"
+  ]
+}

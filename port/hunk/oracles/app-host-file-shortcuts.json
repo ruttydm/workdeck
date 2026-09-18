@@ -1,0 +1,25 @@
+{
+  "sourcePath": "src/ui/AppHost.interactions.test.tsx",
+  "sourceTest": "file navigation shortcuts jump between visible files outside filter focus",
+  "baselineInterval": {"byteStart":98079,"byteEnd":100094,"lineStart":3330,"lineEnd":3403,"sha256":"28193a3f3aa2655bcef28021a2257ebd8241e525c4a46e5ebec76dc298667804"},
+  "runs": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/main/src/ui/AppHost.interactions.test.tsx:\nThe current testing environment is not configured to support act(...)\n(pass) App interactions > file navigation shortcuts jump between visible files outside filter focus [258.55ms]\n\n 1 pass\n 75 filtered out\n 0 fail\n 6 expect() calls\nRan 1 test across 1 file. [832.00ms]\n"
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/stable/src/ui/AppHost.interactions.test.tsx:\nThe current testing environment is not configured to support act(...)\n(pass) App interactions > file navigation shortcuts jump between visible files outside filter focus [235.78ms]\n\n 1 pass\n 73 filtered out\n 0 fail\n 6 expect() calls\nRan 1 test across 1 file. [646.00ms]\n"
+    }
+  ],
+  "native": {
+    "test": "app_host::tests::file_shortcuts_publish_selection_and_filter_focus_retains_selected_file",
+    "passed": 1,
+    "failed": 0,
+    "filtered": 1130,
+    "seconds": 0.85,
+    "scope": "220x10, two 16-line changed files with line-2 annotations. Ten Down events, next/previous file via period/comma, then Tab and period in filter. Production AppHostController publishes to an in-process host; assertions check actual selected_file_id and hunk snapshots plus visible destination and filter. No live daemon transport or complete cell-frame parity implied."
+  }
+}

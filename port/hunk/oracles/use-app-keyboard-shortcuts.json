@@ -1,0 +1,107 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "path": "src/ui/hooks/useAppKeyboardShortcuts.ts",
+    "baseline": {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "blob": "23327df904a5ba3a0234efc9b92da9610b8500a7",
+      "sha256": "ff3396ed3cdbc2485e0f957c8510fc2ce250ccdcb91b7251930e78fd4922fba9",
+      "bytes": 20985,
+      "lines": 624
+    },
+    "stable": {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "blob": "ac288555c35c5ebf5ff565634f018aada0639a97",
+      "sha256": "47a7f3465de2401f3f8592b769548707673fb53a876d58c62541e8954f662e71",
+      "bytes": 20684,
+      "lines": 620
+    }
+  },
+  "sourceCoverage": [
+    {
+      "lines": [1, 78],
+      "responsibility": "key, focus, modal, command, extension-mode, and callback input surface",
+      "rust": ["crates/workdeck-tui/src/lib.rs", "crates/workdeck-extension-api/src/keys.rs"]
+    },
+    {
+      "lines": [79, 188],
+      "responsibility": "live ownership chain and render-current callback authority",
+      "rust": ["crates/workdeck-tui/src/lib.rs", "crates/workdeck-tui/src/key_routing.rs"]
+    },
+    {
+      "lines": [189, 209],
+      "responsibility": "exclusive key consumption and resolved vertical navigation",
+      "rust": ["crates/workdeck-tui/src/key_routing.rs", "crates/workdeck-tui/src/app_commands.rs"]
+    },
+    {
+      "lines": [210, 257],
+      "responsibility": "menu toggle and agent-skill/help overlay escape precedence",
+      "rust": ["crates/workdeck-tui/src/lib.rs", "crates/workdeck-tui/src/menu.rs"]
+    },
+    {
+      "lines": [258, 329],
+      "responsibility": "save-preference and repository-extension trust modal ownership",
+      "rust": ["crates/workdeck-tui/src/lib.rs", "crates/workdeck-tui/src/view_preference_quit_controller.rs", "crates/workdeck-tui/src/extension_trust_controller.rs"]
+    },
+    {
+      "lines": [330, 424],
+      "responsibility": "extension dialog and theme-selector modal key routing",
+      "rust": ["crates/workdeck-tui/src/lib.rs", "crates/workdeck-tui/src/extension_dialogs.rs", "crates/workdeck-tui/src/theme_selector_controller.rs"]
+    },
+    {
+      "lines": [425, 538],
+      "responsibility": "open-menu navigation and focused filter, note, or extension-pane input ownership",
+      "rust": ["crates/workdeck-tui/src/lib.rs", "crates/workdeck-tui/src/menu.rs"]
+    },
+    {
+      "lines": [539, 581],
+      "responsibility": "interactive file-view and session keyboard-mode routing with host-owned escape",
+      "rust": ["crates/workdeck-tui/src/lib.rs", "crates/workdeck-extension-host/src/file_view_mode.rs", "crates/workdeck-extension-host/src/keyboard_mode_controller.rs"]
+    },
+    {
+      "lines": [582, 624],
+      "responsibility": "shared command dispatch, menu-closing policy, and complete precedence pipeline",
+      "rust": ["crates/workdeck-tui/src/lib.rs", "crates/workdeck-tui/src/app_commands.rs", "crates/workdeck-tui/src/command_keymap.rs"]
+    }
+  ],
+  "nativeTests": [
+    "crates/workdeck-tui/src/key_routing.rs#tests::walks_past_not_mine_until_one_handler_owns_and_consumes_the_key",
+    "crates/workdeck-tui/src/key_routing.rs#tests::focused_stops_the_chain_without_consuming",
+    "crates/workdeck-tui/src/lib.rs#tests::menu_toggle_precedes_filter_and_agent_overlay_but_not_note_or_modal_ownership",
+    "crates/workdeck-tui/src/lib.rs#tests::mounted_filter_focus_suppresses_global_quit_shortcut",
+    "crates/workdeck-tui/src/lib.rs#tests::repository_extension_trust_prompt_owns_keys_and_queues_typed_decisions",
+    "crates/workdeck-tui/src/lib.rs#tests::theme_selector_keyboard_previews_reverts_accepts_and_reopens_on_commit",
+    "crates/workdeck-tui/src/lib.rs#tests::help_modal_owns_backdrop_close_and_bounded_body_scrolling",
+    "crates/workdeck-tui/src/lib.rs#tests::user_note_composer_targets_the_cursor_line_and_saves_inline",
+    "crates/workdeck-tui/src/view_preference_quit_controller.rs#tests::saves_preferences_closes_prompt_advances_baseline_and_delays_quit",
+    "crates/workdeck-tui/src/view_preference_quit_controller.rs#tests::discards_without_writing_and_quits_immediately",
+    "crates/workdeck-tui/src/view_preference_quit_controller.rs#tests::never_ask_writes_only_prompt_policy_closes_prompt_and_delays_quit",
+    "crates/workdeck-tui/src/view_preference_quit_controller.rs#tests::cancels_the_prompt_without_quitting_or_clearing_dirty_state",
+    "examples/tests/app_host_extension_dialogs.rs#confirm_dialog_is_attributed_modal_owns_quit_and_enter_resolves_true",
+    "examples/tests/app_host_extension_dialogs.rs#select_dialog_resolves_keyboard_highlight_and_exact_clicked_row",
+    "examples/tests/app_host_extension_dialogs.rs#input_dialog_owns_typing_and_mouse_submit_returns_exact_text",
+    "examples/tests/key_routing.rs#menu_arrows_move_selection_without_scrolling_the_review_behind_it",
+    "examples/tests/key_routing.rs#theme_selector_owns_review_vertical_keys_without_scrolling_the_review",
+    "examples/tests/key_routing.rs#active_file_view_mode_consumes_handled_keys_and_passes_review_scrolling",
+    "examples/tests/key_routing.rs#focused_extension_pane_input_receives_typing_before_all_commands",
+    "examples/tests/key_routing.rs#focused_extension_pane_input_edits_unicode_at_the_host_cursor",
+    "examples/tests/key_routing.rs#focused_extension_pane_input_swallows_modified_shortcuts_and_job_control",
+    "examples/tests/keyboard_modes.rs#routes_handled_and_passed_keys_after_modal_and_filter_owners",
+    "examples/tests/keyboard_modes.rs#open_menu_accelerators_precede_both_extension_mode_layers",
+    "examples/tests/keyboard_modes.rs#two_escapes_in_one_input_flush_update_ownership_eagerly",
+    "examples/tests/keybindings.rs#tab_leaving_the_focused_filter_emits_toggle_focus_area",
+    "examples/tests/keybindings.rs#quit_command_event_precedes_the_single_shutdown_event"
+  ],
+  "baselineDelta": [
+    {
+      "commit": "39217ae09b5935fb1a6dd9be42c3042e1ede972a",
+      "behavior": "a live extension-pane editor owns ordinary and modified keys before file-view modes, session modes, commands, and job control",
+      "rustTest": "examples/tests/key_routing.rs#focused_extension_pane_input_swallows_modified_shortcuts_and_job_control"
+    }
+  ],
+  "adaptations": [
+    "Crossterm input is delivered to one synchronous Ratatui owner, so returning from ReviewApp::handle_key is the native consume-and-stop-propagation boundary.",
+    "Live state is read directly from ReviewApp and its extension runtime mutex on every event; React callback refs are unnecessary but their no-stale-capture semantics are preserved.",
+    "Workdeck additionally recognizes the terminal Menu key and Alt+E as menu toggles. They use the same precedence as Hunk's F10 and remain suppressed while a note draft or modal dialog owns input."
+  ]
+}

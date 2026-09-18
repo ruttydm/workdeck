@@ -1,0 +1,7 @@
+id = "startup-lifecycle"
+name = "Startup lifecycle fixture"
+version = "0.1.0"
+api_version = 1
+executable = "workdeck-example-startup-lifecycle-extension"
+capabilities = ["configuration", "themes", "events"]
+description = "Compiled fixture for staged startup and retirement parity"

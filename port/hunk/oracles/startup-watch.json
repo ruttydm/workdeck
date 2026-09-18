@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "runtime": {
+    "name": "Bun",
+    "version": "1.3.5",
+    "execution": "disposable pinned Hunk worktrees"
+  },
+  "command": [
+    "bun",
+    "test",
+    "src/app/startup.test.ts"
+  ],
+  "baselines": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "source_blob": "79c05c50e63fa4f533fbb1c7b3c3868913750386",
+      "source_bytes": 20884,
+      "mapped_source_interval": {
+        "byte_start": 16030,
+        "byte_end": 16470,
+        "line_start": 466,
+        "line_end": 478
+      },
+      "test_blob": "2a346bcb5cbebd34376663bb79c832f9d25fc44f",
+      "test_bytes": 26836,
+      "mapped_test_interval": {
+        "byte_start": 17285,
+        "byte_end": 18865,
+        "line_start": 522,
+        "line_end": 570
+      },
+      "suite_passed": 25,
+      "suite_failed": 0,
+      "suite_expect_calls": 58,
+      "mapped_tests": 2
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "source_blob": "672a2f7966498e616cddab940ca07757b1e393c2",
+      "source_bytes": 13344,
+      "test_blob": "6084991177e681b6e28b3dc328a3d0aa58ea12c2",
+      "test_bytes": 20777,
+      "suite_passed": 20,
+      "suite_failed": 0,
+      "suite_expect_calls": 47,
+      "stdin_watch_test_present": true,
+      "bun_deadlock_test_present": false
+    }
+  ],
+  "expected": {
+    "startup_order": [
+      "resolve-configured-input",
+      "assert-native-watch-runtime",
+      "validate-reloadability",
+      "attach-controlling-terminal",
+      "load-extensions",
+      "load-changeset"
+    ],
+    "stdin_patch_reloadable": false,
+    "stdin_agent_context_reloadable": false,
+    "patch_file_reloadable": true,
+    "vcs_input_reloadable": true,
+    "native_runtime_requires_external_upgrade": false,
+    "native_runtime_has_bun_deadlock": false
+  },
+  "test_mapping": [
+    {
+      "source_test": "rejects watch mode before affected Bun runtimes can deadlock",
+      "rust_tests": [
+        "watch_runtime::tests::captures_affected_and_malformed_legacy_versions_without_gating_native_rust",
+        "watch_runtime::tests::native_runtime_requires_no_external_upgrade_recovery",
+        "review_cli_option_tests::unreloadable_watch_inputs_are_rejected_before_terminal_or_extension_startup"
+      ],
+      "replacement": "Rust native watcher has no Bun runtime or JavaScript watcher deadlock"
+    },
+    {
+      "source_test": "rejects watch mode for stdin-backed patch inputs",
+      "rust_tests": [
+        "review_cli_option_tests::unreloadable_watch_inputs_are_rejected_before_terminal_or_extension_startup"
+      ]
+    }
+  ]
+}

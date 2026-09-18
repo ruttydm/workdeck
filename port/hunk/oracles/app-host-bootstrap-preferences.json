@@ -1,0 +1,47 @@
+{
+  "sourcePath": "src/ui/AppHost.interactions.test.tsx",
+  "baselineInterval": {
+    "byteStart": 46759,
+    "byteEnd": 48530,
+    "lineStart": 1536,
+    "lineEnd": 1591,
+    "sha256": "cb9697da379eccaec0d4d9999fca09d1e0e4d2c5b3629363020741ff3bc04e7f"
+  },
+  "sourceTests": [
+    "bootstrap preferences initialize the visible view state"
+  ],
+  "runs": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/main/src/ui/AppHost.interactions.test.tsx:\n(pass) App interactions > bootstrap preferences initialize the visible view state [150.37ms]\n\n 1 pass\n 75 filtered out\n 0 fail\n 6 expect() calls\nRan 1 test across 1 file. [780.00ms]\n"
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/stable/src/ui/AppHost.interactions.test.tsx:\n(pass) App interactions > bootstrap preferences initialize the visible view state [240.13ms]\n\n 1 pass\n 73 filtered out\n 0 fail\n 6 expect() calls\nRan 1 test across 1 file. [858.00ms]\n"
+    }
+  ],
+  "native": {
+    "test": "tests::pinned_bootstrap_preferences_initialize_visible_review_state",
+    "terminal": [
+      140,
+      20
+    ],
+    "passed": 1,
+    "failed": 0,
+    "seconds": 0.75,
+    "output": "   Compiling workdeck-tui v0.1.0 (/Users/rutger/Projects/workdeck/crates/workdeck-tui)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 15.92s\n     Running unittests src/lib.rs (target/debug/deps/workdeck_tui-e7b7e0e001fe9137)\n\nrunning 1 test\ntest tests::pinned_bootstrap_preferences_initialize_visible_review_state ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1165 filtered out; finished in 0.75s\n\n"
+  },
+  "validation": {
+    "command": "cargo test -p workdeck-tui --lib -- --quiet",
+    "passed": 1166,
+    "failed": 0,
+    "seconds": 7.88,
+    "clippyCommand": "cargo clippy -p workdeck-tui --all-targets -- -D warnings",
+    "clippyExitCode": 0,
+    "formatCommand": "cargo fmt --all -- --check",
+    "formatExitCode": 0
+  },
+  "scope": "Maps only this complete source test and its six assertions using the pinned content and annotation, split layout, github-light-default theme, hidden line numbers and hunk headers, enabled wrapping and agent notes. Also asserts the anchored source line is actually visible before comparing positions. Does not establish configuration migration, persistence, CLI loading, full theme cells or complete App behavior."
+}

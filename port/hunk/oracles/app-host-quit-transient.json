@@ -1,0 +1,31 @@
+{
+  "sourcePath": "src/ui/AppHost.interactions.test.tsx",
+  "sourceTest": "transient extension sessions never offer to save practice view preferences",
+  "baselineInterval": {
+    "byteStart": 118487,
+    "byteEnd": 119471,
+    "lineStart": 3984,
+    "lineEnd": 4014,
+    "sha256": "51f1c58dd55bacf9473e82eae2af75a19dbe9aeb0b642e76e32a76c4c23b0432"
+  },
+  "runs": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/main/src/ui/AppHost.interactions.test.tsx:\n(pass) App interactions > transient extension sessions never offer to save practice view preferences [203.42ms]\n\n 1 pass\n 75 filtered out\n 0 fail\n 2 expect() calls\nRan 1 test across 1 file. [787.00ms]\n"
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/stable/src/ui/AppHost.interactions.test.tsx:\n(pass) App interactions > transient extension sessions never offer to save practice view preferences [193.09ms]\n\n 1 pass\n 73 filtered out\n 0 fail\n 2 expect() calls\nRan 1 test across 1 file. [615.00ms]\n"
+    }
+  ],
+  "native": {
+    "test": "tests::transient_extension_policy_skips_save_after_wrap_change",
+    "passed": 1,
+    "failed": 0,
+    "filtered": 1141,
+    "seconds": 0.79
+  },
+  "scope": "180x24. Construct native HandshakeResponse SessionOptions registration with Transient policy; resolve through production uses_transient_view_preferences (also used by CLI bootstrap); initialize reviewer, w/q without intervening render. Verify wrapping actually changes, no save prompt, one immediate consumable quit request, no configuration creation. Like the source's injected registry, this injects loaded extension metadata; does not execute a subprocess or verify the entire CLI bootstrap, process teardown, or full cell-buffer equality."
+}

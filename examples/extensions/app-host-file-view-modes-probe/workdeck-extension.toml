@@ -1,0 +1,7 @@
+id = "app-host-file-view-modes-probe"
+name = "AppHost file-view modes parity probe"
+version = "0.1.0"
+api_version = 1
+executable = "bin/workdeck-example-app-host-file-view-modes-probe-extension"
+capabilities = ["commands", "file-views", "dialogs", "notifications"]
+description = "Compiled fixture for interactive file-view ownership, lifecycle, handoff, reload, and failure parity"

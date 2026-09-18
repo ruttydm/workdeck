@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "path": "src/ui/AppHost.watch.test.tsx",
+    "baseline": {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "blob": "1fd75a50d70a834677f13fc4972bc184d8978ad4",
+      "sha256": "f85c13a238d89c609c3486a4221e409f30627a5a29cb5402d1cdbd41c8e6ab3a",
+      "bytes": 7545,
+      "lines": 219
+    },
+    "stable": {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "blob": "1fd75a50d70a834677f13fc4972bc184d8978ad4",
+      "sha256": "f85c13a238d89c609c3486a4221e409f30627a5a29cb5402d1cdbd41c8e6ab3a",
+      "bytes": 7545,
+      "lines": 219
+    }
+  },
+  "oracleRuns": {
+    "baseline": {
+      "runtime": "bun 1.3.14",
+      "command": "bun test src/ui/AppHost.watch.test.tsx",
+      "passed": 3,
+      "failed": 0,
+      "expectCalls": 17,
+      "elapsedMilliseconds": 760
+    },
+    "stable": {
+      "runtime": "bun 1.3.5",
+      "command": "bun test src/ui/AppHost.watch.test.tsx",
+      "passed": 3,
+      "failed": 0,
+      "expectCalls": 17,
+      "elapsedMilliseconds": 726
+    }
+  },
+  "testMappings": [
+    {
+      "upstream": "an observer event reloads after the controlled debounce and preserves the resolved theme",
+      "rust": [
+        "watched_input::tests::event_changes_debounce_and_refresh_exactly_once",
+        "tests::mounted_watch_reload_preserves_filter_theme_and_refreshes_agent_note"
+      ]
+    },
+    {
+      "upstream": "a sidecar event refreshes notes through the canonical reload pipeline",
+      "rust": [
+        "workdeck_cli::tests::dynamic_loader_refreshes_a_changed_agent_sidecar_on_the_next_load",
+        "tests::mounted_watch_reload_preserves_filter_theme_and_refreshes_agent_note"
+      ]
+    },
+    {
+      "upstream": "replacement and unmount dispose observers once while late events remain inert",
+      "rust": "watched_input::tests::successful_refresh_replaces_source_once_and_makes_late_callbacks_inert"
+    }
+  ],
+  "adaptations": [
+    "The deterministic Rust watcher advances from 199 to 200 milliseconds and performs exactly one signature-guarded refresh.",
+    "A Ratatui TestBackend frame verifies refreshed diff content and agent rationale while filter focus, filter text, and the resolved light theme survive the watch reload.",
+    "The event loop replaces the complete watcher driver after a committed refresh. Dropping the old receiver makes retained callbacks inert and closes each observer exactly once."
+  ]
+}

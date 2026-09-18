@@ -1,0 +1,131 @@
+{
+  "schemaVersion": 1,
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "source": {
+    "path": "src/ui/diff/CodeCellView.tsx",
+    "baselineBlob": "0fd347a76d4c8a85bdcbd4cee022c9315e3a5463",
+    "baselineSha256": "2a572df43c0e8b416b592d157fd65c2288a78a0d3aa78a9f403088386f5bd957",
+    "baselineBytes": 40078,
+    "baselineLines": 1366,
+    "stablePresent": false
+  },
+  "test": {
+    "path": "src/ui/diff/CodeCellView.test.tsx",
+    "baselineBlob": "a4a9f2a8f7e35d35fba5e82d18cbe99ff42473f7",
+    "baselineSha256": "2825aa4d33b7097fc4faaf99eab5712930cefc0cf0053520e113337e2d7283a1",
+    "baselineBytes": 9134,
+    "baselineLines": 274,
+    "stablePresent": false
+  },
+  "destinations": [
+    {
+      "path": "crates/workdeck-tui/src/code_cell_view.rs",
+      "sha256": "bd45e11c9e47fc5b4a99ab575b926f0b20c39e57524eb0072fa0508b827e458f"
+    },
+    {
+      "path": "crates/workdeck-tui/src/line_highlight_paint.rs",
+      "sha256": "4ce8c0bb2c0156e2501e57c1993969553202e600607cff37f714cb0351dafe20"
+    },
+    {
+      "path": "crates/workdeck-tui/src/lib.rs",
+      "sha256": "96024322f4120d8109223b196e1650931cde3860bc281cf90356844593689b24"
+    }
+  ],
+  "baselineOracle": {
+    "runtime": "bun 1.3.5",
+    "command": "bun test src/ui/diff/CodeCellView.test.tsx",
+    "passed": 5,
+    "failed": 0,
+    "expectations": 38
+  },
+  "stableOracle": {
+    "sourcePresent": false,
+    "reason": "The pinned stable tree predates the baseline's focused CodeCellView extraction; stable-only behavior remains covered by its owning older renderer and the enumerated stable-fix queue."
+  },
+  "projectionVectors": {
+    "partialCopy": {
+      "nowrapText": "▌+ abcd     ",
+      "wrappedText": "▌+ abcd     ",
+      "runs": [
+        { "text": "▌", "fg": "#2ea043", "bg": "#322b19" },
+        { "text": "+ ", "fg": "#2ea043", "bg": "#2f2b16" },
+        { "text": "a", "fg": "#e6edf3", "bg": "#12251d" },
+        { "text": "bc", "fg": "#e6edf3", "bg": "#2f2b16" },
+        { "text": "d     ", "fg": "#e6edf3", "bg": "#12251d" }
+      ]
+    },
+    "wideCombining": {
+      "nowrapText": "▌+ á日b",
+      "wrappedText": ["▌+ á日b", "▌  c   "],
+      "highlightBackground": "#454017",
+      "sourceRange": [1, 3]
+    },
+    "dimCursor": {
+      "text": "▌+ dimtext  ",
+      "foreground": "#9ba19f",
+      "background": "#cfd6ce",
+      "minimumContrast": 1.6
+    },
+    "dimCopySelection": {
+      "ordinary": { "text": "d", "fg": "#abb1ae", "bg": "#ecf3e8" },
+      "selected": { "text": "imt", "fg": "#a4acb2", "bg": "#dfeaf0" },
+      "minimumContrast": 1.6
+    },
+    "transparentCursor": {
+      "splitText": "▌  shared   ▌  shared  │",
+      "stackText": "▌  shared  │",
+      "contentBackground": "#2e2f31",
+      "noteGuideForeground": "#bb8009"
+    }
+  },
+  "nativeAdaptation": {
+    "renderingAuthority": "Final renderer-neutral colored runs are projected directly into Ratatui Line values; Ratatui's cell buffer is authoritative.",
+    "wideGlyphs": "OpenTUI capture associates the highlighted wide-glyph lead-cell style with an adjacent zero-width combining mark. The native test verifies identical text geometry and the style on Ratatui's wide-glyph lead cell; Ratatui reserves its continuation cell.",
+    "caching": "OpenTUI parsed-color and spacer object caches become owned immutable Rust colors and cheap deterministic spacer plans; derived theme colors retain the bounded caches in row_style.rs.",
+    "paintOrder": "Extension marks transform immutable source spans first. Cursor or copy paint then supplies the final background, after which deferred dim foregrounds resolve against that exact background."
+  },
+  "sourceCoverage": [
+    { "lines": [1, 106], "bytes": [0, 3525], "destination": "imports, highlight vocabulary, parsed-color adaptation, direct styled-run conversion" },
+    { "lines": [107, 268], "bytes": [3525, 8028], "destination": "fixed and plain inline chunks, split and stack fast paths" },
+    { "lines": [269, 511], "bytes": [8028, 16037], "destination": "wrapped compatibility, exact span slicing, inclusive partial selection, padding, and deferred foreground resolution" },
+    { "lines": [512, 602], "bytes": [16037, 18849], "destination": "wrapped split and stack cell plans plus highlight palette transforms" },
+    { "lines": [603, 916], "bytes": [18849, 27722], "destination": "split and stack prefix, gutter, content, nowrap, and wrapped line paint" },
+    { "lines": [917, 990], "bytes": [27722, 30087], "destination": "side-addressed geometry-neutral extension highlight application" },
+    { "lines": [991, 1147], "bytes": [30087, 33869], "destination": "nowrap split and stack row composition with note guides" },
+    { "lines": [1148, 1358], "bytes": [33869, 39784], "destination": "wrapped multi-cell line composition, missing-side padding, trailing columns, and spacers" },
+    { "lines": [1359, 1366], "bytes": [39784, 40078], "destination": "public native code-cell paint boundary" }
+  ],
+  "testMapping": [
+    {
+      "lines": [1, 117],
+      "bytes": [0, 3743],
+      "sourceTest": "keeps partial copy selections exact in nowrap and wrapped stack cells",
+      "rustTests": ["code_cell_view::tests::partial_copy_ranges_match_the_frozen_nowrap_and_wrapped_oracle"]
+    },
+    {
+      "lines": [118, 148],
+      "bytes": [3743, 4794],
+      "sourceTest": "keeps extension highlights geometry-neutral for wide and combining text",
+      "rustTests": ["code_cell_view::tests::extension_highlights_are_geometry_neutral_for_wide_and_combining_text"]
+    },
+    {
+      "lines": [149, 179],
+      "bytes": [4794, 5835],
+      "sourceTest": "resolves dim foregrounds against the final cursor background",
+      "rustTests": ["code_cell_view::tests::dim_foregrounds_resolve_against_the_final_cursor_background"]
+    },
+    {
+      "lines": [180, 228],
+      "bytes": [5835, 7664],
+      "sourceTest": "resolves selected and unselected pieces of one dim span against their own backgrounds",
+      "rustTests": ["code_cell_view::tests::dim_selection_pieces_resolve_against_their_own_backgrounds"]
+    },
+    {
+      "lines": [229, 274],
+      "bytes": [7664, 9134],
+      "sourceTest": "paints transparent-theme cursors while retaining split and stack note guides",
+      "rustTests": ["code_cell_view::tests::transparent_cursor_paint_keeps_split_and_stack_note_guides"]
+    }
+  ]
+}

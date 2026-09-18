@@ -1,0 +1,58 @@
+{
+  "sourcePath": "src/ui/AppHost.interactions.test.tsx",
+  "baselineInterval": {
+    "byteStart": 43031,
+    "byteEnd": 45127,
+    "lineStart": 1413,
+    "lineEnd": 1480,
+    "sha256": "990f1b4bda7e3815f066f1cb3c959346bf87c49cdb78d3d91c74687730ccd40b"
+  },
+  "sourceTests": [
+    "shift plus mouse wheel does not move the vertical review position",
+    "shift plus native horizontal wheel events do not move the vertical review position"
+  ],
+  "runs": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/main/src/ui/AppHost.interactions.test.tsx:\nThe current testing environment is not configured to support act(...)\n(pass) App interactions > shift plus mouse wheel does not move the vertical review position [274.07ms]\nThe current testing environment is not configured to support act(...)\n(pass) App interactions > shift plus native horizontal wheel events do not move the vertical review position [43.26ms]\n\n 2 pass\n 74 filtered out\n 0 fail\n 8 expect() calls\nRan 2 tests across 1 file. [832.00ms]\n"
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/stable/src/ui/AppHost.interactions.test.tsx:\nThe current testing environment is not configured to support act(...)\n(pass) App interactions > shift plus mouse wheel does not move the vertical review position [254.07ms]\nThe current testing environment is not configured to support act(...)\n(pass) App interactions > shift plus native horizontal wheel events do not move the vertical review position [43.50ms]\n\n 2 pass\n 72 filtered out\n 0 fail\n 8 expect() calls\nRan 2 tests across 1 file. [812.00ms]\n"
+    }
+  ],
+  "native": {
+    "test": "tests::shifted_wheel_preserves_the_pinned_first_visible_added_line",
+    "terminal": [
+      92,
+      20
+    ],
+    "mouse": [
+      60,
+      10
+    ],
+    "maximumEvents": 8,
+    "modifiers": "Shift",
+    "directions": [
+      "down",
+      "right"
+    ],
+    "passed": 1,
+    "failed": 0,
+    "seconds": 0.83,
+    "output": "   Compiling workdeck-tui v0.1.0 (/Users/rutger/Projects/workdeck/crates/workdeck-tui)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 15.26s\n     Running unittests src/lib.rs (target/debug/deps/workdeck_tui-e7b7e0e001fe9137)\n\nrunning 1 test\ntest tests::shifted_wheel_preserves_the_pinned_first_visible_added_line ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1163 filtered out; finished in 0.83s\n\n"
+  },
+  "validation": {
+    "command": "cargo test -p workdeck-tui --lib -- --quiet",
+    "passed": 1164,
+    "failed": 0,
+    "seconds": 8.17,
+    "clippyCommand": "cargo clippy -p workdeck-tui --all-targets -- -D warnings",
+    "clippyExitCode": 0,
+    "formatCommand": "cargo fmt --all -- --check",
+    "formatExitCode": 0
+  },
+  "scope": "Maps exactly these two complete tests and their eight assertions, using the pinned 18-line fixture, visible added-line gutter, event bounds and early-exit condition. Does not establish complete wheel, App, DiffPane, cross-platform or performance parity."
+}

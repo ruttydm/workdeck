@@ -1,0 +1,32 @@
+{
+  "source": "benchmarks/interaction-latency.ts",
+  "runtime": "Bun 1.3.14 darwin-arm64",
+  "host": "macOS 26.5.2 arm64",
+  "environment": {
+    "HUNK_MCP_DISABLE": "1",
+    "HUNK_DISABLE_UPDATE_NOTICE": "1"
+  },
+  "purpose": "Single sequential direct-workload runs from both pinned checkouts. Frozen metric/count evidence, not repeated same-host performance acceptance or native memory parity.",
+  "viewport": {
+    "width": 240,
+    "height": 28
+  },
+  "counts": {
+    "navigation_presses": 6,
+    "scroll_ticks": 8,
+    "files": 180,
+    "lines_per_file": 120
+  },
+  "runs": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "combinedOutput": "METRIC first_frame_ms=5.35\nMETRIC after_first_frame_rss_bytes=300515328\nMETRIC after_first_frame_heap_used_bytes=40637426\nMETRIC hunk_nav_press_median_ms=45.68\nMETRIC hunk_nav_press_p95_ms=115.34\nMETRIC after_navigation_rss_bytes=472662016\nMETRIC after_navigation_heap_used_bytes=103688972\nMETRIC scroll_tick_median_ms=1.38\nMETRIC scroll_tick_p95_ms=25.23\nMETRIC navigation_presses=6\nMETRIC scroll_ticks=8\nMETRIC files=180\nMETRIC lines_per_file=120\n"
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "combinedOutput": "METRIC first_frame_ms=4.64\nMETRIC after_first_frame_rss_bytes=268943360\nMETRIC after_first_frame_heap_used_bytes=39738784\nMETRIC hunk_nav_press_median_ms=44.18\nMETRIC hunk_nav_press_p95_ms=122.90\nMETRIC after_navigation_rss_bytes=437747712\nMETRIC after_navigation_heap_used_bytes=103119923\nMETRIC scroll_tick_median_ms=1.27\nMETRIC scroll_tick_p95_ms=25.12\nMETRIC navigation_presses=6\nMETRIC scroll_ticks=8\nMETRIC files=180\nMETRIC lines_per_file=120\n"
+    }
+  ]
+}

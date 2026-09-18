@@ -1,0 +1,43 @@
+# Manual-only native installation compatibility workflow.
+# It never runs on pull requests and does not grant release or write access.
+name: Optional native install compatibility
+
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: Optional scenario id (empty runs the full native suite)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: install-vm-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  install-vm:
+    name: Native install compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Run selected native installation scenario
+        env:
+          INSTALL_VM_SCENARIO: ${{ inputs.scenario }}
+        run: |
+          if [ -n "$INSTALL_VM_SCENARIO" ]; then
+            cargo test --locked -p workdeck-cli install:: -- "$INSTALL_VM_SCENARIO"
+          else
+            cargo test --locked -p workdeck-cli install::
+          fi
+      - name: Run installer oracle and retain structured results
+        if: always()
+        run: cargo test --locked -p xtask install_oracle -- --nocapture

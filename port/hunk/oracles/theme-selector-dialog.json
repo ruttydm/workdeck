@@ -1,0 +1,187 @@
+{
+  "schemaVersion": 1,
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "source": {
+    "path": "src/ui/components/chrome/ThemeSelectorDialog.tsx",
+    "baselineAndStableBlob": "f881315024b48f465e13f015c3041bcc3810c06e",
+    "baselineAndStableSha256": "2550381ba9f50ba370bc499e685e7a15889ab4a59b75d050880f638178bf877d",
+    "bytes": 7088,
+    "lines": 209
+  },
+  "stableFix": {
+    "commit": "e76dbcc8acc2d17ba0bd0340b1e1b4102c736985",
+    "subject": "fix(ui): stabilize rapid theme previews (#893)",
+    "result": "The pinned main and stable trees contain the same fixed ThemeSelectorDialog blob; render-time window synchronization and exact rapid-selection tests are retained in Rust."
+  },
+  "destinations": [
+    {
+      "path": "crates/workdeck-tui/src/theme_selector_dialog.rs",
+      "sha256": "af5246ef4e8b04341170d0e4a44ef08b1b66222caaffb6cc7c105fa49a26fa64"
+    },
+    {
+      "path": "crates/workdeck-tui/src/lib.rs",
+      "sha256": "ab988e2b2d46a8354bd1a92312b8f1d10116d9f83f7df7372ea0867f0f817257"
+    },
+    {
+      "path": "crates/workdeck-cli/src/main.rs",
+      "sha256": "1d6ab0e3614697f8697012ca095a2220d44eea7891a272331a81408e8669a470"
+    },
+    {
+      "path": "crates/workdeck-tui/src/modal_frame.rs",
+      "sha256": "05937303ca91cfa76cd6cb518a3fb9ec79fc6832286eb5756875467481fccb18"
+    },
+    {
+      "path": "crates/workdeck-tui/src/list_geometry.rs",
+      "sha256": "4b3bfed805a329811372db42e634461dcbe8c53b33b75a414cf42fd8b3463158"
+    },
+    {
+      "path": "crates/workdeck-tui/src/text.rs",
+      "sha256": "6b69a9309ccde490ff1fd4dbbff39c350d5174c6a624ccebbc80f789731dc23d"
+    },
+    {
+      "path": "crates/workdeck-tui/src/theme.rs",
+      "sha256": "7cd003505c6eca2ac818d15e33aca333b7e77b3e527b2172966eed9daa0fb976"
+    }
+  ],
+  "baselineAndStableApplicationOracle": {
+    "runtime": "bun 1.3.5",
+    "commands": [
+      "bun test src/ui/AppHost.interactions.test.tsx -t theme selector",
+      "bun test src/ui/AppHost.keybindings.test.tsx -t theme selector",
+      "bun test src/ui/AppHost.key-routing.test.tsx -t theme selector"
+    ],
+    "baseline": {
+      "passed": 7,
+      "failed": 0,
+      "assertions": 27,
+      "interactionFilteredOut": 71,
+      "keybindingFilteredOut": 10,
+      "routingFilteredOut": 3
+    },
+    "stable": {
+      "passed": 7,
+      "failed": 0,
+      "assertions": 27,
+      "interactionFilteredOut": 69,
+      "keybindingFilteredOut": 10,
+      "routingFilteredOut": 2
+    },
+    "tests": [
+      "App interactions > theme selector waits for mouse hover to settle before previewing",
+      "App interactions > theme selector mouse wheel scrolls the window without changing the preview",
+      "App interactions > theme selector reopens on the active theme",
+      "App interactions > theme selector Escape reverts previews",
+      "App interactions > custom theme stays active in the theme selector when bootstrap provides a custom palette",
+      "user keybindings > theme selector honors configured vertical review bindings",
+      "UI key routing with a focused scroll box > the theme selector owns vertical review keys instead of scrolling the stream"
+    ]
+  },
+  "directOracle": {
+    "runtime": "bun 1.3.5",
+    "temporaryTest": "src/ui/components/chrome/ThemeSelectorDialog.oracle.test.tsx",
+    "temporarySourceCommitted": false,
+    "eachPin": {
+      "passed": 4,
+      "failed": 0,
+      "assertions": 9
+    },
+    "frames": [
+      {
+        "terminal": { "width": 90, "height": 24 },
+        "requestedDialog": { "width": 82, "height": 20 },
+        "frame": { "left": 4, "top": 2, "width": 82, "height": 20 },
+        "selectedIndex": 10,
+        "visibleRows": 13,
+        "windowStart": 4,
+        "visibleIndexes": [4, 16],
+        "remainingItems": 3,
+        "baselineStableAndRustSha256": "a6596ee84b8aebacbd91ac04dfb46b0e3cda51c6be11685f281b8e860970cdef"
+      },
+      {
+        "terminal": { "width": 50, "height": 10 },
+        "requestedDialog": { "width": 56, "height": 12 },
+        "clampedFrame": { "left": 1, "top": 1, "width": 48, "height": 8 },
+        "selectedIndex": 10,
+        "visibleRows": 5,
+        "windowStart": 8,
+        "overflow": "selected item clears the bottom border while the next fixed row remains visible below the frame",
+        "baselineStableAndRustSha256": "9debc8afb568ecfa46599dd8c9d7965407148c6c938b2ef5a244ad8c47ac312b"
+      },
+      {
+        "terminal": { "width": 90, "height": 24 },
+        "operation": "one wheel-down step",
+        "selectedIndex": 10,
+        "windowStart": 5,
+        "remainingItems": 2,
+        "baselineStableAndRustSha256": "63dbf47361362528c735e9ab0d918a8d114cbe6300b0f19991df7c57f00ea508"
+      }
+    ],
+    "pointerAssertions": [
+      "190 milliseconds of dwell does not preview and 220 milliseconds previews exactly the hovered index",
+      "moving then clicking the next row accepts it immediately and cancels its pending preview",
+      "a later backdrop mouse-up closes exactly once"
+    ]
+  },
+  "sourceCoverage": [
+    [[1, 6], [0, 315], "mouse, state, list-window, terminal-text, theme, and shared-modal dependencies"],
+    [[7, 15], [315, 471], "complete item contract and 200 millisecond hover threshold"],
+    [[16, 49], [471, 1457], "window identity, idempotent synchronization, bounds clamping, and selected-row reveal"],
+    [[50, 70], [1457, 1909], "complete selector props and accept, close, and preview callback contract"],
+    [[71, 96], [1909, 3106], "responsive dimensions, body budget, centered initial window, render-time synchronization, and rapid-repeat stability"],
+    [[97, 123], [3106, 3922], "pending dwell cancellation, delayed preview callback, dependency invalidation, and unmount cleanup"],
+    [[124, 129], [3922, 4138], "visible slice plus fixed marker, description, and computed label widths"],
+    [[130, 170], [4138, 5501], "shared modal composition and independently bounded wheel-up or wheel-down window movement"],
+    [[171, 174], [5501, 5707], "fitted keyboard and pointer help row plus fixed spacer"],
+    [[175, 199], [5707, 6788], "selected and active markers, palettes, complete row hit boxes, hover dwell, propagation stop, immediate acceptance, and fitted columns"],
+    [[200, 209], [6788, 7088], "conditional remaining-item footer with fitted count"]
+  ],
+  "testMappings": [
+    {
+      "hunk": "App interactions > theme selector waits for mouse hover to settle before previewing",
+      "rust": "tests::theme_selector_pointer_dwell_wheel_click_and_backdrop_follow_source_timing"
+    },
+    {
+      "hunk": "App interactions > theme selector mouse wheel scrolls the window without changing the preview",
+      "rust": [
+        "theme_selector_dialog::tests::one_wheel_step_changes_only_the_window_and_matches_the_oracle",
+        "tests::theme_selector_pointer_dwell_wheel_click_and_backdrop_follow_source_timing"
+      ]
+    },
+    {
+      "hunk": "App interactions > theme selector reopens on the active theme",
+      "rust": "tests::theme_selector_keyboard_previews_reverts_accepts_and_reopens_on_commit"
+    },
+    {
+      "hunk": "App interactions > theme selector Escape reverts previews",
+      "rust": "tests::theme_selector_keyboard_previews_reverts_accepts_and_reopens_on_commit"
+    },
+    {
+      "hunk": "App interactions > custom theme stays active in the theme selector when bootstrap provides a custom palette",
+      "rust": "tests::custom_theme_catalog_and_palette_remain_active_in_the_selector"
+    },
+    {
+      "hunk": "user keybindings > theme selector honors configured vertical review bindings",
+      "rust": "tests::configured_vertical_review_keys_move_the_open_theme_selector"
+    },
+    {
+      "hunk": "UI key routing with a focused scroll box > the theme selector owns vertical review keys instead of scrolling the stream",
+      "rust": "tests::theme_selector_keyboard_previews_reverts_accepts_and_reopens_on_commit"
+    }
+  ],
+  "additionalRustTests": [
+    "theme_selector_dialog::tests::window_state_centers_once_preserves_scroll_and_reveals_selection",
+    "theme_selector_dialog::tests::roomy_frame_matches_the_frozen_opentui_cells_and_geometry",
+    "theme_selector_dialog::tests::narrow_frame_preserves_flexed_body_and_terminal_overflow",
+    "theme_selector_dialog::tests::pointer_hits_cover_each_complete_visible_row",
+    "tests::theme_cursor_updates_are_idempotent",
+    "tests::stale_rapid_theme_previews_cannot_replace_the_latest"
+  ],
+  "nativeAdaptation": {
+    "rendering": "Ratatui reproduces all three frozen OpenTUI cell frames byte-for-byte, including clamped fixed-row overflow and transparent footer spaces over the border.",
+    "controller": "The prior immediate cycle action is replaced by a true modal with transient preview, committed identity, rollback, acceptance notice, and reopening on the commit.",
+    "timing": "A monotonic deadline implements the 200 millisecond pointer dwell and validates catalog, selection, geometry, and hover identity before applying it.",
+    "input": "The selector owns all keys, uses configured vertical review bindings, wraps arrow or Tab movement, scrolls its list window without previewing, and supports row, close-affordance, and backdrop mouse-up.",
+    "catalog": "The CLI retains configured and extension-provided custom themes in ReviewOptions so selector labels, identities, and palettes stay live."
+  }
+}

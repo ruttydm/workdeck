@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "runtime": "Bun 1.3.14",
+  "captured_at": "2026-09-07",
+  "source": {
+    "path": "test/pty/extensions-integration.test.ts",
+    "baseline": {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "blob": "ac44678327708b058b1ebcdffdf15a465c229760",
+      "sha256": "45ea02c3a92da25a486828242b8c36513ea62f46c962d4e7016911104a085cf6",
+      "bytes": 40655,
+      "lines": 1109
+    },
+    "stable": {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "blob": "ac44678327708b058b1ebcdffdf15a465c229760",
+      "sha256": "45ea02c3a92da25a486828242b8c36513ea62f46c962d4e7016911104a085cf6",
+      "bytes": 40655,
+      "lines": 1109
+    }
+  },
+  "oracle_runs": {
+    "baseline": { "command": "bun test test/pty/extensions-integration.test.ts", "passed": 17, "failed": 0, "expect_calls": 69 },
+    "stable": { "command": "bun test test/pty/extensions-integration.test.ts", "passed": 17, "failed": 0, "expect_calls": 69 }
+  },
+  "native_evidence": "crates/workdeck-cli/tests/terminal_pager/extensions.rs",
+  "test_module": "extensions",
+  "test_translations": [
+    { "source_test": "trust prompt runs repo extensions after the user trusts the repository", "test": "repository_trust_runs_the_transform_only_after_confirmation" },
+    { "source_test": "Ctrl-C delivers extension shutdown before the terminal exits", "test": "control_c_delivers_native_shutdown_before_terminal_exit" },
+    { "source_test": "escape dismisses the trust prompt without persisting a decision", "test": "escaping_repository_trust_does_not_persist_a_decision" },
+    { "source_test": "never records a denial and stops asking on later launches", "test": "denying_repository_trust_persists_across_a_fresh_launch" },
+    { "source_test": "the Extensions menu runs a registered command by mouse", "test": "extension_menu_dispatches_the_sidebar_command_by_mouse" },
+    { "source_test": "a command key opens an extension sidebar beside the built-in pane", "test": "registered_key_toggles_a_sidebar_beside_the_builtin_files_pane" },
+    { "source_test": "the files shortcut and View menu follow a named pane slot", "test": "files_key_and_view_menu_follow_the_named_replacement_slot" },
+    { "source_test": "an extension can dock edge panes and resize through horizontal divider hit slop", "test": "edge_panes_resize_through_the_horizontal_divider_hit_slop" },
+    { "source_test": "a short terminal pins extension confirm actions for mouse acceptance", "test": "short_terminal_keeps_confirmation_actions_mouse_accessible" },
+    { "source_test": "the real review note navigator inventories and reveals a saved user note", "test": "bundled_note_navigator_inventories_and_reveals_the_exact_saved_note" },
+    { "source_test": "the real review snapshot example exports a saved user note", "test": "bundled_review_snapshot_exports_the_exact_saved_user_note" },
+    { "source_test": "the real review-triage extension loads as a folder extension and exposes its menu commands", "test": "bundled_triage_registers_all_five_menu_commands" },
+    { "source_test": "the real Vim navigation example routes counts, command-line input, and Ctrl chords", "test": "bundled_vim_routes_counts_alignment_dialogs_and_control_chords" },
+    { "source_test": "a line highlighter marks the diff without disturbing it and refresh routes through controls", "test": "line_highlighter_preserves_text_and_reports_refresh_control_results" },
+    { "source_test": "revealLine lands a line deep inside one tall hunk near the viewport top", "test": "reveal_line_lands_deep_inside_a_tall_hunk_near_the_viewport_top" },
+    { "source_test": "revealLine through pane actions held since mount still lands the line", "test": "pane_navigation_retained_since_mount_reveals_the_measured_line" },
+    { "source_test": "a startup handler's notify renders as a toast and clears itself", "test": "startup_notification_renders_and_retires_without_changing_the_review" }
+  ],
+  "scope": "All seventeen native PTY contracts pass against compiled Rust extensions. Native pane fixtures retain host-owned rendering and mount-time file identity rather than React closures. Trust state and shutdown logs are checked on disk in disposable directories. Full cell-buffer differential parity and non-Unix lifecycle verification remain separate release gates."
+}

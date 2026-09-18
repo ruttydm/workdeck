@@ -1,0 +1,6 @@
+id = "cursor-mode"
+name = "Cursor mode parity example"
+version = "0.1.0"
+api_version = 1
+executable = "bin/workdeck-example-cursor-mode-extension"
+capabilities = ["commands", "file-views"]

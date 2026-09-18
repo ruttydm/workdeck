@@ -1,0 +1,7 @@
+id = "collapse-generated"
+name = "Collapse generated files"
+version = "0.1.0"
+api_version = 1
+executable = "workdeck-example-collapse-generated-extension"
+capabilities = ["configuration", "changeset-transforms", "notifications"]
+description = "Hide configured generated paths and report the number hidden"

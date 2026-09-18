@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "runtime": {
+    "name": "Bun",
+    "version": "1.3.5",
+    "execution": "disposable pinned Hunk worktrees"
+  },
+  "command": [
+    "bun",
+    "test",
+    "src/app/startup.test.ts"
+  ],
+  "baselines": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "source_blob": "79c05c50e63fa4f533fbb1c7b3c3868913750386",
+      "source_bytes": 20884,
+      "mapped_source_interval": {
+        "byte_start": 11416,
+        "byte_end": 12850,
+        "line_start": 306,
+        "line_end": 366
+      },
+      "test_blob": "2a346bcb5cbebd34376663bb79c832f9d25fc44f",
+      "test_bytes": 26836,
+      "mapped_test_interval": {
+        "byte_start": 6379,
+        "byte_end": 7912,
+        "line_start": 188,
+        "line_end": 239
+      },
+      "suite_passed": 25,
+      "suite_failed": 0,
+      "suite_expect_calls": 58,
+      "mapped_tests": 3
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "source_blob": "672a2f7966498e616cddab940ca07757b1e393c2",
+      "source_bytes": 13344,
+      "test_blob": "6084991177e681b6e28b3dc328a3d0aa58ea12c2",
+      "test_bytes": 20777,
+      "suite_passed": 20,
+      "suite_failed": 0,
+      "suite_expect_calls": 47,
+      "mapped_tests_present": 3
+    }
+  ],
+  "expected": {
+    "headless_before_repository_discovery": [
+      "help",
+      "daemon-serve",
+      "session-command",
+      "markup-render",
+      "markup-guide",
+      "extension-manage",
+      "self-update"
+    ],
+    "daemon_executable": "workdeck",
+    "daemon_arguments": ["daemon", "serve"],
+    "daemon_api_path": "/session-api",
+    "daemon_socket_path": "/session",
+    "startup_owned_extensions_retired_before_headless_return": true,
+    "process_signal_backend_installations": 1,
+    "command_signal_ownership_revocable": true
+  },
+  "test_mapping": [
+    {
+      "source_test": "returns help output without entering app startup",
+      "rust_tests": ["help_renders"]
+    },
+    {
+      "source_test": "passes the daemon serve command through without app bootstrap work",
+      "rust_tests": [
+        "review_cli_option_tests::daemon_commands_are_classified_before_repository_startup",
+        "daemon_overview_is_headless_and_does_not_require_a_repository",
+        "process_signals::tests::callback_slot_has_exact_revocable_ownership"
+      ]
+    },
+    {
+      "source_test": "passes session commands through without app bootstrap work",
+      "rust_tests": [
+        "review_cli_option_tests::daemon_commands_are_classified_before_repository_startup",
+        "agent_commands::tests::unavailable_daemon_list_returns_empty_without_creating_a_client"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "sourcePath": "src/ui/AppHost.interactions.test.tsx",
+  "intervals": [
+    {
+      "byteStart": 95078,
+      "byteEnd": 96109,
+      "lineStart": 3221,
+      "lineEnd": 3256,
+      "sha256": "ba2a7657d3d7addc15ca7bbd9066c49954e3198eb6e0d4224638b29c18ffd444",
+      "test": "pager mode can toggle the sidebar file tree"
+    },
+    {
+      "byteStart": 96109,
+      "byteEnd": 97022,
+      "lineStart": 3257,
+      "lineEnd": 3290,
+      "sha256": "7e42d380114040d1961fce0139c43a1da54bd5a3610be7734b82ed4f7223effc",
+      "test": "sidebar shortcut can force the sidebar open when responsive layout hides it"
+    }
+  ],
+  "runs": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/main/src/ui/AppHost.interactions.test.tsx:\nThe current testing environment is not configured to support act(...)\n(pass) App interactions > pager mode can toggle the sidebar file tree [195.33ms]\n(pass) App interactions > sidebar shortcut can force the sidebar open when responsive layout hides it [32.78ms]\n\n 2 pass\n 74 filtered out\n 0 fail\n 8 expect() calls\nRan 2 tests across 1 file. [792.00ms]\n"
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/stable/src/ui/AppHost.interactions.test.tsx:\nThe current testing environment is not configured to support act(...)\n(pass) App interactions > pager mode can toggle the sidebar file tree [163.63ms]\nThe current testing environment is not configured to support act(...)\n(pass) App interactions > sidebar shortcut can force the sidebar open when responsive layout hides it [31.56ms]\n\n 2 pass\n 72 filtered out\n 0 fail\n 8 expect() calls\nRan 2 tests across 1 file. [603.00ms]\n"
+    }
+  ],
+  "native": {
+    "test": "tests::sidebar_shortcut_opens_hidden_tree_in_pager_and_narrow_review",
+    "passed": 1,
+    "failed": 0,
+    "filtered": 1128,
+    "seconds": 0.81
+  },
+  "scope": "220x24 pager and 159x24 regular auto review. Alpha path counts 1,2,1; pager menu chrome stays absent. Typed native keys and text assertions, not full-cell differential parity."
+}

@@ -10,14 +10,18 @@ use std::path::PathBuf;
 pub enum SearchTarget {
     File(PathBuf),
     Change(PathBuf),
+    StagedChange(PathBuf),
     Issue(String),
     AgentSession(String),
     GitCommit(String),
     GitBranch(String),
     GitStash(String),
     GitTag(String),
+    Initiative(String),
     Project(String),
+    Milestone(String),
     Cycle(String),
+    Target(String),
     Label(String),
     Symbol {
         path: PathBuf,
@@ -54,6 +58,12 @@ pub struct SearchIndex {
 }
 
 impl SearchIndex {
+    /// Accept source-qualified adapters without translating native workflow
+    /// states or record identities through the legacy issue model.
+    pub fn from_records(records: Vec<SearchRecord>) -> Self {
+        Self { records }
+    }
+
     pub fn rebuild(
         files: &[PathBuf],
         changes: &[ChangeEntry],
@@ -299,6 +309,22 @@ const MAX_SYMBOL_FILES: usize = 1_000;
 const MAX_SYMBOL_BYTES: usize = 64 * 1024;
 const MAX_SYMBOLS_PER_FILE: usize = 32;
 
+pub(crate) fn symbols_in_content(path: &Path, content: &str, limit: usize) -> Vec<SymbolRecord> {
+    content
+        .lines()
+        .enumerate()
+        .filter_map(|(index, line)| {
+            extract_symbol_from_line(path, line).map(|(kind, name)| SymbolRecord {
+                path: path.to_owned(),
+                line: index + 1,
+                name,
+                kind,
+            })
+        })
+        .take(limit)
+        .collect()
+}
+
 pub fn extract_symbols(repo_root: &Path, files: &[PathBuf]) -> Vec<SymbolRecord> {
     let mut symbols = Vec::new();
     for path in files
@@ -339,7 +365,7 @@ pub fn extract_symbols(repo_root: &Path, files: &[PathBuf]) -> Vec<SymbolRecord>
     symbols
 }
 
-fn is_symbol_source(path: &Path) -> bool {
+pub(crate) fn is_symbol_source(path: &Path) -> bool {
     matches!(
         path.extension().and_then(|extension| extension.to_str()),
         Some(

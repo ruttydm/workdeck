@@ -1,0 +1,7 @@
+id = "example.review-note-navigator"
+name = "Review note navigator example"
+version = "0.1.0"
+api_version = 1
+executable = "bin/workdeck-example-review-note-navigator-extension"
+capabilities = ["commands", "dialogs", "notifications", "review-navigation"]
+description = "Selects and navigates the authoritative inventory of saved review notes"

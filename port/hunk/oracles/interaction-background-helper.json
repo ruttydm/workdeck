@@ -1,0 +1,19 @@
+{
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "path": "src/ui/AppHost.interactions.test.tsx",
+  "sourceInterval": {"byteStart": 14721, "byteEnd": 15678, "lineStart": 477, "lineEnd": 508},
+  "helper": "hasLineWithBackground",
+  "native": "crates/workdeck-tui/src/lib.rs#tests::has_line_with_background",
+  "semantics": "Find the first substring occurrence on each rendered row, collect all overlapping text cells, require at least one match and the expected background on every match, and accept any qualifying row. Native Color values replace source hex conversion and case-insensitive comparison. Wide-grapheme continuation cells do not add characters to captured text.",
+  "regression": "The prior shared opacity/tint assertion accepted the expected background anywhere on a row. Menu and help checks now use the complete overlap predicate. The separately defined source diff-tint test intentionally accepts any span background on its row and retains that behavior.",
+  "tests": [
+    "background_match_checks_every_overlapping_cell_and_each_row",
+    "transparent_background_preserves_overlay_opacity_and_diff_tints"
+  ],
+  "sourceRuns": [
+    {"commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2", "test": "transparent background keeps menus and help dialog opaque", "passed": 1, "failed": 0, "assertions": 5, "milliseconds": 797},
+    {"commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd", "test": "transparent background keeps menus and help dialog opaque", "passed": 1, "failed": 0, "assertions": 5, "milliseconds": 789}
+  ],
+  "nativeValidation": {"command": "cargo test -p workdeck-tui --lib -- --quiet", "passed": 1173, "failed": 0, "seconds": 9.87},
+  "scope": "Only this complete helper interval is mapped. Other imports, fixtures and async helpers remain unmapped. Additional native tests reject mixed backgrounds, absent and empty text, handle later qualifying rows, multibyte and wide text, and a nonzero buffer origin."
+}

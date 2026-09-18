@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "runtime": {
+    "name": "Bun",
+    "version": "1.3.5",
+    "execution": "disposable pinned Hunk baseline worktree"
+  },
+  "command": [
+    "bun",
+    "test",
+    "src/app/extensionCliBootstrap.test.ts"
+  ],
+  "baselines": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "status": "present",
+      "source_blob": "862209d23e2781e2219e6baf02cf2071cba6c6c0",
+      "source_bytes": 4307,
+      "test_blob": "484208371fd642479b7bb14e9175a1e62a0c70b5",
+      "test_bytes": 3228,
+      "passed": 2,
+      "failed": 0,
+      "expect_calls": 7
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "status": "absent"
+    }
+  ],
+  "expected": {
+    "configuration_calls_after_external_root_refinement": 2,
+    "previous_load_sequence": [null, "loaded"],
+    "winning_command_owner": "tools",
+    "event_bus_phase_before_binding": "loading",
+    "duplicate_command_winner": "first",
+    "duplicate_command_rejected_owner": "second",
+    "duplicate_command_creates_load_failure": false
+  },
+  "test_mapping": [
+    {
+      "source_test": "reuses a provisional prefix after extension VCS root refinement",
+      "rust_tests": [
+        "review_cli_option_tests::extension_cli_bootstrap_refines_root_reuses_prefix_and_defers_event_bus"
+      ]
+    },
+    {
+      "source_test": "reports duplicate command ownership without treating the extension as failed",
+      "rust_tests": [
+        "review_cli_option_tests::extension_cli_bootstrap_reports_command_collision_without_load_failure"
+      ]
+    }
+  ]
+}

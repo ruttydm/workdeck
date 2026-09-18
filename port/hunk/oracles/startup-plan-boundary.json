@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "baseline": {
+    "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+    "path": "src/app/startup.ts",
+    "blob": "79c05c50e63fa4f533fbb1c7b3c3868913750386",
+    "byte_start": 0,
+    "byte_end": 4323,
+    "line_start": 1,
+    "line_end": 132
+  },
+  "stable": {
+    "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+    "path": "src/app/startup.ts",
+    "blob": "672a2f7966498e616cddab940ca07757b1e393c2"
+  },
+  "semantic_groups": [
+    {
+      "lines": "1-30",
+      "role": "explicit core session extension CLI pager theme terminal reload watch and VCS boundaries",
+      "rust": [
+        "crates/workdeck-cli/src/main.rs",
+        "crates/workdeck-core/src/bootstrap.rs",
+        "crates/workdeck-core/src/command_inputs.rs",
+        "crates/workdeck-session/src/lib.rs",
+        "crates/workdeck-extension-host/src/startup.rs",
+        "crates/workdeck-tui/src/theme_detection.rs",
+        "crates/workdeck-tui/src/terminal_runtime.rs",
+        "crates/workdeck-vcs/src/catalog.rs",
+        "crates/workdeck-vcs/src/watch_runtime.rs"
+      ]
+    },
+    {
+      "lines": "32-46",
+      "role": "lazy memoized bundled VCS catalog",
+      "rust": ["crates/workdeck-vcs/src/bundled.rs"],
+      "rust_test": "bundled::tests::loads_once_so_every_resolution_path_observes_one_adapter_identity"
+    },
+    {
+      "lines": "48-99",
+      "role": "closed startup disposition union",
+      "rust": [
+        "crates/workdeck-cli/src/main.rs",
+        "crates/workdeck-cli/src/pager.rs",
+        "crates/workdeck-core/src/bootstrap.rs"
+      ],
+      "evidence": [
+        "port/hunk/oracles/startup-headless.json",
+        "port/hunk/oracles/startup-extension-cli.json",
+        "port/hunk/oracles/startup-pager.json"
+      ]
+    },
+    {
+      "lines": "101-108",
+      "role": "captured pager host detection",
+      "rust": ["crates/workdeck-cli/src/pager.rs"],
+      "rust_test": "pager::tests::routes_non_diff_input_by_host_capability"
+    },
+    {
+      "lines": "110-131",
+      "role": "startup dependency and test seams",
+      "rust": [
+        "crates/workdeck-cli/src/main.rs",
+        "crates/workdeck-cli/src/pager.rs",
+        "crates/workdeck-cli/src/process_signals.rs",
+        "crates/workdeck-extension-host/src/startup.rs",
+        "crates/workdeck-session/src/agent_commands.rs",
+        "crates/workdeck-tui/src/theme_detection.rs",
+        "crates/workdeck-tui/src/terminal_runtime.rs",
+        "crates/workdeck-vcs/src/catalog.rs"
+      ],
+      "evidence": [
+        "port/hunk/oracles/startup-extensions.json",
+        "port/hunk/oracles/startup-headless.json",
+        "port/hunk/oracles/startup-pager.json",
+        "port/hunk/oracles/startup-theme.json",
+        "port/hunk/oracles/startup-watch.json"
+      ]
+    }
+  ],
+  "expected": {
+    "headless_commands_avoid_repository_and_vcs_startup": true,
+    "bundled_vcs_catalog_is_memoized": true,
+    "startup_dispositions_are_exhaustive": true,
+    "dependency_injection_is_replaced_by_pure_helpers_traits_and_owned_guards": true,
+    "captured_pager_detection_is_terminal_safe": true
+  }
+}

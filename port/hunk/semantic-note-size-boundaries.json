@@ -1,0 +1,17 @@
+{
+  "base_fixture": "semantic-note-size-oracle.json",
+  "summary_unit": "x",
+  "overhead": 367,
+  "rows": [
+    {
+      "repeat": 261777,
+      "bytes": 262144,
+      "withinLimit": true
+    },
+    {
+      "repeat": 261778,
+      "bytes": 262145,
+      "withinLimit": false
+    }
+  ]
+}

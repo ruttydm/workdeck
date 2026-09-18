@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "runtime": {
+    "name": "Bun",
+    "version": "1.3.14",
+    "execution": "disposable pinned Hunk worktrees on 2026-09-06"
+  },
+  "baselines": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "source_path": "src/main.tsx",
+      "source_blob": "848f1f9053fbbf2f282887a9e378a1ba5412e2db",
+      "source_sha256": "b691366af78e26c7a37bea8bf0eb6f33655f50bf0f982707e2cfa6f5837ea62f",
+      "source_bytes": 4592,
+      "source_lines": 136,
+      "test_path": "test/cli/entrypoint.test.ts",
+      "test_blob": "758bf0ff9d70095d6a8f6a66320623ddf42ca04f",
+      "test_sha256": "5d3f16d75660f976772681d612af912ee3b41d8b2fe0ce5d92f69f190dc0143f",
+      "test_bytes": 26820,
+      "test_lines": 758,
+      "suite_passed": 26,
+      "suite_failed": 0,
+      "suite_expect_calls": 114
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "source_path": "src/main.tsx",
+      "source_blob": "23ab6c3b760aef43dc90b54a1337cbc887ba20e9",
+      "source_sha256": "1fab8ccf65d655c313d503ddac44ee81cb34726dabb011d2f1fbcfbaf9cbc1be",
+      "source_bytes": 4253,
+      "source_lines": 123,
+      "test_path": "test/cli/entrypoint.test.ts",
+      "test_blob": "b00a0efa227e65d641a602e3d04a8d0cbf9b4d17",
+      "test_sha256": "37ad8a8715d526bb72a0a22c3225b3897aebea46dbcd3d9094d6a11df08865d4",
+      "test_bytes": 12684,
+      "test_lines": 351,
+      "suite_passed": 15,
+      "suite_failed": 0,
+      "suite_expect_calls": 82
+    }
+  ],
+  "stable_to_main_delta": [
+    "extension CLI exit disposition preserves its exact status without process.exit",
+    "daemon startup is awaited before observing the stopped future",
+    "interactive startup failure closes the controlling terminal and retires the extension load before rethrow"
+  ],
+  "source_sections": [
+    { "bytes": [0, 448], "lines": [1, 11], "role": "runtime imports and startup-plan acquisition", "evidence": [{ "file": "crates/workdeck-cli/src/main.rs", "test": "review_cli_option_tests::frozen_hunk_startup_headless_oracle_maps_both_pins" }] },
+    { "bytes": [448, 555], "lines": [12, 16], "role": "help stdout and successful exit", "evidence": [{ "file": "crates/workdeck-cli/tests/cli.rs", "test": "help_renders" }] },
+    { "bytes": [555, 668], "lines": [17, 21], "role": "extension CLI exact exit status", "evidence": [{ "file": "crates/workdeck-cli/src/main.rs", "test": "review_cli_option_tests::extension_cli_exit_retires_the_preloaded_registry_before_returning" }] },
+    { "bytes": [668, 809], "lines": [22, 27], "role": "awaited daemon service lifetime", "evidence": [{ "file": "crates/workdeck-cli/tests/cli.rs", "test": "daemon_overview_is_headless_and_does_not_require_a_repository" }] },
+    { "bytes": [809, 953], "lines": [28, 32], "role": "headless live-session command output", "evidence": [{ "file": "crates/workdeck-cli/tests/cli.rs", "test": "session_overviews_and_empty_list_are_headless_and_read_only" }] },
+    { "bytes": [953, 2023], "lines": [33, 61], "role": "native extension management with terminal-only confirmation", "evidence": [{ "file": "crates/workdeck-cli/tests/cli.rs", "test": "managed_extension_install_requires_explicit_consent_without_a_terminal" }, { "file": "crates/workdeck-cli/tests/cli.rs", "test": "extension_help_exposes_complete_native_management_lifecycle" }] },
+    { "bytes": [2023, 2349], "lines": [62, 71], "role": "installation-channel-aware self update", "evidence": [{ "file": "crates/workdeck-cli/tests/cli.rs", "test": "update_preserves_managed_channel_exit_semantics" }] },
+    { "bytes": [2349, 2563], "lines": [72, 76], "role": "headless markup guide", "evidence": [{ "file": "crates/workdeck-cli/tests/cli.rs", "test": "markup_guide_is_headless_and_contains_the_reference_width_contract" }] },
+    { "bytes": [2563, 3009], "lines": [77, 88], "role": "markup rendering with stdin stdout stderr tty and status ownership", "evidence": [{ "file": "crates/workdeck-cli/tests/cli.rs", "test": "markup_render_defaults_to_stdin_and_emits_hunks_exact_json_shape" }] },
+    { "bytes": [3009, 3127], "lines": [89, 93], "role": "plain-text pager", "evidence": [{ "file": "crates/workdeck-cli/tests/cli.rs", "test": "pager_plain_text_fallback_is_headless_sanitized_and_read_only" }] },
+    { "bytes": [3127, 3326], "lines": [94, 100], "role": "sanitized redirected passthrough with optional SGR", "evidence": [{ "file": "crates/workdeck-cli/tests/cli.rs", "test": "pager_redirected_diff_passthrough_preserves_pipeline_exit_and_read_only_behavior" }, { "file": "crates/workdeck-cli/src/pager/tests.rs", "test": "passthrough_preserves_only_safe_sgr_when_requested" }] },
+    { "bytes": [3326, 3676], "lines": [101, 111], "role": "static diff pager rendering and diagnostics", "evidence": [{ "file": "crates/workdeck-tui/src/static_diff_pager.rs", "test": "matches_frozen_hunk_cell_content_geometry_and_palette" }] },
+    { "bytes": [3676, 4489], "lines": [112, 131], "role": "interactive-only TUI startup plus terminal and extension cleanup on failure", "evidence": [{ "file": "crates/workdeck-cli/src/main.rs", "test": "review_cli_option_tests::distinct_provisional_guards_close_each_owned_load_exactly_once" }, { "file": "crates/workdeck-cli/src/main.rs", "test": "review_cli_option_tests::dropping_startup_owned_extensions_retires_before_a_headless_handoff" }] },
+    { "bytes": [4489, 4592], "lines": [132, 136], "role": "single friendly top-level error formatter and exit one", "evidence": [{ "file": "crates/workdeck-cli/tests/cli.rs", "test": "hunk_command_failures_keep_exit_one_and_workdeck_diagnostics" }] }
+  ],
+  "process_oracles": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "cases": [
+        { "name": "help", "argv": ["--help"], "exit": 0, "stdout_bytes": 3315, "stdout_sha256": "7b726560faeee8bf3ad0a80ea9b7cc79c946ac9eeae44e54788b2f12ef72083c", "stderr_bytes": 0, "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" },
+        { "name": "version", "argv": ["--version"], "exit": 0, "stdout": "0.21.0-beta.0\n", "stdout_bytes": 14, "stdout_sha256": "5c8dc8e9006ff470cd873f69bb105599f36e3465b684d214a4a8dde8351182c8", "stderr_bytes": 0 },
+        { "name": "daemon-help", "argv": ["daemon", "--help"], "exit": 0, "stdout_bytes": 351, "stdout_sha256": "0f3894bbbbf52afc1bcfebb2d681c0a906c34e599ac00160642774f766aa5f18", "stderr_bytes": 0 },
+        { "name": "extension-help", "argv": ["extension", "--help"], "exit": 0, "stdout_bytes": 819, "stdout_sha256": "0828514b9e948a0a03c6237323ebba81c9e04cf0988bee4c5bdf847bc673cb03", "stderr_bytes": 0 },
+        { "name": "markup-guide", "argv": ["markup", "guide"], "exit": 0, "stdout_bytes": 3676, "stdout_sha256": "cf8c93286e01d7bbb63120d09b542efc4179bc7956991d3b07dbe1b7598023f3", "stderr_bytes": 0 },
+        { "name": "markup-render", "argv": ["markup", "render", "--width", "12", "--color", "never", "--json"], "stdin": "<b>Hello</b>\n", "exit": 0, "stdout_bytes": 63, "stdout_sha256": "a7543bb1b0a81c3938470c53603a8afe65f80c277f3187bfb003b672c9b7f856", "stderr_bytes": 0 },
+        { "name": "pager-sanitized", "argv": ["pager"], "stdin_hex": "706c61696e20746578741b5d303b626164070a", "exit": 0, "stdout_hex": "706c61696e20746578740a", "stdout_bytes": 11, "stdout_sha256": "c30a92f9ef889c07c781a7cf99f5b71415d4d1289e84473d1b9e6f01feffc62d", "stderr_bytes": 0 },
+        { "name": "invalid-command", "argv": ["definitely-not-a-command"], "exit": 1, "stdout_bytes": 0, "stderr": "hunk: Unknown command: definitely-not-a-command\n", "stderr_bytes": 48, "stderr_sha256": "a47af4f483d37395ef631eccecd65af957ace8117d1b1ae02ca8d30516ca88b6" }
+      ]
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "cases": [
+        { "name": "help", "argv": ["--help"], "exit": 0, "stdout_bytes": 3066, "stdout_sha256": "a10668459dc1f7a2b12b3bd65d0505c2bfad1beff126878739224b4a69bdf408", "stderr_bytes": 0 },
+        { "name": "version", "argv": ["--version"], "exit": 0, "stdout": "0.20.1\n", "stdout_bytes": 7, "stdout_sha256": "356c9c9f099da7f9b380c6fedc51077ee98de22402b378bc0f431fdc57aac757", "stderr_bytes": 0 },
+        { "name": "daemon-help", "argv": ["daemon", "--help"], "exit": 0, "stdout_bytes": 351, "stdout_sha256": "0f3894bbbbf52afc1bcfebb2d681c0a906c34e599ac00160642774f766aa5f18", "stderr_bytes": 0 },
+        { "name": "extension-help", "argv": ["extension", "--help"], "exit": 0, "stdout_bytes": 819, "stdout_sha256": "0828514b9e948a0a03c6237323ebba81c9e04cf0988bee4c5bdf847bc673cb03", "stderr_bytes": 0 },
+        { "name": "markup-guide", "argv": ["markup", "guide"], "exit": 0, "stdout_bytes": 3676, "stdout_sha256": "cf8c93286e01d7bbb63120d09b542efc4179bc7956991d3b07dbe1b7598023f3", "stderr_bytes": 0 },
+        { "name": "markup-render", "argv": ["markup", "render", "--width", "12", "--color", "never", "--json"], "stdin": "<b>Hello</b>\n", "exit": 0, "stdout_bytes": 63, "stdout_sha256": "a7543bb1b0a81c3938470c53603a8afe65f80c277f3187bfb003b672c9b7f856", "stderr_bytes": 0 },
+        { "name": "pager-sanitized", "argv": ["pager"], "stdin_hex": "706c61696e20746578741b5d303b626164070a", "exit": 0, "stdout_hex": "706c61696e20746578740a", "stdout_bytes": 11, "stdout_sha256": "c30a92f9ef889c07c781a7cf99f5b71415d4d1289e84473d1b9e6f01feffc62d", "stderr_bytes": 0 },
+        { "name": "invalid-command", "argv": ["definitely-not-a-command"], "exit": 1, "stdout_bytes": 0, "stderr": "hunk: Unknown command: definitely-not-a-command\n", "stderr_bytes": 48, "stderr_sha256": "a47af4f483d37395ef631eccecd65af957ace8117d1b1ae02ca8d30516ca88b6" }
+      ]
+    }
+  ],
+  "test_mapping": [
+    { "source_test": "bare hunk prints standard help without terminal takeover sequences", "adaptation": "bare Workdeck intentionally enters the unified shell; the long-help contract remains executable", "evidence": [{ "file": "crates/workdeck-cli/src/main.rs", "test": "review_cli_option_tests::bare_workdeck_retains_the_unified_shell_override" }, { "file": "crates/workdeck-cli/tests/cli.rs", "test": "help_renders" }] },
+    { "source_test": "prints daemon help without terminal takeover sequences", "evidence": [{ "file": "crates/workdeck-cli/tests/cli.rs", "test": "daemon_overview_is_headless_and_does_not_require_a_repository" }] },
+    { "source_test": "prints session help with the review command without terminal takeover sequences", "evidence": [{ "file": "crates/workdeck-cli/tests/cli.rs", "test": "hunk_command_help_contract_is_available_under_workdeck_names" }] },
+    { "source_test": "prints session reload help without terminal takeover sequences", "evidence": [{ "file": "crates/workdeck-cli/tests/cli.rs", "test": "hunk_command_help_contract_is_available_under_workdeck_names" }] },
+    { "source_test": "prints the package version for --version without terminal takeover sequences", "evidence": [{ "file": "crates/workdeck-cli/tests/cli.rs", "test": "version_renders" }] },
+    { "source_test": "prints the bundled skill path for hunk skill path without terminal takeover sequences", "evidence": [{ "file": "crates/workdeck-cli/tests/cli.rs", "test": "bundled_skill_paths_support_hunk_namesake_aliases_under_workdeck_branding" }] },
+    { "source_test": "bin wrapper prints the bundled skill path for hunk skill path", "adaptation": "the sole native executable materializes the embedded skill without a wrapper runtime", "evidence": [{ "file": "crates/workdeck-cli/tests/cli.rs", "test": "bundled_skill_paths_support_hunk_namesake_aliases_under_workdeck_branding" }] },
+    { "source_test": "package manifest exposes hunkdiff as an npm exec alias", "adaptation": "the product requirement reverses this assertion: exactly one workdeck binary and no hunk alias", "evidence": [{ "file": "xtask/src/architecture.rs", "test": "graph_gate_rejects_cycles_boundary_inversions_and_extra_binaries" }, { "file": "xtask/src/architecture.rs", "test": "live_workspace_has_no_hidden_graph_or_source_exceptions" }] },
+    { "source_test": "bin wrapper fails clearly when the bundled skill is missing", "adaptation": "the native binary embeds the skill, eliminating the missing-adjacent-file state", "evidence": [{ "file": "crates/workdeck-cli/tests/cli.rs", "test": "bundled_skill_paths_support_hunk_namesake_aliases_under_workdeck_branding" }] },
+    { "source_test": "general pager mode falls back to plain text for non-diff stdin", "evidence": [{ "file": "crates/workdeck-cli/tests/cli.rs", "test": "pager_plain_text_fallback_is_headless_sanitized_and_read_only" }] },
+    { "source_test": "general pager mode keeps Git colors in non-diff stdin for captured pager hosts", "evidence": [{ "file": "crates/workdeck-cli/src/pager/tests.rs", "test": "passthrough_preserves_only_safe_sgr_when_requested" }] },
+    { "source_test": "general pager mode strips colors from non-diff stdin outside captured pager hosts", "evidence": [{ "file": "crates/workdeck-cli/src/pager/tests.rs", "test": "redirected_stdout_strips_terminal_control_sequences" }] },
+    { "source_test": "general pager mode passes diff stdin through when stdout is not a terminal", "evidence": [{ "file": "crates/workdeck-cli/tests/cli.rs", "test": "pager_redirected_diff_passthrough_preserves_pipeline_exit_and_read_only_behavior" }] },
+    { "source_test": "prints a friendly git-repo error without a Bun stack trace", "evidence": [{ "file": "crates/workdeck-cli/tests/cli.rs", "test": "outside_git_repo_prints_actionable_error" }] },
+    { "source_test": "runs an explicit generic extension CLI command with raw args and stdin", "evidence": [{ "file": "examples/tests/cli_tools.rs", "test": "compiled_extension_handshakes_streams_and_preserves_raw_delegation_args" }, { "file": "examples/tests/cli_tools.rs", "test": "compiled_extension_leases_stdin_lazily_and_tracks_host_owned_consumption" }] },
+    { "source_test": "runs the self-contained GitHub PR extension help through generic CLI discovery", "evidence": [{ "file": "examples/tests/github_pr.rs", "test": "compiled_api_v1_extension_manifest_handshake_help_and_shutdown_are_native" }] },
+    { "source_test": "discovers the installed-shape GitHub extension for literal hunk gh", "evidence": [{ "file": "crates/workdeck-extension-host/src/extension_discovery.rs", "test": "extension_discovery::tests::managed_root_loads_direct_and_collection_repositories_but_skips_workspaces" }, { "file": "examples/tests/github_pr.rs", "test": "compiled_api_v1_extension_manifest_handshake_help_and_shutdown_are_native" }] },
+    { "source_test": "warns before repo config steers an extension CLI provider", "evidence": [{ "file": "crates/workdeck-cli/src/main.rs", "test": "review_cli_option_tests::extension_cli_bootstrap_refines_root_reuses_prefix_and_defers_event_bus" }, { "file": "crates/workdeck-cli/src/config.rs", "test": "tests::repository_extension_notice_lists_every_nonempty_id_in_sorted_order" }] },
+    { "source_test": "allows stderr progress before delegating to a built-in command", "evidence": [{ "file": "examples/tests/cli_tools.rs", "test": "compiled_extension_handshakes_streams_and_preserves_raw_delegation_args" }] },
+    { "source_test": "cancels a pending stdin read when an extension command exits", "evidence": [{ "file": "examples/tests/cli_tools.rs", "test": "pending_stdin_read_is_revoked_when_the_command_exits_without_consuming_input" }] },
+    { "source_test": "rejects delegation when both the extension and built-in need stdin", "evidence": [{ "file": "examples/tests/cli_tools.rs", "test": "compiled_extension_leases_stdin_lazily_and_tracks_host_owned_consumption" }, { "file": "crates/workdeck-extension-host/src/lib.rs", "test": "tests::cli_delegation_retains_host_terminal_and_bootstrap_ownership" }] },
+    { "source_test": "reuses an explicit extension factory across built-in review delegation", "evidence": [{ "file": "crates/workdeck-cli/src/main.rs", "test": "review_cli_option_tests::delegated_extension_cli_load_is_reused_by_both_review_bootstrap_passes" }] },
+    { "source_test": "rejects impossible extension command names before importing providers", "evidence": [{ "file": "crates/workdeck-cli/tests/cli.rs", "test": "invalid_extension_cli_syntax_and_hard_disable_never_start_a_provider" }] },
+    { "source_test": "does not let --extension consume the hard-disable flag or import a later provider", "evidence": [{ "file": "crates/workdeck-cli/tests/cli.rs", "test": "invalid_extension_cli_syntax_and_hard_disable_never_start_a_provider" }] },
+    { "source_test": "does not import an explicit command provider when extensions are disabled", "evidence": [{ "file": "crates/workdeck-cli/src/main.rs", "test": "review_cli_option_tests::disabled_extension_cli_command_is_rejected_before_config_or_discovery" }, { "file": "crates/workdeck-cli/tests/cli.rs", "test": "invalid_extension_cli_syntax_and_hard_disable_never_start_a_provider" }] },
+    { "source_test": "prints a friendly invalid-ref error without a Bun stack trace", "evidence": [{ "file": "crates/workdeck-cli/tests/cli.rs", "test": "invalid_show_ref_is_friendly_and_has_no_runtime_backtrace" }] }
+  ]
+}

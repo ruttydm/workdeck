@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "capture": {
+    "runtime": "Bun 1.3.5 and @opentui/react testRender",
+    "method": "rendered DiffFileHeaderRow directly in each disposable pinned source archive at 40x1, captured the OpenTUI frame and spans, and delivered a left-button click to the row",
+    "baselineResult": "1 pass, 0 fail, 2 expectations",
+    "stableResult": "1 pass, 0 fail, 2 expectations",
+    "upstreamNamedTest": "DiffFileHeaderRow leaves one column after line counts; 1 pass, 0 fail, 3 expectations on each baseline"
+  },
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "sourceIdentical": true,
+  "input": {
+    "width": 40,
+    "height": 1,
+    "theme": "github-dark-default",
+    "path": "stats-align.ts",
+    "additions": 2,
+    "deletions": 1,
+    "headerLabelWidth": 20,
+    "headerStatsWidth": 8
+  },
+  "frame": " stats-align.ts                  +2 -1  \n",
+  "baselineSpans": [
+    { "text": " ", "width": 1, "fg": "#ffffff", "bg": "#1e2329", "attributes": 0 },
+    { "text": "stats-align.ts", "width": 14, "fg": "#e6edf3", "bg": "#1e2329", "attributes": 0 },
+    { "text": "                  ", "width": 18, "fg": "#ffffff", "bg": "#1e2329", "attributes": 0 },
+    { "text": "+2", "width": 2, "fg": "#77c185", "bg": "#1e2329", "attributes": 0 },
+    { "text": " ", "width": 1, "fg": "#adaeb1", "bg": "#1e2329", "attributes": 0 },
+    { "text": "-1", "width": 2, "fg": "#fa8e89", "bg": "#1e2329", "attributes": 0 },
+    { "text": " ", "width": 1, "fg": "#adaeb1", "bg": "#1e2329", "attributes": 0 },
+    { "text": " ", "width": 1, "fg": "#ffffff", "bg": "#1e2329", "attributes": 0 }
+  ],
+  "stableDifference": {
+    "badgeAdded": "#3fb950",
+    "reason": "the stable branch predates the baseline theme contrast adjustment; the component still references the same badgeAdded semantic token"
+  },
+  "baselineLightProjection": {
+    "panel": "#f6f6f6",
+    "text": "#1f2328",
+    "badgeAdded": "#116329",
+    "muted": "#5a5a5a",
+    "badgeRemoved": "#cf222e"
+  },
+  "mouseSelectionCount": 1,
+  "rustParityTests": [
+    "workdeck_tui::public_review::tests::file_header_matches_the_pinned_one_row_cell_contract",
+    "workdeck_tui::tests::review_file_header_mouse_up_selects_without_moving_the_visible_stream"
+  ],
+  "workdeckCompatibilityTest": "workdeck_tui::public_review::tests::public_selected_header_retains_workdecks_legacy_emphasis",
+  "normalization": "Workdeck naming only; geometry, text, theme roles, attributes, and mouse delivery are not normalized"
+}

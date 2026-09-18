@@ -1,0 +1,58 @@
+{
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "compose": {
+    "path": "packages/term-video/src/compose.mjs",
+    "baselineBlob": "5e5cbfa6a90b1e561e1cdef644605e520d1c368b",
+    "stableBlob": "20e554278bf90422474648760d396742059ae1cd"
+  },
+  "stage": {
+    "path": "packages/term-video/src/stage.html",
+    "baselineBlob": "cb06086403d48cd4694243a466b68de8465a0d29",
+    "stableBlob": "cb06086403d48cd4694243a466b68de8465a0d29"
+  },
+  "baselineOracle": {
+    "stageBasename": "stage.html",
+    "firstFontIsIsolated": true,
+    "hoistedFontFound": true,
+    "missingFontLines": [
+      "caption font not found; searched:",
+      "<ROOT>/absent/node_modules/.bun/node_modules/ghostty-opentui/public/jetbrains-mono-nerd.ttf",
+      "<ROOT>/absent/node_modules/ghostty-opentui/public/jetbrains-mono-nerd.ttf"
+    ],
+    "envChromium": "/oracle/env-chromium",
+    "explicitChromium": "/oracle/explicit-chromium",
+    "outCreatedBeforeMissingCheck": true,
+    "missingFrames": [
+      "missing keyframes in <WORK>/frames:",
+      "  one",
+      "  two",
+      "run the capture script first (optionally SCENES=<scene> for a partial recapture)"
+    ]
+  },
+  "stableOracle": {
+    "stageBasename": "stage.html",
+    "firstFontIsIsolated": true,
+    "hoistedFontFound": true,
+    "missingFontLines": [
+      "caption font not found; searched:",
+      "<ROOT>/absent/node_modules/.bun/node_modules/ghostty-opentui/public/jetbrains-mono-nerd.ttf",
+      "<ROOT>/absent/node_modules/ghostty-opentui/public/jetbrains-mono-nerd.ttf"
+    ],
+    "envChromium": "/oracle/env-chromium",
+    "explicitChromium": "/oracle/explicit-chromium",
+    "outCreatedBeforeMissingCheck": true,
+    "missingFrames": [
+      "missing keyframes in <WORK>/frames:",
+      "  one",
+      "  two",
+      "run the capture script first (optionally SCENES=<scene> for a partial recapture)"
+    ]
+  },
+  "nativeAdaptation": {
+    "runtime": "Rust generates one static HTML state per frame and drives a declared WebDriver and Chromium executable; no Node, Bun, Playwright, or committed application JavaScript is required.",
+    "stage": "The original 1920x1080 CSS, terminal chrome, caption/card geometry, quartic easing, raw trusted markup, decoded keyframes, and bottom-left background sampling are preserved in a marker-validated static template.",
+    "protocol": "The native client creates one browser session, navigates file URLs, captures base64 PNG screenshots, closes the session, and always terminates its owned driver process.",
+    "coverage": "Rust tests execute missing-frame preflight ordering, helper precedence, font discovery, stage rendering, PNG sampling, frame orchestration, progress cadence, ffconcat output, capabilities, literal loopback HTTP, chunked decoding, and WebDriver errors."
+  }
+}

@@ -1,0 +1,135 @@
+{
+  "nativeCommit": "4cca95b458ac6c57c8d74e582b48fdba35b7cca5",
+  "host": "macOS arm64",
+  "profile": "release",
+  "method": "Three sequential fresh processes after builds/tests; unchanged workload and nearest-rank medians; other host activity uncontrolled.",
+  "runs": [
+    {
+      "exitCode": 0,
+      "report": {
+        "diagnosticOnly": true,
+        "firstFrameMs": 20.537875,
+        "navigationPressMs": [
+          58.97175,
+          58.036833,
+          58.069958,
+          59.932041999999996,
+          58.200625,
+          58.654042000000004
+        ],
+        "scrollTickMs": [
+          21.896625,
+          21.23725,
+          21.3215,
+          21.174041000000003,
+          21.861833,
+          21.163083,
+          21.169375000000002,
+          20.855958
+        ],
+        "afterFirstFrame": {
+          "rssBytes": 188678144,
+          "mallocInUseBytes": 52468656
+        },
+        "afterNavigation": {
+          "rssBytes": 189399040,
+          "mallocInUseBytes": 53804800
+        },
+        "files": 180,
+        "linesPerFile": 120,
+        "viewport": {
+          "width": 240,
+          "height": 28
+        },
+        "memorySemantics": "Current RSS and native malloc-zone usage, not peak RSS or JavaScript heapUsed"
+      }
+    },
+    {
+      "exitCode": 0,
+      "report": {
+        "diagnosticOnly": true,
+        "firstFrameMs": 20.058916999999997,
+        "navigationPressMs": [
+          58.717917,
+          58.627542,
+          57.738667,
+          57.804834,
+          57.755,
+          57.991209000000005
+        ],
+        "scrollTickMs": [
+          22.735792,
+          21.171209,
+          21.158,
+          21.054416999999997,
+          21.057084,
+          21.078083,
+          21.176167,
+          21.0855
+        ],
+        "afterFirstFrame": {
+          "rssBytes": 186253312,
+          "mallocInUseBytes": 52459392
+        },
+        "afterNavigation": {
+          "rssBytes": 189202432,
+          "mallocInUseBytes": 53786832
+        },
+        "files": 180,
+        "linesPerFile": 120,
+        "viewport": {
+          "width": 240,
+          "height": 28
+        },
+        "memorySemantics": "Current RSS and native malloc-zone usage, not peak RSS or JavaScript heapUsed"
+      }
+    },
+    {
+      "exitCode": 0,
+      "report": {
+        "diagnosticOnly": true,
+        "firstFrameMs": 20.096833,
+        "navigationPressMs": [
+          58.526875,
+          57.781708,
+          57.896457999999996,
+          58.717417,
+          59.127125,
+          57.949459000000004
+        ],
+        "scrollTickMs": [
+          21.906916,
+          21.103,
+          20.98975,
+          21.055667,
+          21.177584,
+          21.237790999999998,
+          21.277250000000002,
+          21.1225
+        ],
+        "afterFirstFrame": {
+          "rssBytes": 186580992,
+          "mallocInUseBytes": 52471536
+        },
+        "afterNavigation": {
+          "rssBytes": 188170240,
+          "mallocInUseBytes": 53799232
+        },
+        "files": 180,
+        "linesPerFile": 120,
+        "viewport": {
+          "width": 240,
+          "height": 28
+        },
+        "memorySemantics": "Current RSS and native malloc-zone usage, not peak RSS or JavaScript heapUsed"
+      }
+    }
+  ],
+  "summary": {
+    "firstFrameMs": 20.096833,
+    "navigationMs": 57.949459000000004,
+    "scrollMs": 21.1225,
+    "afterNavigationRssBytes": 189202432
+  },
+  "acceptance": "No material latency improvement demonstrated. Overall pinned-Hunk gate remains failed; no peak-memory or ledger completion claimed."
+}

@@ -1,0 +1,37 @@
+{
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "source": "src/ui/lib/extensionTrustPrompt.ts",
+  "cases": [
+    {
+      "enabled": true,
+      "pendingRepoRoot": "/repo/alpha",
+      "offeredRepoRoots": [],
+      "result": "/repo/alpha"
+    },
+    {
+      "enabled": false,
+      "pendingRepoRoot": "/repo/alpha",
+      "offeredRepoRoots": [],
+      "result": null
+    },
+    {
+      "enabled": true,
+      "pendingRepoRoot": "",
+      "offeredRepoRoots": [],
+      "result": null
+    },
+    {
+      "enabled": true,
+      "pendingRepoRoot": "/repo/alpha",
+      "offeredRepoRoots": ["/repo/alpha"],
+      "result": null
+    },
+    {
+      "enabled": true,
+      "pendingRepoRoot": "/repo/beta",
+      "offeredRepoRoots": ["/repo/alpha"],
+      "result": "/repo/beta"
+    }
+  ]
+}

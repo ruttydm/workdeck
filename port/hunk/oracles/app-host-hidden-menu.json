@@ -1,0 +1,43 @@
+{
+  "sourcePath": "src/ui/AppHost.interactions.test.tsx",
+  "sourceTests": [
+    "Shift-M hides the menu bar without disabling F10 menus",
+    "configured hidden menu bar starts hidden while menus remain keyboard-accessible"
+  ],
+  "baselineInterval": {
+    "byteStart": 23360,
+    "byteEnd": 25426,
+    "lineStart": 782,
+    "lineEnd": 848,
+    "sha256": "d69afdb8ff5d4a29a5f458ad6cb427725fe614f32609309561466d826bad50b1"
+  },
+  "runs": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/main/src/ui/AppHost.interactions.test.tsx:\n(pass) App interactions > Shift-M hides the menu bar without disabling F10 menus [221.94ms]\n(pass) App interactions > configured hidden menu bar starts hidden while menus remain keyboard-accessible [60.06ms]\n\n 2 pass\n 74 filtered out\n 0 fail\n 9 expect() calls\nRan 2 tests across 1 file. [846.00ms]\n"
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/stable/src/ui/AppHost.interactions.test.tsx:\n(pass) App interactions > Shift-M hides the menu bar without disabling F10 menus [197.65ms]\nThe current testing environment is not configured to support act(...)\n(pass) App interactions > configured hidden menu bar starts hidden while menus remain keyboard-accessible [63.46ms]\n\n 2 pass\n 72 filtered out\n 0 fail\n 9 expect() calls\nRan 2 tests across 1 file. [673.00ms]\n"
+    }
+  ],
+  "native": {
+    "test": "tests::hidden_menu_bar_retains_f10_access_without_a_top_separator",
+    "status": "initial-failure-corrected-by-shared-review-row-offsets",
+    "exitCode": 101,
+    "passed": 0,
+    "failed": 1,
+    "filtered": 1144,
+    "seconds": 0.77,
+    "failure": "First non-empty rendered row contains the horizontal separator character after hiding the menu bar."
+  },
+  "correctedNative": {
+    "passed": 1,
+    "failed": 0,
+    "filtered": 1144,
+    "seconds": 0.86
+  },
+  "scope": "Pinned tests assert no top horizontal separator and continued F10 access in both toggle-hidden and configured-hidden cases. The initial failure above is retained as regression evidence. After conditionally removing the review border and sharing row offsets across rendering, scroll limits, note targets, copy selection, and scrollbar, both native cases pass. This is not complete terminal-cell or raw-input parity."
+}

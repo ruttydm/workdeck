@@ -1,0 +1,33 @@
+{
+  "sourcePath": "src/ui/AppHost.interactions.test.tsx",
+  "sourceTest": "draft note saves Ctrl-S when tmux sends CSI-u input",
+  "baselineInterval": {
+    "byteStart": 92091,
+    "byteEnd": 93028,
+    "lineStart": 3109,
+    "lineEnd": 3144,
+    "sha256": "2f8e056446ecb890743dca98a95bcbb7f630d490e3f8dba77d7145c1ac9a9744"
+  },
+  "command": "GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null bun test <pinned-checkout>/src/ui/AppHost.interactions.test.tsx -t 'draft note saves Ctrl-S when tmux sends CSI-u input'",
+  "runs": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/main/src/ui/AppHost.interactions.test.tsx:\nThe current testing environment is not configured to support act(...)\n(pass) App interactions > draft note saves Ctrl-S when tmux sends CSI-u input [247.70ms]\n\n 1 pass\n 75 filtered out\n 0 fail\n 3 expect() calls\nRan 1 test across 1 file. [835.00ms]\n"
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/stable/src/ui/AppHost.interactions.test.tsx:\nThe current testing environment is not configured to support act(...)\n(pass) App interactions > draft note saves Ctrl-S when tmux sends CSI-u input [195.34ms]\n\n 1 pass\n 73 filtered out\n 0 fail\n 3 expect() calls\nRan 1 test across 1 file. [606.00ms]\n"
+    }
+  ],
+  "native": {
+    "test": "draft_save_accepts_tmux_csi_u_bytes_through_real_terminal_input",
+    "command": "CARGO_INCREMENTAL=0 cargo test -p workdeck-cli --test terminal_pager draft_save_accepts_tmux_csi_u_bytes_through_real_terminal_input -- --exact",
+    "passed": 1,
+    "failed": 0,
+    "filtered": 93,
+    "seconds": 3.30,
+    "scope": "macOS native PTY at 240x24, alpha/beta patch fixture, actual ESC[115;5u bytes through Crossterm input. Your note and body visible, Draft note absent. No tmux process launched; this verifies its source-tested encoding, not all tmux versions or Windows transport."
+  }
+}

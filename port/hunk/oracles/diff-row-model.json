@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "capture": {
+    "method": "read the complete leaf type module from each pinned Git blob and compile each pinned tree with tsc --noEmit",
+    "baselineResult": "exit 0",
+    "stableResult": "exit 0"
+  },
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "baselineBlob": "c1b5966eab5c8d2a57234eef764abd7d681806fe",
+  "stableBlob": "83c23e41d33cfa590a887b20bc2c9d92b9b878c0",
+  "stableDifference": "the stable source has the same row union and fields except that it predates RenderSpan.transformFg; the pinned main baseline adds the deferred foreground transform and is the target contract",
+  "contract": {
+    "renderSpan": ["text", "fg?", "bg?", "transformFg?"],
+    "splitLineKinds": ["context", "addition", "deletion", "empty"],
+    "splitLineCell": ["kind", "sign", "lineNumber?", "moveKind?", "spans"],
+    "stackLineKinds": ["context", "addition", "deletion"],
+    "stackLineCell": ["kind", "sign", "oldLineNumber?", "newLineNumber?", "moveKind?", "spans"],
+    "collapsedGapPosition": {
+      "identity": "the shared review gap position type",
+      "values": ["before", "trailing"]
+    },
+    "rows": {
+      "collapsed": ["key", "fileId", "hunkIndex", "text", "position", "oldRange", "newRange"],
+      "hunk-header": ["key", "fileId", "hunkIndex", "text"],
+      "split-line": ["key", "fileId", "hunkIndex", "left", "right", "isExpansionRow?", "expandedGapKey?"],
+      "stack-line": ["key", "fileId", "hunkIndex", "cell", "isExpansionRow?", "expandedGapKey?"]
+    },
+    "ranges": "one-based inclusive two-element file-line ranges",
+    "moveKinds": ["moved"],
+    "transformIdentity": "adjacent-span merging compares deferred foreground transforms by function identity"
+  },
+  "rustProjection": {
+    "fg": "foreground",
+    "bg": "background",
+    "transformFg": "RenderForegroundTransform with Arc pointer identity",
+    "optionalTrue": "is_expansion_row bool; false represents the absent TypeScript property and true represents its only permitted present value",
+    "sharedGapType": "workdeck_core::ReviewGapPosition, re-exported unchanged by workdeck-review and aliased by workdeck-diff"
+  },
+  "rustParityTests": [
+    "workdeck_diff::row_model::tests::row_union_retains_every_pinned_variant_and_field",
+    "workdeck_diff::row_model::tests::foreground_transform_equality_tracks_function_identity",
+    "workdeck_diff::row_model::tests::stack_cells_cannot_represent_the_split_only_empty_kind",
+    "the existing workdeck-review expansion test suite verifies the relocated shared gap type without behavior changes"
+  ],
+  "normalization": "Rust snake_case field spelling and Option/bool representation only; union variants, admissible cell kinds, ranges, move markers, shared gap identity, span paint data, and deferred transform identity are preserved"
+}

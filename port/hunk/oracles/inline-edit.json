@@ -1,0 +1,127 @@
+{
+  "baselineCommits": [
+    "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+    "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"
+  ],
+  "registrations": {
+    "command": {
+      "id": "edit",
+      "title": "Edit the selected file inline",
+      "key": "ctrl+e"
+    },
+    "view": {
+      "id": "inline-edit",
+      "title": "Inline edit",
+      "hasMode": true,
+      "matchesText": true,
+      "matchesBinary": false
+    }
+  },
+  "readOnlyLayout": {
+    "rows": [
+      {
+        "id": "line:1",
+        "spans": [
+          { "text": " 1 ", "tone": "muted" },
+          { "text": "alpha" }
+        ]
+      },
+      {
+        "id": "line:2",
+        "spans": [
+          { "text": " 2 ", "tone": "muted" },
+          { "text": "beta", "tone": "added" }
+        ],
+        "sourceRanges": [{ "side": "new", "range": [2, 2] }]
+      }
+    ],
+    "hunkRows": [{ "startRow": 1, "endRow": 1 }]
+  },
+  "editingLayout": {
+    "rows": [
+      {
+        "id": "editing",
+        "spans": [
+          {
+            "text": "EDITING — Esc exits · ctrl+s writes",
+            "tone": "accent",
+            "attributes": ["bold"]
+          }
+        ]
+      },
+      {
+        "id": "line:1",
+        "spans": [
+          { "text": " 1 ", "tone": "muted" },
+          { "text": "alpha" }
+        ]
+      },
+      {
+        "id": "line:2",
+        "spans": [
+          { "text": "▎2 ", "tone": "accent" },
+          {
+            "text": "b",
+            "tone": "accent",
+            "attributes": ["underline", "bold"]
+          },
+          { "text": "eta" }
+        ],
+        "sourceRanges": [{ "side": "new", "range": [2, 2] }]
+      }
+    ],
+    "hunkRows": [{ "startRow": 2, "endRow": 2 }]
+  },
+  "typedLayout": {
+    "rows": [
+      {
+        "id": "editing",
+        "spans": [
+          {
+            "text": "EDITING — Esc exits · ctrl+s …",
+            "tone": "accent",
+            "attributes": ["bold"]
+          },
+          {
+            "text": "  MODIFIED",
+            "tone": "added",
+            "attributes": ["bold"]
+          }
+        ]
+      },
+      {
+        "id": "line:1",
+        "spans": [
+          { "text": " 1 ", "tone": "muted" },
+          { "text": "alpha" }
+        ]
+      },
+      {
+        "id": "line:2",
+        "spans": [
+          { "text": "▎2 ", "tone": "accent" },
+          { "text": "z" },
+          {
+            "text": "b",
+            "tone": "accent",
+            "attributes": ["underline", "bold"]
+          },
+          { "text": "eta" }
+        ],
+        "sourceRanges": [{ "side": "new", "range": [2, 2] }]
+      }
+    ],
+    "hunkRows": [{ "startRow": 2, "endRow": 2 }]
+  },
+  "writes": ["alpha\nzbeta\n", "alpha\nzybeta\n"],
+  "notices": [
+    { "message": "Wrote alpha.ts" },
+    { "message": "Wrote alpha.ts" }
+  ],
+  "refreshes": [
+    { "viewId": "inline-edit", "fileId": "alpha" },
+    { "viewId": "inline-edit", "fileId": "alpha" },
+    { "viewId": "inline-edit", "fileId": "alpha" },
+    { "viewId": "inline-edit", "fileId": "alpha" }
+  ]
+}

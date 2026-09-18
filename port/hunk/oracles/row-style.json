@@ -1,0 +1,192 @@
+{
+  "schemaVersion": 1,
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "source": {
+    "path": "src/ui/diff/rowStyle.ts",
+    "baselineBlob": "1ebf77a7f89ce9bce73ec926e4cc2633c123d0c5",
+    "baselineSha256": "2604ea77291761ecf6c949129da429f7c093395257d6d30a4450af1a46897a26",
+    "baselineBytes": 15348,
+    "baselineLines": 460,
+    "stableBlob": "c95dfb82c548932741457e079c1637786214bc49",
+    "stableSha256": "19857fc61181271457ee7c2d6cb2afee6293a7c4d32b1784c444da01f5b49068",
+    "stableBytes": 12800,
+    "stableLines": 374
+  },
+  "test": {
+    "path": "src/ui/diff/rowStyle.test.ts",
+    "baselineBlob": "8a87eff0a77571d38af468cf82d7cb9aedbaefeb",
+    "baselineSha256": "0139ca3a1c4842e794c3d9ff7af52f4d944d0f1b276bba247b451b74c6870fac",
+    "baselineBytes": 7384,
+    "baselineLines": 168,
+    "stableBlob": "bcbb281cf1ed9cef6c249ecdb8a016ab4dfcd12b",
+    "stableSha256": "324fba46cc85b951c7e0c1ecd0c454673a99a7663c21ea8874d6c0dc0173fda8",
+    "stableBytes": 5502,
+    "stableLines": 123
+  },
+  "destinations": [
+    {
+      "path": "crates/workdeck-tui/src/row_style.rs",
+      "sha256": "7d9c0811124e8bd0925dd523192760873b34aa7f9cc5e36900faeab5614c6532"
+    },
+    {
+      "path": "crates/workdeck-tui/src/lib.rs",
+      "sha256": "596043eda721e26b35c22b16c503f501525fe6109a96f79d6ddbe820d0d9d8a7"
+    },
+    {
+      "path": "crates/workdeck-tui/src/static_diff_pager.rs",
+      "sha256": "d747fa21ed3bf4768b6889584a3f3ff00058255ed3764a4ec87e003e5b17eb3f"
+    },
+    {
+      "path": "crates/workdeck-tui/src/line_highlight_paint.rs",
+      "sha256": "58210df90ff839ce262ac2b39a9a3a1e9985662d40e05208af9713977c78ea94"
+    },
+    {
+      "path": "crates/workdeck-tui/src/public_review/tests.rs",
+      "sha256": "4d8d0bf58dbed52c3d354bb8febb21c593b7ebbd5f4dc269fee512fd78b52407"
+    }
+  ],
+  "baselineOracle": {
+    "runtime": "bun 1.3.5",
+    "command": "bun test src/ui/diff/rowStyle.test.ts",
+    "passed": 10,
+    "failed": 0,
+    "expectations": 5206
+  },
+  "stableOracle": {
+    "runtime": "bun 1.3.5",
+    "command": "bun test src/ui/diff/rowStyle.test.ts",
+    "passed": 8,
+    "failed": 0,
+    "expectations": 4101,
+    "relationship": "The pinned main baseline supersedes stable with the dim-tone foreground transform and its two tests. None of the five stable-only commits modifies either rowStyle file."
+  },
+  "sourceCoverage": [
+    {
+      "lines": [1, 31],
+      "bytes": [0, 1056],
+      "destination": "imports, constants, bounded value-keyed memoization, and the invariant rail marker"
+    },
+    {
+      "lines": [32, 80],
+      "bytes": [1056, 2930],
+      "destination": "selection and cursor background blending including transparent terminal surfaces"
+    },
+    {
+      "lines": [81, 154],
+      "bytes": [2930, 5023],
+      "destination": "active and inactive stack, left-split, right-split, and neutral rail colors"
+    },
+    {
+      "lines": [155, 221],
+      "bytes": [5023, 7389],
+      "destination": "stack and split semantic cell palettes including moved and empty cells"
+    },
+    {
+      "lines": [222, 356],
+      "bytes": [7389, 12248],
+      "destination": "hex guards, effective surfaces, tone anchors, readability strengthening, reverse video, and tone memoization"
+    },
+    {
+      "lines": [357, 418],
+      "bytes": [12248, 14127],
+      "destination": "dim foreground transforms with fallbacks, contrast floor, and bounded caching"
+    },
+    {
+      "lines": [419, 460],
+      "bytes": [14127, 15348],
+      "destination": "fixed-width line numbers and stack/split gutter text"
+    }
+  ],
+  "testCoverage": [
+    {
+      "lines": [1, 8],
+      "bytes": [0, 445],
+      "destination": "native theme and color fixtures"
+    },
+    {
+      "lines": [9, 44],
+      "bytes": [445, 1767],
+      "destination": "three cursor-line visibility, readability, and semantic-row tests"
+    },
+    {
+      "lines": [45, 123],
+      "bytes": [1767, 5499],
+      "destination": "five tinted, current, transparent-surface, and contrast tests"
+    },
+    {
+      "lines": [124, 168],
+      "bytes": [5499, 7384],
+      "destination": "two dim foreground and transparent-surface tests"
+    }
+  ],
+  "testMapping": [
+    {
+      "sourceTest": "marks context rows on transparent surfaces",
+      "rustTest": "row_style::tests::cursor_marker_paints_transparent_context_rows"
+    },
+    {
+      "sourceTest": "keeps the marked row readable on every built-in theme",
+      "rustTest": "row_style::tests::cursor_marker_keeps_every_builtin_row_readable"
+    },
+    {
+      "sourceTest": "moves added and removed rows as far as it moves context rows",
+      "rustTest": "row_style::tests::cursor_marker_moves_added_and_context_rows_visibly"
+    },
+    {
+      "sourceTest": "clears a strong visible distance on every line kind of every built-in theme",
+      "rustTest": "row_style::tests::tinted_marks_clear_a_visible_distance_on_every_builtin_row"
+    },
+    {
+      "sourceTest": "paints the current mark as reverse video, unmistakable on every theme",
+      "rustTest": "row_style::tests::current_mark_is_readable_reverse_video_and_dominates_match"
+    },
+    {
+      "sourceTest": "paints a visible readable mark on transparent surfaces",
+      "rustTest": "row_style::tests::tinted_marks_are_visible_and_readable_on_transparent_surfaces"
+    },
+    {
+      "sourceTest": "keeps the current mark reverse video on transparent surfaces",
+      "rustTest": "row_style::tests::current_mark_stays_reverse_video_on_transparent_surfaces"
+    },
+    {
+      "sourceTest": "keeps code readable over every resolved tinted background",
+      "rustTest": "row_style::tests::all_tinted_context_marks_keep_builtin_theme_text_readable"
+    },
+    {
+      "sourceTest": "resolves dim tone to transform foreground toward background with readable contrast",
+      "rustTest": "row_style::tests::dim_tone_moves_syntax_toward_each_row_background_but_stays_readable"
+    },
+    {
+      "sourceTest": "resolves dim tone on transparent surfaces to readable contrast",
+      "rustTest": "row_style::tests::dim_tone_uses_the_assumed_terminal_surface_for_transparency"
+    }
+  ],
+  "nativeValidation": [
+    {
+      "command": "cargo test -p workdeck-tui row_style -- --nocapture",
+      "passed": 13,
+      "failed": 0,
+      "translatedTests": 10,
+      "supportTests": 3
+    },
+    {
+      "command": "cargo test -p workdeck-tui live_diff_cells_use_shared_palettes_and_selection_only_activates_rails",
+      "passed": 1,
+      "failed": 0,
+      "coverage": "live stack and empty split cells, selected and inactive rails, and independent gutter/content paint"
+    },
+    {
+      "command": "cargo test -p workdeck-tui native_cursor_paint_blends_each_ratatui_surface_and_number_mode_stops_at_the_gutter",
+      "passed": 1,
+      "failed": 0,
+      "coverage": "Ratatui row and number cursor paint against prefix, gutter, and content backgrounds"
+    },
+    {
+      "command": "cargo test -p workdeck-tui static_diff_pager -- --nocapture",
+      "passed": 16,
+      "failed": 0,
+      "coverage": "static stack/split consumers use the same palettes, rails, and gutter text"
+    }
+  ]
+}

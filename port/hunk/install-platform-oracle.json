@@ -1,0 +1,202 @@
+[
+  {
+    "pin": "hunk-port/main-2c00f435",
+    "os": "Darwin",
+    "arch": "x86_64",
+    "translated": false,
+    "exit_code": 0,
+    "output": "darwin\nx64\n",
+    "stdout": "darwin\nx64\n",
+    "stderr": ""
+  },
+  {
+    "pin": "hunk-port/main-2c00f435",
+    "os": "Darwin",
+    "arch": "x86_64",
+    "translated": true,
+    "exit_code": 0,
+    "output": "darwin\narm64\n",
+    "stdout": "darwin\narm64\n",
+    "stderr": ""
+  },
+  {
+    "pin": "hunk-port/main-2c00f435",
+    "os": "Darwin",
+    "arch": "amd64",
+    "translated": true,
+    "exit_code": 0,
+    "output": "darwin\narm64\n",
+    "stdout": "darwin\narm64\n",
+    "stderr": ""
+  },
+  {
+    "pin": "hunk-port/main-2c00f435",
+    "os": "Darwin",
+    "arch": "aarch64",
+    "translated": false,
+    "exit_code": 0,
+    "output": "darwin\narm64\n",
+    "stdout": "darwin\narm64\n",
+    "stderr": ""
+  },
+  {
+    "pin": "hunk-port/main-2c00f435",
+    "os": "Linux",
+    "arch": "x86_64",
+    "translated": false,
+    "exit_code": 0,
+    "output": "linux\nx64\n",
+    "stdout": "linux\nx64\n",
+    "stderr": ""
+  },
+  {
+    "pin": "hunk-port/main-2c00f435",
+    "os": "Linux",
+    "arch": "amd64",
+    "translated": false,
+    "exit_code": 0,
+    "output": "linux\nx64\n",
+    "stdout": "linux\nx64\n",
+    "stderr": ""
+  },
+  {
+    "pin": "hunk-port/main-2c00f435",
+    "os": "Linux",
+    "arch": "arm64",
+    "translated": false,
+    "exit_code": 0,
+    "output": "linux\narm64\n",
+    "stdout": "linux\narm64\n",
+    "stderr": ""
+  },
+  {
+    "pin": "hunk-port/main-2c00f435",
+    "os": "Linux",
+    "arch": "aarch64",
+    "translated": false,
+    "exit_code": 0,
+    "output": "linux\narm64\n",
+    "stdout": "linux\narm64\n",
+    "stderr": ""
+  },
+  {
+    "pin": "hunk-port/main-2c00f435",
+    "os": "Linux",
+    "arch": "riscv64",
+    "translated": false,
+    "exit_code": 1,
+    "output": "linux\nerror: Unsupported architecture: riscv64. Install Hunk with `npm install -g hunkdiff` instead.\n",
+    "stdout": "linux\n",
+    "stderr": "error: Unsupported architecture: riscv64. Install Hunk with `npm install -g hunkdiff` instead.\n"
+  },
+  {
+    "pin": "hunk-port/main-2c00f435",
+    "os": "FreeBSD",
+    "arch": "x86_64",
+    "translated": false,
+    "exit_code": 1,
+    "output": "error: Unsupported operating system: FreeBSD. Install Hunk with `npm install -g hunkdiff` instead.\n",
+    "stdout": "",
+    "stderr": "error: Unsupported operating system: FreeBSD. Install Hunk with `npm install -g hunkdiff` instead.\n"
+  },
+  {
+    "pin": "hunk-port/stable-v0.20.1",
+    "os": "Darwin",
+    "arch": "x86_64",
+    "translated": false,
+    "exit_code": 0,
+    "output": "darwin\nx64\n",
+    "stdout": "darwin\nx64\n",
+    "stderr": ""
+  },
+  {
+    "pin": "hunk-port/stable-v0.20.1",
+    "os": "Darwin",
+    "arch": "x86_64",
+    "translated": true,
+    "exit_code": 0,
+    "output": "darwin\narm64\n",
+    "stdout": "darwin\narm64\n",
+    "stderr": ""
+  },
+  {
+    "pin": "hunk-port/stable-v0.20.1",
+    "os": "Darwin",
+    "arch": "amd64",
+    "translated": true,
+    "exit_code": 0,
+    "output": "darwin\narm64\n",
+    "stdout": "darwin\narm64\n",
+    "stderr": ""
+  },
+  {
+    "pin": "hunk-port/stable-v0.20.1",
+    "os": "Darwin",
+    "arch": "aarch64",
+    "translated": false,
+    "exit_code": 0,
+    "output": "darwin\narm64\n",
+    "stdout": "darwin\narm64\n",
+    "stderr": ""
+  },
+  {
+    "pin": "hunk-port/stable-v0.20.1",
+    "os": "Linux",
+    "arch": "x86_64",
+    "translated": false,
+    "exit_code": 0,
+    "output": "linux\nx64\n",
+    "stdout": "linux\nx64\n",
+    "stderr": ""
+  },
+  {
+    "pin": "hunk-port/stable-v0.20.1",
+    "os": "Linux",
+    "arch": "amd64",
+    "translated": false,
+    "exit_code": 0,
+    "output": "linux\nx64\n",
+    "stdout": "linux\nx64\n",
+    "stderr": ""
+  },
+  {
+    "pin": "hunk-port/stable-v0.20.1",
+    "os": "Linux",
+    "arch": "arm64",
+    "translated": false,
+    "exit_code": 0,
+    "output": "linux\narm64\n",
+    "stdout": "linux\narm64\n",
+    "stderr": ""
+  },
+  {
+    "pin": "hunk-port/stable-v0.20.1",
+    "os": "Linux",
+    "arch": "aarch64",
+    "translated": false,
+    "exit_code": 0,
+    "output": "linux\narm64\n",
+    "stdout": "linux\narm64\n",
+    "stderr": ""
+  },
+  {
+    "pin": "hunk-port/stable-v0.20.1",
+    "os": "Linux",
+    "arch": "riscv64",
+    "translated": false,
+    "exit_code": 1,
+    "output": "linux\nerror: Unsupported architecture: riscv64. Install Hunk with `npm install -g hunkdiff` instead.\n",
+    "stdout": "linux\n",
+    "stderr": "error: Unsupported architecture: riscv64. Install Hunk with `npm install -g hunkdiff` instead.\n"
+  },
+  {
+    "pin": "hunk-port/stable-v0.20.1",
+    "os": "FreeBSD",
+    "arch": "x86_64",
+    "translated": false,
+    "exit_code": 1,
+    "output": "error: Unsupported operating system: FreeBSD. Install Hunk with `npm install -g hunkdiff` instead.\n",
+    "stdout": "",
+    "stderr": "error: Unsupported operating system: FreeBSD. Install Hunk with `npm install -g hunkdiff` instead.\n"
+  }
+]

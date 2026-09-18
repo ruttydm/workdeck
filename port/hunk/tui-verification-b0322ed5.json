@@ -1,0 +1,20 @@
+{
+  "commit": "b0322ed554307f50f3f462b4b6bc46f289e187e6",
+  "worktree": "clean",
+  "command": "CARGO_INCREMENTAL=0 cargo test -p workdeck-tui --lib",
+  "host": "Darwin arm64",
+  "rustc": "1.95.0 (59807616e 2026-04-14)",
+  "cargo": "1.95.0 (f2d3ce0bd 2026-03-21)",
+  "exitCode": 0,
+  "passed": 1102,
+  "failed": 0,
+  "ignored": 0,
+  "filteredOut": 0,
+  "testDurationSeconds": 50.93,
+  "scope": "Complete TUI library suite after shared runtime snapshots, borrowed producer initialization and seeded file projection cache.",
+  "limitations": [
+    "Not full workspace or all-targets validation.",
+    "Not native cross-platform CI or benchmark acceptance.",
+    "Does not complete remaining source-ledger intervals."
+  ]
+}

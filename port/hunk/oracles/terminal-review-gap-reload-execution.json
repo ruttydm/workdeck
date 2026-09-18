@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "kind": "pinned-test-execution",
+  "description": "Execution evidence for two source reload tests, not a complete terminal-review oracle or benchmark.",
+  "runtime": "bun 1.3.14 (0d9b296a)",
+  "arguments": ["test", "src/ui/hooks/useTerminalReview.test.tsx", "--test-name-pattern", "a soft reload that (changed nothing|changed the file)"],
+  "runs": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\nsrc/ui/hooks/useTerminalReview.test.tsx:\n(pass) useTerminalReview > a soft reload that changed nothing keeps the reviewer's expanded gap open [41.96ms]\n(pass) useTerminalReview > a soft reload that changed the file invalidates cached source and expansion [21.62ms]\n\n 2 pass\n 52 filtered out\n 0 fail\n 22 expect() calls\nRan 2 tests across 1 file. [493.00ms]\n"
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\nsrc/ui/hooks/useTerminalReview.test.tsx:\n(pass) useTerminalReview > a soft reload that changed nothing keeps the reviewer's expanded gap open [38.30ms]\n(pass) useTerminalReview > a soft reload that changed the file invalidates cached source and expansion [16.70ms]\n\n 2 pass\n 51 filtered out\n 0 fail\n 22 expect() calls\nRan 2 tests across 1 file. [345.00ms]\n"
+    }
+  ]
+}

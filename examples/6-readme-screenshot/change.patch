@@ -1,0 +1,192 @@
+diff --git a/src/components/review_summary_card.rs b/src/components/review_summary_card.rs
+index 69c248d..ebf6a53 100644
+--- a/src/components/review_summary_card.rs
++++ b/src/components/review_summary_card.rs
+@@ -5,38 +5,40 @@ use ratatui::{
+     widgets::{Block, Padding, Paragraph, Widget},
+ };
+
++use super::review_copy::{review_button_label, review_timestamp_label};
++
+ const BORDER: Color = Color::Rgb(0x33, 0x41, 0x55);
+ const BACKGROUND: Color = Color::Rgb(0x0f, 0x17, 0x2a);
+-const TITLE: Color = Color::Rgb(0xf8, 0xfa, 0xfc);
+-const NOTE: Color = Color::Rgb(0x94, 0xa3, 0xb8);
+-const CHANGES: Color = Color::Rgb(0x38, 0xbd, 0xf8);
+-const SYNCED: Color = Color::Rgb(0x64, 0x74, 0x8b);
++const HEADING: Color = Color::Rgb(0xf8, 0xfa, 0xfc);
++const SUPPORTING_TEXT: Color = Color::Rgb(0x94, 0xa3, 0xb8);
++const FILE_COUNT: Color = Color::Rgb(0x38, 0xbd, 0xf8);
++const UPDATED: Color = Color::Rgb(0x64, 0x74, 0x8b);
+
+ #[derive(Clone, Copy)]
+-pub struct ChangeSummaryCardProps<'a> {
+-    pub title: &'a str,
+-    pub note: &'a str,
+-    pub changes: usize,
+-    pub last_synced: &'a str,
+-    pub on_open: fn(),
++pub struct ReviewSummaryCardProps<'a> {
++    pub heading: &'a str,
++    pub supporting_text: &'a str,
++    pub file_count: usize,
++    pub last_updated: &'a str,
++    pub on_review: fn(),
+ }
+
+-pub struct ChangeSummaryCard<'a> {
+-    props: ChangeSummaryCardProps<'a>,
++pub struct ReviewSummaryCard<'a> {
++    props: ReviewSummaryCardProps<'a>,
+ }
+
+-impl<'a> ChangeSummaryCard<'a> {
++impl<'a> ReviewSummaryCard<'a> {
+     #[must_use]
+-    pub const fn new(props: ChangeSummaryCardProps<'a>) -> Self {
++    pub const fn new(props: ReviewSummaryCardProps<'a>) -> Self {
+         Self { props }
+     }
+
+-    pub fn open(&self) {
+-        (self.props.on_open)();
++    pub fn review(&self) {
++        (self.props.on_review)();
+     }
+ }
+
+-impl Widget for &ChangeSummaryCard<'_> {
++impl Widget for &ReviewSummaryCard<'_> {
+     fn render(self, area: Rect, buffer: &mut Buffer) {
+         let block = Block::bordered()
+             .border_style(Style::default().fg(BORDER))
+@@ -45,16 +47,28 @@ impl Widget for &ChangeSummaryCard<'_> {
+         let inner = block.inner(area);
+         block.render(area, buffer);
+
+-        render_row(buffer, inner, 0, self.props.title, TITLE);
+-        render_row(buffer, inner, 1, self.props.note, NOTE);
++        render_row(buffer, inner, 0, self.props.heading, HEADING);
++        render_row(
++            buffer,
++            inner,
++            2,
++            self.props.supporting_text,
++            SUPPORTING_TEXT,
++        );
+         render_metadata(
+             buffer,
+             inner,
+-            3,
+-            &format!("{} files changed", self.props.changes),
+-            &format!("Synced {}", self.props.last_synced),
++            4,
++            &format!("{} files ready for review", self.props.file_count),
++            &review_timestamp_label(self.props.last_updated),
++        );
++        render_row(
++            buffer,
++            inner,
++            6,
++            &format!("[ {} ]", review_button_label(self.props.file_count)),
++            HEADING,
+         );
+-        render_row(buffer, inner, 4, "[ Open diff ]", TITLE);
+     }
+ }
+
+@@ -72,10 +86,10 @@ fn render_metadata(buffer: &mut Buffer, area: Rect, offset: u16, left: &str, rig
+     }
+     let row = Rect::new(area.x, area.y + offset, area.width, 1);
+     Paragraph::new(left)
+-        .style(Style::default().fg(CHANGES))
++        .style(Style::default().fg(FILE_COUNT))
+         .render(row, buffer);
+     Paragraph::new(right)
+         .alignment(Alignment::Right)
+-        .style(Style::default().fg(SYNCED))
++        .style(Style::default().fg(UPDATED))
+         .render(row, buffer);
+ }
+diff --git a/src/lib/review_copy.rs b/src/lib/review_copy.rs
+new file mode 100644
+index 0000000..87e6184
+--- /dev/null
++++ b/src/lib/review_copy.rs
+@@ -0,0 +1,13 @@
++#[must_use]
++pub fn review_button_label(file_count: usize) -> String {
++    if file_count == 1 {
++        "Review 1 file".to_owned()
++    } else {
++        format!("Review {file_count} files")
++    }
++}
++
++#[must_use]
++pub fn review_timestamp_label(last_updated: &str) -> String {
++    format!("Updated {last_updated}")
++}
+diff --git a/test/review_summary_card_demo.rs b/test/review_summary_card_demo.rs
+index 1bcb277..660e4d9 100644
+--- a/test/review_summary_card_demo.rs
++++ b/test/review_summary_card_demo.rs
+@@ -2,38 +2,41 @@ use std::sync::atomic::{AtomicBool, Ordering};
+
+ use ratatui::{buffer::Buffer, layout::Rect, widgets::Widget};
+
+-use crate::readme_screenshot_before::review_summary_card::{
+-    ChangeSummaryCard, ChangeSummaryCardProps,
++use crate::readme_screenshot_after::{
++    review_copy::{review_button_label, review_timestamp_label},
++    review_summary_card::{ReviewSummaryCard, ReviewSummaryCardProps},
+ };
+
+-static OPENED: AtomicBool = AtomicBool::new(false);
++static REVIEWED: AtomicBool = AtomicBool::new(false);
+
+-fn open() {
+-    OPENED.store(true, Ordering::SeqCst);
++fn review() {
++    REVIEWED.store(true, Ordering::SeqCst);
+ }
+
+ #[test]
+-fn keeps_the_old_sync_oriented_labels() {
+-    OPENED.store(false, Ordering::SeqCst);
++fn switches_the_card_copy_to_review_oriented_labels() {
++    REVIEWED.store(false, Ordering::SeqCst);
+     let area = Rect::new(0, 0, 64, 13);
+     let mut buffer = Buffer::empty(area);
+-    let card = ChangeSummaryCard::new(ChangeSummaryCardProps {
+-        title: "Review summary",
+-        note: "Three changes",
+-        changes: 3,
+-        last_synced: "2m ago",
+-        on_open: open,
++    let card = ReviewSummaryCard::new(ReviewSummaryCardProps {
++        heading: "Review summary",
++        supporting_text: "Three changes",
++        file_count: 3,
++        last_updated: "2m ago",
++        on_review: review,
+     });
+
+     (&card).render(area, &mut buffer);
+-    card.open();
++    card.review();
+
+     let contents = buffer
+         .content
+         .iter()
+         .map(|cell| cell.symbol())
+         .collect::<String>();
+-    assert!(contents.contains("[ Open diff ]"));
+-    assert!(contents.contains("Synced 2m ago"));
+-    assert!(OPENED.load(Ordering::SeqCst));
++    assert!(contents.contains("[ Review 3 files ]"));
++    assert!(contents.contains("Updated 2m ago"));
++    assert_eq!(review_button_label(3), "Review 3 files");
++    assert_eq!(review_timestamp_label("2m ago"), "Updated 2m ago");
++    assert!(REVIEWED.load(Ordering::SeqCst));
+ }

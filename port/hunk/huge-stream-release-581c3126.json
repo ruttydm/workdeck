@@ -1,0 +1,70 @@
+{
+  "commit": "581c3126b3c22fd0c10e7f070fde634555e1b97e",
+  "worktree": "clean",
+  "host": "Darwin arm64",
+  "profile": "release (optimized)",
+  "buildCommand": "CARGO_INCREMENTAL=0 cargo build --release -p xtask",
+  "command": "target/release/xtask benchmark huge-stream-diagnostic",
+  "binarySha256": "962c6fe6b05a4cb99dac6751b3d51abc8f6950f59de44e86f9f4e7b3ac8ce76a",
+  "sharedReportFields": {
+    "diagnosticOnly": true,
+    "files": 1001,
+    "linesPerFile": 300,
+    "giantFileLines": 50000,
+    "sequence": "one renderer: first frame, two settle frames, six scroll ticks, four navigation presses",
+    "memorySemantics": "Current native RSS and available malloc usage; not peak RSS or JavaScript heapUsed",
+    "peakMemorySemantics": "Process lifetime peak resident/working-set bytes, including fixture construction; not JavaScript heapUsed"
+  },
+  "runs": [
+    {
+      "exitCode": 0,
+      "firstFrameMs": 43.705709,
+      "rendererSetupMs": 676.603292,
+      "beforeRenderer": {"rssBytes": 215613440, "mallocInUseBytes": 110010672},
+      "afterRenderer": {"rssBytes": 1017167872, "mallocInUseBytes": 355696048},
+      "peakBeforeRendererBytes": 215613440,
+      "peakAfterRendererBytes": 1090945024,
+      "scrollTickMs": [11.586416, 12.879667, 11.218458, 11.455583, 11.184958, 12.496334],
+      "navigationPressMs": [31.942541, 32.523, 33.790958, 32.684458],
+      "afterFirstFrame": {"rssBytes": 1049001984, "mallocInUseBytes": 363961536},
+      "afterNavigation": {"rssBytes": 1058521088, "mallocInUseBytes": 364687808},
+      "peakProcessRssBytes": 1090945024,
+      "fixtureBuildMs": 752.844125
+    },
+    {
+      "exitCode": 0,
+      "firstFrameMs": 45.786375,
+      "rendererSetupMs": 701.132792,
+      "beforeRenderer": {"rssBytes": 211943424, "mallocInUseBytes": 109993152},
+      "afterRenderer": {"rssBytes": 1015578624, "mallocInUseBytes": 355684432},
+      "peakBeforeRendererBytes": 211943424,
+      "peakAfterRendererBytes": 1089372160,
+      "scrollTickMs": [11.912374999999999, 12.91325, 11.480083, 11.677666, 11.439, 12.384875],
+      "navigationPressMs": [32.941375, 33.689292, 33.780708, 33.069291],
+      "afterFirstFrame": {"rssBytes": 1046429696, "mallocInUseBytes": 363948544},
+      "afterNavigation": {"rssBytes": 1058488320, "mallocInUseBytes": 364671488},
+      "peakProcessRssBytes": 1089372160,
+      "fixtureBuildMs": 749.7205839999999
+    },
+    {
+      "exitCode": 0,
+      "firstFrameMs": 44.742375,
+      "rendererSetupMs": 712.591125,
+      "beforeRenderer": {"rssBytes": 211959808, "mallocInUseBytes": 109970160},
+      "afterRenderer": {"rssBytes": 1015988224, "mallocInUseBytes": 355667280},
+      "peakBeforeRendererBytes": 211959808,
+      "peakAfterRendererBytes": 1089781760,
+      "scrollTickMs": [11.861417000000001, 13.031166, 11.274084, 11.11175, 11.387375, 12.706834],
+      "navigationPressMs": [32.108167, 32.709500000000006, 34.523083, 33.090292],
+      "afterFirstFrame": {"rssBytes": 1047511040, "mallocInUseBytes": 363960000},
+      "afterNavigation": {"rssBytes": 1056571392, "mallocInUseBytes": 364667808},
+      "peakProcessRssBytes": 1089781760,
+      "fixtureBuildMs": 753.370417
+    }
+  ],
+  "limitations": [
+    "Three sequential fresh native processes, not interleaved with source or the preceding native build; host activity was uncontrolled.",
+    "The workload does not demand the deferred full extension-file list; such a read still incurs projection and owned-result costs.",
+    "Source/native render and async-flush equivalence remains unverified; no release benchmark acceptance is claimed."
+  ]
+}

@@ -1,0 +1,79 @@
+{
+  "generator": "Pinned Hunk large radix date formatting under Bun 1.3.14",
+  "results": [
+    {
+      "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "cases": [
+        {
+          "input": "2026-08-0x20000000000001",
+          "expected": "August 9007199254740992, 2026"
+        },
+        {
+          "input": "2026-08-0x20000000000003",
+          "expected": "August 9007199254740996, 2026"
+        },
+        {
+          "input": "2026-08-0x123456789abcdef123456789abcdef",
+          "expected": "August 9.452287970026068e+34, 2026"
+        },
+        {
+          "input": "2026-08-0xffffffffffffffffffffffffffff",
+          "expected": "August 5.192296858534828e+33, 2026"
+        },
+        {
+          "input": "2026-08-0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "expected": "August Infinity, 2026"
+        },
+        {
+          "input": "2026-08-0x10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "expected": "August Infinity, 2026"
+        },
+        {
+          "input": "2026-08-0b1000000000000000000000000000000000000000000000000000011",
+          "expected": "August 18014398509481988, 2026"
+        },
+        {
+          "input": "2026-08-0o17777777777777777777777",
+          "expected": "August 147573952589676410000, 2026"
+        }
+      ]
+    },
+    {
+      "baseline": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "cases": [
+        {
+          "input": "2026-08-0x20000000000001",
+          "expected": "August 9007199254740992, 2026"
+        },
+        {
+          "input": "2026-08-0x20000000000003",
+          "expected": "August 9007199254740996, 2026"
+        },
+        {
+          "input": "2026-08-0x123456789abcdef123456789abcdef",
+          "expected": "August 9.452287970026068e+34, 2026"
+        },
+        {
+          "input": "2026-08-0xffffffffffffffffffffffffffff",
+          "expected": "August 5.192296858534828e+33, 2026"
+        },
+        {
+          "input": "2026-08-0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "expected": "August Infinity, 2026"
+        },
+        {
+          "input": "2026-08-0x10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "expected": "August Infinity, 2026"
+        },
+        {
+          "input": "2026-08-0b1000000000000000000000000000000000000000000000000000011",
+          "expected": "August 18014398509481988, 2026"
+        },
+        {
+          "input": "2026-08-0o17777777777777777777777",
+          "expected": "August 147573952589676410000, 2026"
+        }
+      ]
+    }
+  ]
+}

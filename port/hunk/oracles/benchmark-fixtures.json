@@ -1,0 +1,137 @@
+{
+  "baselines": [
+    "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+    "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"
+  ],
+  "runtime": "Bun 1.3.14 in disposable pinned checkouts",
+  "source": "benchmarks/lib/fixtures.ts",
+  "blob": "f7258e4e0ac8994481d46461321385d191db9554",
+"numeric_cases": [
+  {
+    "options": {
+      "fileCount": 1.8,
+      "lines": 7.8,
+      "changedStart": -2,
+      "changedLines": 4
+    },
+    "before": "export function bench1_1(value: number) { return value + 1; }\nexport function bench1_2(value: number) { return value + 2; }\nexport function bench1_3(value: number) { return value + 3; }\nexport function bench1_4(value: number) { return value + 4; }\nexport function bench1_5(value: number) { return value + 5; }\nexport function bench1_6(value: number) { return value + 6; }\nexport function bench1_7(value: number) { return value + 7; }\n",
+    "after": "export function bench1_1(value: number) { return value * 1 + 1; }\nexport function bench1_2(value: number) { return value * 2 + 1; }\nexport function bench1_3(value: number) { return value + 3; }\nexport function bench1_4(value: number) { return value + 4; }\nexport function bench1_5(value: number) { return value + 5; }\nexport function bench1_6(value: number) { return value + 6; }\nexport function bench1_7(value: number) { return value + 7; }\n",
+    "patch": "--- src/bench1.ts\t\n+++ src/bench1.ts\t\n@@ -1,5 +1,5 @@\n-export function bench1_1(value: number) { return value + 1; }\n-export function bench1_2(value: number) { return value + 2; }\n+export function bench1_1(value: number) { return value * 1 + 1; }\n+export function bench1_2(value: number) { return value * 2 + 1; }\n export function bench1_3(value: number) { return value + 3; }\n export function bench1_4(value: number) { return value + 4; }\n export function bench1_5(value: number) { return value + 5; }"
+  },
+  {
+    "options": {
+      "fileCount": -2,
+      "lines": 3
+    },
+    "before": "export function bench1_1(value: number) { return value + 1; }\nexport function bench1_2(value: number) { return value + 2; }\nexport function bench1_3(value: number) { return value + 3; }\n",
+    "after": "export function bench1_1(value: number) { return value + 1; }\nexport function bench1_2(value: number) { return value * 2 + 1; }\nexport function bench1_3(value: number) { return value * 3 + 1; }\n",
+    "patch": ""
+  },
+  {
+    "options": {
+      "fileCount": 1,
+      "lines": -4
+    },
+    "before": "",
+    "after": "",
+    "patch": "--- src/bench1.ts\t\n+++ src/bench1.ts"
+  },
+  {
+    "options": {
+      "fileCount": 1,
+      "lines": 5,
+      "changedStart": 1.5,
+      "changedLines": 1.75
+    },
+    "before": "export function bench1_1(value: number) { return value + 1; }\nexport function bench1_2(value: number) { return value + 2; }\nexport function bench1_3(value: number) { return value + 3; }\nexport function bench1_4(value: number) { return value + 4; }\nexport function bench1_5(value: number) { return value + 5; }\n",
+    "after": "export function bench1_1(value: number) { return value + 1; }\nexport function bench1_2(value: number) { return value + 2; }\nexport function bench1_3(value: number) { return value * 3 + 1; }\nexport function bench1_4(value: number) { return value * 4 + 1; }\nexport function bench1_5(value: number) { return value + 5; }\n",
+    "patch": "--- src/bench1.ts\t\n+++ src/bench1.ts\t\n@@ -1,5 +1,5 @@\n export function bench1_1(value: number) { return value + 1; }\n export function bench1_2(value: number) { return value + 2; }\n-export function bench1_3(value: number) { return value + 3; }\n-export function bench1_4(value: number) { return value + 4; }\n+export function bench1_3(value: number) { return value * 3 + 1; }\n+export function bench1_4(value: number) { return value * 4 + 1; }\n export function bench1_5(value: number) { return value + 5; }"
+  },
+  {
+    "options": {
+      "fileCount": 1,
+      "lines": 5,
+      "changedStart": 2,
+      "changedLines": -1
+    },
+    "before": "export function bench1_1(value: number) { return value + 1; }\nexport function bench1_2(value: number) { return value + 2; }\nexport function bench1_3(value: number) { return value + 3; }\nexport function bench1_4(value: number) { return value + 4; }\nexport function bench1_5(value: number) { return value + 5; }\n",
+    "after": "export function bench1_1(value: number) { return value + 1; }\nexport function bench1_2(value: number) { return value + 2; }\nexport function bench1_3(value: number) { return value + 3; }\nexport function bench1_4(value: number) { return value + 4; }\nexport function bench1_5(value: number) { return value + 5; }\n",
+    "patch": "--- src/bench1.ts\t\n+++ src/bench1.ts"
+  }
+],
+  "cases": [
+    {
+      "options": {
+        "fileCount": 2,
+        "lines": 12
+      },
+      "before": "export function bench1_1(value: number) { return value + 1; }\nexport function bench1_2(value: number) { return value + 2; }\nexport function bench1_3(value: number) { return value + 3; }\nexport function bench1_4(value: number) { return value + 4; }\nexport function bench1_5(value: number) { return value + 5; }\nexport function bench1_6(value: number) { return value + 6; }\nexport function bench1_7(value: number) { return value + 7; }\nexport function bench1_8(value: number) { return value + 8; }\nexport function bench1_9(value: number) { return value + 9; }\nexport function bench1_10(value: number) { return value + 10; }\nexport function bench1_11(value: number) { return value + 11; }\nexport function bench1_12(value: number) { return value + 12; }\n",
+      "after": "export function bench1_1(value: number) { return value + 1; }\nexport function bench1_2(value: number) { return value + 2; }\nexport function bench1_3(value: number) { return value + 3; }\nexport function bench1_4(value: number) { return value + 4; }\nexport function bench1_5(value: number) { return value * 5 + 1; }\nexport function bench1_6(value: number) { return value * 6 + 1; }\nexport function bench1_7(value: number) { return value * 7 + 1; }\nexport function bench1_8(value: number) { return value * 8 + 1; }\nexport function bench1_9(value: number) { return value + 9; }\nexport function bench1_10(value: number) { return value + 10; }\nexport function bench1_11(value: number) { return value + 11; }\nexport function bench1_12(value: number) { return value + 12; }\n",
+      "patch": "--- src/bench1.ts\t\n+++ src/bench1.ts\t\n@@ -2,10 +2,10 @@\n export function bench1_2(value: number) { return value + 2; }\n export function bench1_3(value: number) { return value + 3; }\n export function bench1_4(value: number) { return value + 4; }\n-export function bench1_5(value: number) { return value + 5; }\n-export function bench1_6(value: number) { return value + 6; }\n-export function bench1_7(value: number) { return value + 7; }\n-export function bench1_8(value: number) { return value + 8; }\n+export function bench1_5(value: number) { return value * 5 + 1; }\n+export function bench1_6(value: number) { return value * 6 + 1; }\n+export function bench1_7(value: number) { return value * 7 + 1; }\n+export function bench1_8(value: number) { return value * 8 + 1; }\n export function bench1_9(value: number) { return value + 9; }\n export function bench1_10(value: number) { return value + 10; }\n export function bench1_11(value: number) { return value + 11; }\n--- src/bench2.ts\t\n+++ src/bench2.ts\t\n@@ -2,10 +2,10 @@\n export function bench2_2(value: number) { return value + 2; }\n export function bench2_3(value: number) { return value + 3; }\n export function bench2_4(value: number) { return value + 4; }\n-export function bench2_5(value: number) { return value + 5; }\n-export function bench2_6(value: number) { return value + 6; }\n-export function bench2_7(value: number) { return value + 7; }\n-export function bench2_8(value: number) { return value + 8; }\n+export function bench2_5(value: number) { return value * 5 + 2; }\n+export function bench2_6(value: number) { return value * 6 + 2; }\n+export function bench2_7(value: number) { return value * 7 + 2; }\n+export function bench2_8(value: number) { return value * 8 + 2; }\n export function bench2_9(value: number) { return value + 9; }\n export function bench2_10(value: number) { return value + 10; }\n export function bench2_11(value: number) { return value + 11; }"
+    },
+    {
+      "options": {
+        "fileCount": 1,
+        "lines": 8,
+        "changedStart": 0,
+        "changedLines": 2,
+        "extension": "rs",
+        "prefix": "nested/demo"
+      },
+      "before": "export function bench1_1(value: number) { return value + 1; }\nexport function bench1_2(value: number) { return value + 2; }\nexport function bench1_3(value: number) { return value + 3; }\nexport function bench1_4(value: number) { return value + 4; }\nexport function bench1_5(value: number) { return value + 5; }\nexport function bench1_6(value: number) { return value + 6; }\nexport function bench1_7(value: number) { return value + 7; }\nexport function bench1_8(value: number) { return value + 8; }\n",
+      "after": "export function bench1_1(value: number) { return value * 1 + 1; }\nexport function bench1_2(value: number) { return value * 2 + 1; }\nexport function bench1_3(value: number) { return value + 3; }\nexport function bench1_4(value: number) { return value + 4; }\nexport function bench1_5(value: number) { return value + 5; }\nexport function bench1_6(value: number) { return value + 6; }\nexport function bench1_7(value: number) { return value + 7; }\nexport function bench1_8(value: number) { return value + 8; }\n",
+      "patch": "--- nested/demo1.rs\t\n+++ nested/demo1.rs\t\n@@ -1,5 +1,5 @@\n-export function bench1_1(value: number) { return value + 1; }\n-export function bench1_2(value: number) { return value + 2; }\n+export function bench1_1(value: number) { return value * 1 + 1; }\n+export function bench1_2(value: number) { return value * 2 + 1; }\n export function bench1_3(value: number) { return value + 3; }\n export function bench1_4(value: number) { return value + 4; }\n export function bench1_5(value: number) { return value + 5; }"
+    },
+    {
+      "options": {
+        "fileCount": 1,
+        "lines": 4,
+        "changedStart": 1,
+        "changedLines": 0
+      },
+      "before": "export function bench1_1(value: number) { return value + 1; }\nexport function bench1_2(value: number) { return value + 2; }\nexport function bench1_3(value: number) { return value + 3; }\nexport function bench1_4(value: number) { return value + 4; }\n",
+      "after": "export function bench1_1(value: number) { return value + 1; }\nexport function bench1_2(value: number) { return value + 2; }\nexport function bench1_3(value: number) { return value + 3; }\nexport function bench1_4(value: number) { return value + 4; }\n",
+      "patch": "--- src/bench1.ts\t\n+++ src/bench1.ts"
+    },
+    {
+      "options": {
+        "fileCount": 1,
+        "lines": 0
+      },
+      "before": "",
+      "after": "",
+      "patch": "--- src/bench1.ts\t\n+++ src/bench1.ts"
+    },
+    {
+      "options": {
+        "fileCount": 0,
+        "lines": 10
+      },
+      "before": "export function bench1_1(value: number) { return value + 1; }\nexport function bench1_2(value: number) { return value + 2; }\nexport function bench1_3(value: number) { return value + 3; }\nexport function bench1_4(value: number) { return value + 4; }\nexport function bench1_5(value: number) { return value + 5; }\nexport function bench1_6(value: number) { return value + 6; }\nexport function bench1_7(value: number) { return value + 7; }\nexport function bench1_8(value: number) { return value + 8; }\nexport function bench1_9(value: number) { return value + 9; }\nexport function bench1_10(value: number) { return value + 10; }\n",
+      "after": "export function bench1_1(value: number) { return value + 1; }\nexport function bench1_2(value: number) { return value + 2; }\nexport function bench1_3(value: number) { return value + 3; }\nexport function bench1_4(value: number) { return value * 4 + 1; }\nexport function bench1_5(value: number) { return value * 5 + 1; }\nexport function bench1_6(value: number) { return value * 6 + 1; }\nexport function bench1_7(value: number) { return value * 7 + 1; }\nexport function bench1_8(value: number) { return value + 8; }\nexport function bench1_9(value: number) { return value + 9; }\nexport function bench1_10(value: number) { return value + 10; }\n",
+      "patch": ""
+    },
+    {
+      "options": {
+        "fileCount": 1,
+        "lines": 3,
+        "changedStart": 9,
+        "changedLines": 2
+      },
+      "before": "export function bench1_1(value: number) { return value + 1; }\nexport function bench1_2(value: number) { return value + 2; }\nexport function bench1_3(value: number) { return value + 3; }\n",
+      "after": "export function bench1_1(value: number) { return value + 1; }\nexport function bench1_2(value: number) { return value + 2; }\nexport function bench1_3(value: number) { return value + 3; }\n",
+      "patch": "--- src/bench1.ts\t\n+++ src/bench1.ts"
+    },
+    {
+      "options": {
+        "fileCount": 1,
+        "lines": 3,
+        "prefix": "src/日本 語",
+        "extension": "txt"
+      },
+      "before": "export function bench1_1(value: number) { return value + 1; }\nexport function bench1_2(value: number) { return value + 2; }\nexport function bench1_3(value: number) { return value + 3; }\n",
+      "after": "export function bench1_1(value: number) { return value + 1; }\nexport function bench1_2(value: number) { return value * 2 + 1; }\nexport function bench1_3(value: number) { return value * 3 + 1; }\n",
+      "patch": "--- src/日本 語1.txt\t\n+++ src/日本 語1.txt\t\n@@ -1,3 +1,3 @@\n export function bench1_1(value: number) { return value + 1; }\n-export function bench1_2(value: number) { return value + 2; }\n-export function bench1_3(value: number) { return value + 3; }\n+export function bench1_2(value: number) { return value * 2 + 1; }\n+export function bench1_3(value: number) { return value * 3 + 1; }"
+    }
+  ]
+}

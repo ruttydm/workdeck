@@ -1,0 +1,47 @@
+name: Website
+
+env:
+  SKIP_INSTALL_SIMPLE_GIT_HOOKS: "1"
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: website-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Check and build native website
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install Zola
+        uses: taiki-e/install-action@v2
+        with:
+          tool: zola@0.23.4
+      - name: Fetch pinned upstream evidence for website checks
+        run: |
+          git fetch --no-tags https://github.com/ruttydm/workdeck.git 'refs/upstream/hunk/archive/*:refs/upstream/hunk/archive/*' 'refs/tags/hunk-port/*:refs/tags/hunk-port/*'
+          cargo xtask port audit-upstream
+          cargo xtask port fetch
+      - name: Check generated routes and static links
+        run: cargo xtask site check
+      - name: Build generated Markdown exports
+        run: cargo xtask site build
+      - name: Run native preview isolation checks
+        run: cargo xtask site preview-check
+      - name: Verify website-owned Rust tests
+        run: cargo test --locked -p xtask site_

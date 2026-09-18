@@ -1,0 +1,31 @@
+{
+  "sourcePath": "src/ui/AppHost.interactions.test.tsx",
+  "sourceTest": "theme selector mouse wheel scrolls the window without changing the preview",
+  "baselineInterval": {
+    "byteStart": 29111,
+    "byteEnd": 30255,
+    "lineStart": 952,
+    "lineEnd": 987,
+    "sha256": "491edda2ea770a6f60d5e93fcb31d5967e865b2b2cfe32f09bdb3e1f487a8cd1"
+  },
+  "runs": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/main/src/ui/AppHost.interactions.test.tsx:\n(pass) App interactions > theme selector mouse wheel scrolls the window without changing the preview [268.03ms]\n\n 1 pass\n 75 filtered out\n 0 fail\n 2 expect() calls\nRan 1 test across 1 file. [895.00ms]\n"
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/stable/src/ui/AppHost.interactions.test.tsx:\n(pass) App interactions > theme selector mouse wheel scrolls the window without changing the preview [211.46ms]\n\n 1 pass\n 73 filtered out\n 0 fail\n 2 expect() calls\nRan 1 test across 1 file. [641.00ms]\n"
+    }
+  ],
+  "native": {
+    "test": "tests::theme_selector_wheel_scrolls_catalog_without_changing_preview",
+    "passed": 1,
+    "failed": 0,
+    "filtered": 1148,
+    "seconds": 0.79
+  },
+  "scope": "240x24 single-file review. Open selector, locate default theme row, send ScrollDown at column 120. Source asserts only initial gruvbox absence and valid row; its post-scroll waitForFrame predicate is not an assertion. Native additionally asserts gruvbox appears, default remains highlighted, dimmed is not highlighted, and actual theme id stays default. These stronger native checks are not independent frozen post-scroll source frames. No full cell or raw mouse protocol parity claimed."
+}

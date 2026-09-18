@@ -1,0 +1,7 @@
+id = "app-host-extension-sidebar-probe"
+name = "AppHost extension sidebar parity probe"
+version = "0.1.0"
+api_version = 1
+executable = "bin/workdeck-example-app-host-extension-sidebar-probe-extension"
+capabilities = ["commands", "panes", "events", "notifications", "review-navigation", "configuration"]
+description = "Compiled fixture for mounted pane ownership, availability, keybindings, selection, and scrolling"

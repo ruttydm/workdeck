@@ -1,0 +1,87 @@
+[
+  {
+    "name": "JetBrains Mono variable normal",
+    "version": "5.3.0",
+    "license": "OFL-1.1",
+    "source": "https://registry.npmjs.org/@fontsource-variable/jetbrains-mono/-/jetbrains-mono-5.3.0.tgz",
+    "archiveIntegrity": "sha512-F32xpS2NsGYoQi2ADSkKTgpJj7ozajsGgDJ8woTnqjmIB+dxDIqImjl4pXZVEExu8UFZ2ndhmX18EBS/hdz3Lw==",
+    "files": [
+      {
+        "path": "site/static/fonts/jetbrains-mono-latin-wght-normal.woff2",
+        "sha256": "18be452724bfdc236c074ca94a249a7f41a86752c7d04ab258ce9ed5651f6a7e"
+      },
+      {
+        "path": "site/static/fonts/jetbrains-mono-LICENSE.txt",
+        "sha256": "403581b69dac5cff4079205e01c6b467e56af449ecbd7247693ddb1baafa005b"
+      },
+      {
+        "path": "site/static/fonts/jetbrains-mono-cyrillic-ext-wght-normal.woff2",
+        "sha256": "593ccd6fe36e299e151aeae4521be9bfe83ac487d96d7cdb44f50be4a04041c7"
+      },
+      {
+        "path": "site/static/fonts/jetbrains-mono-cyrillic-wght-normal.woff2",
+        "sha256": "d274604c40757f98f07df623a8b8fb5194508a6fa4f5413a7a107f09e3b7452a"
+      },
+      {
+        "path": "site/static/fonts/jetbrains-mono-greek-wght-normal.woff2",
+        "sha256": "ee863198077f3093ffa81c072581cc4bd608a04e60a8a9c0b846396ce4f14109"
+      },
+      {
+        "path": "site/static/fonts/jetbrains-mono-latin-ext-wght-normal.woff2",
+        "sha256": "79bfdab9ba467e26eea4122e6f2567e188dd8a09a8c730d501fc487c4ab99c6e"
+      },
+      {
+        "path": "site/static/fonts/jetbrains-mono-vietnamese-wght-normal.woff2",
+        "sha256": "2288795da89dd97e648954b96e22b4501bd85dfc453264460b252f888b582ca2"
+      },
+      {
+        "path": "site/static/fonts/jetbrains-mono.css",
+        "sha256": "9548b2395a098da05c7c2e943baa2d4dfcd7f55533d47739b413652a63d70b66"
+      }
+    ]
+  },
+  {
+    "name": "Hunk review theme screenshots",
+    "version": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+    "license": "MIT",
+    "source": "https://github.com/modem-dev/hunk/tree/2c00f4358b89cfc0a6b04459ffc538ba601aa3c2/website/public",
+    "archiveIntegrity": "git:2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+    "files": [
+      {"path": "site/static/shots/shot-catppuccin-mocha.webp", "sha256": "4e985b054b1a0361880c040f769ed6f9099acf5f1242ab3c61d14812349608da"},
+      {"path": "site/static/shots/shot-github-dark.webp", "sha256": "eedfa209c0a39aed6bba42b47b4a24a8bde45626a41536fbe4aa1f6527f4e50f"},
+      {"path": "site/static/shots/shot-github-light.webp", "sha256": "f3427800f45970fce2e750f29ba5ad7108a42d6083d46fff1bbaa11f037cccca"},
+      {"path": "site/static/shots/shot-gruvbox.webp", "sha256": "0eb87ca8f92c5676e082b71848f00d47074607738aff6361d81bdfb3de833092"},
+      {"path": "site/static/shots/shot-nord.webp", "sha256": "8b8dde28892665ff97ed3e62ea4546df4cf2fc7196e23f2ac532b260c4c6be90"},
+      {"path": "site/static/shots/shot-tokyo-night.webp", "sha256": "eb337b5906a8229c054558a15cbe1d6732c7ef0f6a81260e2edd8d6171b427b7"}
+    ]
+  },
+  {
+    "name": "Hunk community video thumbnails",
+    "version": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+    "license": "MIT",
+    "source": "https://github.com/modem-dev/hunk/tree/2c00f4358b89cfc0a6b04459ffc538ba601aa3c2/website/public",
+    "archiveIntegrity": "git:2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+    "files": [
+      {"path": "site/static/videos/video-devops-toolbox.webp", "sha256": "3f6aede31c6b225688903b5fcb770bf730d2203d6c7827e3e807feea2a25b5b5"},
+      {"path": "site/static/videos/video-jilles.webp", "sha256": "2a9dc5368875d39523c99f8a2172ed64c3add4e1c1b20bc15874ac04ebd5f7c3"}
+    ]
+  },
+  {
+    "name": "Hunk review feature media",
+    "version": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+    "license": "MIT",
+    "source": "https://github.com/modem-dev/hunk/tree/2c00f4358b89cfc0a6b04459ffc538ba601aa3c2/website/public",
+    "archiveIntegrity": "git:2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+    "files": [
+      {"path": "site/static/features/feature-agent.mp4", "sha256": "b73d91403aa6c0906b8fd99d0090e254b0d087e94c4a1c041faef1dc0b43f532"},
+      {"path": "site/static/features/feature-agent.webm", "sha256": "6dd434db6baa48ee9880135b28f3cff377550d276d70f8bccc5aaca1d6e129d9"},
+      {"path": "site/static/features/feature-layout.mp4", "sha256": "484c094cfa2849b2e664f47fa3056a58bebc7dea0be8b83d81452d78bd5944d7"},
+      {"path": "site/static/features/feature-layout.webm", "sha256": "26bad21a250c152d0fb05357a2202ba978ee845bfc65a4c54c93c801db6f3853"},
+      {"path": "site/static/features/feature-mouse.mp4", "sha256": "527458c0b6ca60527703c3a889786ac490c168c207a4512e05cc0e106bb82d37"},
+      {"path": "site/static/features/feature-mouse.webm", "sha256": "4fbb2b0fc64538607e67f5df2c6097981dc96aaf370fb1d5e65d97b34479ad5b"},
+      {"path": "site/static/features/feature-stream.webp", "sha256": "b8f7142fb8a8070778087526fd58694d22538d250d4812c5413da3586406f7cf"},
+      {"path": "site/static/features/feature-themes.mp4", "sha256": "f77a1c146bb82a7a545f212dddb481606746da3655ecc632f777c93dd486f81c"},
+      {"path": "site/static/features/feature-themes.webm", "sha256": "a4d17c52f2ac0585e1fe8d3f212785d9fbf033b77d790971860ae957fbf0189f"}
+    ]
+  }
+]

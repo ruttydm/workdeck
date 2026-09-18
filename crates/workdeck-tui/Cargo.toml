@@ -1,0 +1,37 @@
+[package]
+name = "workdeck-tui"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Hunk-style Ratatui review canvas for Workdeck"
+
+[dependencies]
+anyhow = "1.0"
+base64 = "0.22"
+chrono = "0.4"
+crossterm = { version = "0.28", features = ["use-dev-tty"] }
+ratatui = { version = "0.29", features = ["unstable-rendered-line-info"] }
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+unicode-width = "0.2"
+unicode-segmentation = "1.12"
+workdeck-core = { path = "../workdeck-core" }
+workdeck-diff = { path = "../workdeck-diff" }
+workdeck-extension-api = { path = "../workdeck-extension-api" }
+workdeck-extension-host = { path = "../workdeck-extension-host" }
+workdeck-markup = { path = "../workdeck-markup" }
+workdeck-pm = { path = "../workdeck-pm" }
+workdeck-review = { path = "../workdeck-review" }
+workdeck-session = { path = "../workdeck-session" }
+workdeck-vcs = { path = "../workdeck-vcs" }
+
+[dev-dependencies]
+ed25519-dalek = "2.2"
+tempfile = "3.13"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }

@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "runtime": "Bun 1.3.14",
+  "captured_at": "2026-09-07",
+  "source": {
+    "path": "test/pty/pager.test.ts",
+    "baseline": {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "blob": "dab2b0dbe6601c38dc70544b2a341165bb8cc6dd",
+      "sha256": "368ea8743e8f574f2d21122909999e079564ce10a9e55791c8189fe4a7272ca4",
+      "bytes": 14714,
+      "lines": 466
+    },
+    "stable": {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "blob": "553530dcb484afb074fa73a95998164f00249079",
+      "sha256": "7ba382ac9aa5deae19469cff37ace881e1835c4b28bcb8786e340e013dd42de0",
+      "bytes": 14761,
+      "lines": 466
+    }
+  },
+  "oracle_runs": {
+    "baseline": { "command": "bun test test/pty/pager.test.ts", "passed": 11, "failed": 0, "expect_calls": 61 },
+    "stable": { "command": "bun test test/pty/pager.test.ts", "passed": 11, "failed": 0, "expect_calls": 61 }
+  },
+  "native_evidence": "crates/workdeck-cli/tests/terminal_pager.rs",
+  "test_mapping": [
+    { "source_test": "pager mode hides chrome and pages forward on space", "test": "explicit_pager_hides_chrome_and_pages_forward_on_space" },
+    { "source_test": "pager mode handles half-page, page-up, and content-jump keyboard navigation", "test": "pager_half_page_page_up_and_content_jumps" },
+    { "source_test": "piped stdin still allows concrete-theme app startup to read terminal input", "test": "piped_stdin_still_allows_concrete_theme_app_terminal_input" },
+    { "source_test": "stdin patch mode enables mouse wheel scrolling in pager UI", "test": "stdin_patch_accepts_terminal_mouse_wheel" },
+    { "source_test": "stdin patch auto theme still enables mouse wheel scrolling", "test": "stdin_patch_auto_theme_accepts_terminal_mouse_wheel" },
+    { "source_test": "general pager mode enables mouse wheel scrolling for diff-like stdin", "test": "general_pager_accepts_terminal_mouse_wheel" },
+    { "source_test": "general pager mode can display the sidebar file tree", "test": "general_pager_can_reveal_sidebar_tree" },
+    { "source_test": "general pager mode navigates between files in the review stream", "test": "general_pager_navigates_to_bottom_clamped_final_file_and_back" },
+    { "source_test": "general pager mode switches layout and reveals the menu bar on demand", "test": "general_pager_switches_layout_and_reveals_menu_on_demand" },
+    { "source_test": "pager mode opens with the sidebar closed even when --sidebar asks for one", "test": "explicit_sidebar_flag_still_starts_pager_without_sidebar" },
+    { "source_test": "explicit pager mode still supports mouse wheel scrolling on a TTY", "test": "explicit_pager_accepts_terminal_mouse_wheel" }
+  ],
+  "verification": [
+    "Native Unix subprocesses run the compiled workdeck executable in an owned controlling PTY at source terminal dimensions.",
+    "A Rust VT parser interprets real terminal output and responds to terminal queries; keyboard and SGR mouse bytes enter through the PTY master.",
+    "Patch stdin uses a file descriptor and the ignored-input case uses a real pipe; neither replaces terminal keyboard input.",
+    "Wheel retries retain the source limit of 12 attempts with 700ms observation windows.",
+    "Tests assert visible source anchors, hidden chrome, file counts, sidebar stats, split rails, navigation and clean exit; read-only runs leave no .agents state.",
+    "This behavioral source-test translation does not establish full cell-buffer parity or native Windows execution."
+  ]
+}

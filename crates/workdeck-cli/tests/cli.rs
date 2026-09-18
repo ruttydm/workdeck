@@ -1,8 +1,14 @@
+#[path = "support/legacy.rs"]
+mod legacy_fixture;
 use assert_cmd::prelude::*;
 use predicates::prelude::*;
 use serde_json::Value;
+use std::collections::BTreeSet;
 use std::fs;
-use std::process::Command;
+use std::io::Read;
+use std::process::{Command, Stdio};
+use std::thread;
+use std::time::Duration;
 use tempfile::tempdir;
 
 fn workdeck() -> Command {
@@ -11,22 +17,1319 @@ fn workdeck() -> Command {
     command
 }
 
+fn write_native_extension(directory: &std::path::Path, id: &str) {
+    fs::create_dir_all(directory).unwrap();
+    fs::write(
+        directory.join("workdeck-extension.toml"),
+        format!(
+            "id = '{id}'\nname = '{id}'\nversion = '1.0.0'\napi_version = 1\nexecutable = '{id}'\ncapabilities = []\n"
+        ),
+    )
+    .unwrap();
+}
+
+fn assert_entrypoint_evidence(workspace: &std::path::Path, evidence: &Value) {
+    let evidence = evidence.as_array().unwrap();
+    assert!(!evidence.is_empty());
+    for item in evidence {
+        let relative = item["file"].as_str().unwrap();
+        let test = item["test"].as_str().unwrap();
+        let source = fs::read_to_string(workspace.join(relative))
+            .unwrap_or_else(|error| panic!("missing entrypoint evidence {relative}: {error}"));
+        let function = test.rsplit("::").next().unwrap();
+        assert!(
+            source.contains(&format!("fn {function}(")),
+            "{relative} does not define {test}"
+        );
+    }
+}
+
 #[test]
 fn help_renders() {
     workdeck()
         .arg("--help")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Terminal-native sidecar"));
+        .stdout(predicate::str::contains("Terminal-native sidecar"))
+        .stdout(predicate::str::contains("Common review options:"))
+        .stdout(predicate::str::contains("Git diff options:"))
+        .stdout(predicate::str::contains("Notes:"))
+        .stdout(predicate::str::contains("--file-gap"))
+        .stdout(predicate::str::contains("--hunk-gap"))
+        .stdout(predicate::str::contains("--extension <path>"))
+        .stdout(predicate::str::contains("--no-extensions"));
 }
 
 #[test]
 fn version_renders() {
+    for version_arg in ["--version", "-v", "version"] {
+        workdeck()
+            .arg(version_arg)
+            .assert()
+            .success()
+            .stdout(predicate::str::contains(env!("CARGO_PKG_VERSION")));
+    }
+
     workdeck()
-        .arg("--version")
+        .args(["--fast", "--version"])
         .assert()
         .success()
         .stdout(predicate::str::contains(env!("CARGO_PKG_VERSION")));
+}
+
+#[test]
+fn non_interactive_stdin_renders_review_and_stays_alive() {
+    let directory = tempdir().unwrap();
+    let before = directory.path().join("before.ts");
+    let after = directory.path().join("after.ts");
+    fs::write(&before, "export const value = 1;\n").unwrap();
+    fs::write(&after, "export const value = 2;\n").unwrap();
+
+    let mut command = workdeck();
+    command
+        .env("TERM", "xterm-256color")
+        .env("HUNK_MCP_DISABLE", "1")
+        .env("WORKDECK_DISABLE_UPDATE_NOTICE", "1")
+        .env("XDG_CONFIG_HOME", directory.path())
+        .args([
+            "diff",
+            "--files",
+            before.to_str().unwrap(),
+            after.to_str().unwrap(),
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = command.spawn().unwrap();
+    let mut stdout = child.stdout.take().unwrap();
+    let mut rendered = Vec::new();
+    let mut chunk = [0_u8; 4096];
+    while rendered.len() < 1_000 {
+        let read = stdout.read(&mut chunk).unwrap();
+        if read == 0 {
+            break;
+        }
+        rendered.extend_from_slice(&chunk[..read]);
+    }
+    assert!(
+        rendered.len() >= 1_000,
+        "review did not render enough output"
+    );
+    thread::sleep(Duration::from_millis(250));
+    assert!(
+        child.try_wait().unwrap().is_none(),
+        "non-interactive review exited early"
+    );
+    child.kill().unwrap();
+    child.wait().unwrap();
+    assert!(!directory.path().join(".agents/workdeck").exists());
+}
+
+#[test]
+fn frozen_hunk_entrypoint_oracle_covers_every_source_byte_and_source_test() {
+    let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let oracle: Value =
+        serde_json::from_str(include_str!("../../../port/hunk/oracles/entrypoint.json")).unwrap();
+    assert_eq!(oracle["runtime"]["version"], "1.3.14");
+    assert_eq!(
+        oracle["baselines"][0],
+        serde_json::json!({
+            "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+            "source_path": "src/main.tsx",
+            "source_blob": "848f1f9053fbbf2f282887a9e378a1ba5412e2db",
+            "source_sha256": "b691366af78e26c7a37bea8bf0eb6f33655f50bf0f982707e2cfa6f5837ea62f",
+            "source_bytes": 4_592,
+            "source_lines": 136,
+            "test_path": "test/cli/entrypoint.test.ts",
+            "test_blob": "758bf0ff9d70095d6a8f6a66320623ddf42ca04f",
+            "test_sha256": "5d3f16d75660f976772681d612af912ee3b41d8b2fe0ce5d92f69f190dc0143f",
+            "test_bytes": 26_820,
+            "test_lines": 758,
+            "suite_passed": 26,
+            "suite_failed": 0,
+            "suite_expect_calls": 114
+        })
+    );
+    assert_eq!(
+        oracle["baselines"][1],
+        serde_json::json!({
+            "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+            "source_path": "src/main.tsx",
+            "source_blob": "23ab6c3b760aef43dc90b54a1337cbc887ba20e9",
+            "source_sha256": "1fab8ccf65d655c313d503ddac44ee81cb34726dabb011d2f1fbcfbaf9cbc1be",
+            "source_bytes": 4_253,
+            "source_lines": 123,
+            "test_path": "test/cli/entrypoint.test.ts",
+            "test_blob": "b00a0efa227e65d641a602e3d04a8d0cbf9b4d17",
+            "test_sha256": "37ad8a8715d526bb72a0a22c3225b3897aebea46dbcd3d9094d6a11df08865d4",
+            "test_bytes": 12_684,
+            "test_lines": 351,
+            "suite_passed": 15,
+            "suite_failed": 0,
+            "suite_expect_calls": 82
+        })
+    );
+    assert_eq!(oracle["baselines"][0]["source_bytes"], 4_592);
+    assert_eq!(oracle["baselines"][0]["source_lines"], 136);
+    assert_eq!(oracle["baselines"][0]["suite_passed"], 26);
+    assert_eq!(oracle["baselines"][0]["suite_failed"], 0);
+    assert_eq!(oracle["baselines"][0]["suite_expect_calls"], 114);
+    assert_eq!(oracle["baselines"][1]["source_bytes"], 4_253);
+    assert_eq!(oracle["baselines"][1]["source_lines"], 123);
+    assert_eq!(oracle["baselines"][1]["suite_passed"], 15);
+    assert_eq!(oracle["baselines"][1]["suite_failed"], 0);
+    assert_eq!(oracle["baselines"][1]["suite_expect_calls"], 82);
+
+    let mut next_byte = 0;
+    let mut next_line = 1;
+    for section in oracle["source_sections"].as_array().unwrap() {
+        let bytes = section["bytes"].as_array().unwrap();
+        let lines = section["lines"].as_array().unwrap();
+        assert_eq!(bytes[0].as_u64().unwrap(), next_byte);
+        assert_eq!(lines[0].as_u64().unwrap(), next_line);
+        next_byte = bytes[1].as_u64().unwrap();
+        next_line = lines[1].as_u64().unwrap() + 1;
+        assert!(!section["role"].as_str().unwrap().is_empty());
+        assert_entrypoint_evidence(&workspace, &section["evidence"]);
+    }
+    assert_eq!(next_byte, 4_592);
+    assert_eq!(next_line, 137);
+
+    let process_oracles = oracle["process_oracles"].as_array().unwrap();
+    assert_eq!(process_oracles.len(), 2);
+    let mut expected_case_names = None;
+    for (index, process_oracle) in process_oracles.iter().enumerate() {
+        assert_eq!(
+            process_oracle["commit"],
+            oracle["baselines"][index]["commit"]
+        );
+        let cases = process_oracle["cases"].as_array().unwrap();
+        assert_eq!(cases.len(), 8);
+        let names = cases
+            .iter()
+            .map(|case| case["name"].as_str().unwrap())
+            .collect::<BTreeSet<_>>();
+        assert_eq!(names.len(), cases.len());
+        if let Some(expected) = &expected_case_names {
+            assert_eq!(&names, expected);
+        } else {
+            expected_case_names = Some(names);
+        }
+        assert!(cases.iter().all(|case| {
+            case["exit"].as_i64().is_some()
+                && case["stdout_bytes"].as_u64().is_some()
+                && case["stderr_bytes"].as_u64().is_some()
+        }));
+    }
+
+    let mappings = oracle["test_mapping"].as_array().unwrap();
+    assert_eq!(mappings.len(), 26);
+    let mut source_tests = BTreeSet::new();
+    for mapping in mappings {
+        assert!(source_tests.insert(mapping["source_test"].as_str().unwrap()));
+        assert_entrypoint_evidence(&workspace, &mapping["evidence"]);
+    }
+}
+
+#[test]
+fn daemon_overview_is_headless_and_does_not_require_a_repository() {
+    workdeck()
+        .args([
+            "--cwd",
+            "/definitely/missing/workdeck/daemon-root",
+            "daemon",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Usage: workdeck daemon <subcommand>",
+        ))
+        .stdout(predicate::str::contains("workdeck daemon status [--json]"))
+        .stdout(predicate::str::contains("workdeck daemon restart [--yes]"))
+        .stdout(predicate::str::contains("WORKDECK_MCP_PORT"));
+
+    workdeck()
+        .args(["daemon", "serve", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Run the local session daemon and WebSocket broker",
+        ));
+
+    workdeck()
+        .args(["mcp", "serve", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Run the local session daemon and WebSocket broker",
+        ));
+}
+
+#[test]
+fn bare_namespace_overviews_match_explicit_help_byte_for_byte() {
+    for (bare, help) in [
+        (vec!["stash"], vec!["stash", "--help"]),
+        (vec!["daemon"], vec!["daemon", "--help"]),
+        (vec!["mcp"], vec!["mcp", "--help"]),
+        (vec!["session"], vec!["session", "--help"]),
+        (
+            vec!["session", "comment"],
+            vec!["session", "comment", "--help"],
+        ),
+        (
+            vec!["session", "highlight"],
+            vec!["session", "highlight", "--help"],
+        ),
+        (vec!["extension"], vec!["extension", "--help"]),
+        (vec!["ext"], vec!["ext", "--help"]),
+        (vec!["markup"], vec!["markup", "--help"]),
+        (vec!["skill"], vec!["skill", "--help"]),
+        (vec!["skill"], vec!["skill", "path", "--help"]),
+    ] {
+        let bare = workdeck().args(bare).output().unwrap();
+        let help = workdeck().args(help).output().unwrap();
+        assert!(
+            bare.status.success(),
+            "{}",
+            String::from_utf8_lossy(&bare.stderr)
+        );
+        assert!(
+            help.status.success(),
+            "{}",
+            String::from_utf8_lossy(&help.stderr)
+        );
+        assert_eq!(help.stdout, bare.stdout);
+        assert_eq!(help.stderr, bare.stderr);
+    }
+}
+
+#[test]
+fn hunk_command_help_contract_is_available_under_workdeck_names() {
+    for (args, expected) in [
+        (
+            vec!["diff", "--help"],
+            "review diffs or compare two concrete",
+        ),
+        (vec!["show", "-h"], "review the last commit or a given ref"),
+        (vec!["patch", "--help"], "review a patch file"),
+        (vec!["pager", "--help"], "general Git pager wrapper"),
+        (vec!["difftool", "--help"], "review Git difftool file pairs"),
+        (
+            vec!["stash", "show", "--help"],
+            "review a stash entry as a full Workdeck changeset",
+        ),
+        (vec!["daemon", "serve", "--help"], "session daemon"),
+        (
+            vec!["session", "list", "--help"],
+            "list live Workdeck sessions",
+        ),
+        (
+            vec!["session", "get", "--help"],
+            "show one live Workdeck session",
+        ),
+        (
+            vec!["session", "context", "--help"],
+            "show the selected file and hunk",
+        ),
+        (
+            vec!["session", "review", "--help"],
+            "export the live review model",
+        ),
+        (
+            vec!["session", "navigate", "--help"],
+            "move a live Workdeck session to one diff hunk",
+        ),
+        (
+            vec!["session", "reload", "--help"],
+            "replace the contents of one live Workdeck session",
+        ),
+        (
+            vec!["session", "comment", "add", "--help"],
+            "attach one live inline review note",
+        ),
+        (
+            vec!["session", "comment", "apply", "--help"],
+            "apply many live inline review notes from stdin JSON",
+        ),
+        (
+            vec!["session", "comment", "list", "--help"],
+            "list live inline review notes",
+        ),
+        (
+            vec!["session", "comment", "rm", "--help"],
+            "remove one inline review note",
+        ),
+        (
+            vec!["session", "comment", "clear", "--help"],
+            "clear inline review notes",
+        ),
+        (
+            vec!["session", "highlight", "add", "--help"],
+            "paint one attention mark",
+        ),
+        (
+            vec!["session", "highlight", "clear", "--help"],
+            "clear agent attention marks",
+        ),
+    ] {
+        workdeck()
+            .args(args)
+            .assert()
+            .success()
+            .stdout(predicate::str::contains(expected));
+    }
+
+    workdeck()
+        .args(["session", "reload", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "workdeck session reload --repo . -- diff",
+        ));
+    workdeck()
+        .args(["session", "comment", "apply", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Stdin JSON shape:"));
+}
+
+#[test]
+fn bundled_skill_paths_support_hunk_namesake_aliases_under_workdeck_branding() {
+    let config = tempdir().unwrap();
+    let run = |name: Option<&str>| {
+        let mut command = workdeck();
+        command
+            .env("XDG_CONFIG_HOME", config.path())
+            .args(["skill", "path"]);
+        if let Some(name) = name {
+            command.arg(name);
+        }
+        command.output().unwrap()
+    };
+
+    let default = run(None);
+    let review = run(Some("review"));
+    assert!(default.status.success());
+    assert!(review.status.success());
+    assert_eq!(default.stdout, review.stdout);
+    let review_path = String::from_utf8(default.stdout).unwrap();
+    assert!(review_path.trim_end().ends_with("workdeck-review/SKILL.md"));
+    assert!(std::path::Path::new(review_path.trim()).is_file());
+
+    let extensions = run(Some("extensions"));
+    assert!(extensions.status.success());
+    let extensions_path = String::from_utf8(extensions.stdout).unwrap();
+    assert!(
+        extensions_path
+            .trim_end()
+            .ends_with("workdeck-extensions/SKILL.md")
+    );
+    assert!(std::path::Path::new(extensions_path.trim()).is_file());
+    let normalized = run(Some(" Review "));
+    assert!(normalized.status.success());
+    assert_eq!(normalized.stdout, review.stdout);
+    assert_eq!(std::fs::read_dir(config.path()).unwrap().count(), 0);
+
+    let unknown = run(Some("unknown"));
+    assert!(!unknown.status.success());
+    assert!(String::from_utf8_lossy(&unknown.stderr).contains("unknown bundled skill"));
+}
+
+#[test]
+fn first_install_command_is_headless_and_rejects_invalid_versions_without_state() {
+    let dir = tempdir().unwrap();
+    workdeck()
+        .current_dir(dir.path())
+        .args(["install", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--destination"))
+        .stdout(predicate::str::contains("--no-modify-path"));
+    let output = workdeck()
+        .current_dir(dir.path())
+        .args(["install", "invalid", "--destination", "new-install"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("not a git repository"));
+    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
+    fs::create_dir(dir.path().join("existing")).unwrap();
+    workdeck()
+        .current_dir(dir.path())
+        .args(["install", "1.2.3", "--destination", "existing"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("installation root already exists"));
+    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    assert_eq!(
+        fs::read_dir(dir.path().join("existing")).unwrap().count(),
+        0
+    );
+    let home = tempdir().unwrap();
+    workdeck()
+        .current_dir(dir.path())
+        .env("HOME", home.path())
+        .args(["install", "invalid"])
+        .assert()
+        .failure();
+    assert_eq!(fs::read_dir(home.path()).unwrap().count(), 0);
+    fs::create_dir(home.path().join(".workdeck")).unwrap();
+    workdeck()
+        .current_dir(dir.path())
+        .env("HOME", home.path())
+        .args(["install", "1.2.3"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("installation root already exists"));
+    assert_eq!(
+        fs::read_dir(home.path().join(".workdeck")).unwrap().count(),
+        0
+    );
+}
+
+#[test]
+fn install_version_precedence_and_latest_preflight_do_not_touch_existing_roots() {
+    let home = tempdir().unwrap();
+    fs::create_dir(home.path().join(".workdeck")).unwrap();
+    workdeck()
+        .current_dir(home.path())
+        .env("HOME", home.path())
+        .env_remove("WORKDECK_VERSION")
+        .arg("install")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("installation root already exists"));
+    workdeck()
+        .current_dir(home.path())
+        .env("HOME", home.path())
+        .env("WORKDECK_VERSION", "invalid")
+        .args(["install", "1.2.3"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("installation root already exists"));
+    assert_eq!(fs::read_dir(home.path()).unwrap().count(), 1);
+    assert_eq!(
+        fs::read_dir(home.path().join(".workdeck")).unwrap().count(),
+        0
+    );
+}
+
+#[test]
+fn relocated_binary_resolves_packaged_skills_without_user_state() {
+    let installation = tempdir().unwrap();
+    let config = tempdir().unwrap();
+    let cwd = tempdir().unwrap();
+    let executable = installation.path().join("bin").join(if cfg!(windows) {
+        "workdeck.exe"
+    } else {
+        "workdeck"
+    });
+    fs::create_dir_all(executable.parent().unwrap()).unwrap();
+    fs::copy(workdeck().get_program(), &executable).unwrap();
+    let skill = installation
+        .path()
+        .join("share/workdeck/skills/workdeck-review/SKILL.md");
+    fs::create_dir_all(skill.parent().unwrap()).unwrap();
+    fs::write(&skill, b"# Packaged skill sentinel\n").unwrap();
+    let output = Command::new(&executable)
+        .current_dir(cwd.path())
+        .env("HOME", config.path())
+        .env("XDG_CONFIG_HOME", config.path())
+        .args(["skill", "path", " Review "])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert!(output.stderr.is_empty(), "{output:?}");
+    let returned = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(
+        fs::canonicalize(returned.trim()).unwrap(),
+        fs::canonicalize(&skill).unwrap()
+    );
+    assert_eq!(fs::read(&skill).unwrap(), b"# Packaged skill sentinel\n");
+    assert_eq!(fs::read_dir(config.path()).unwrap().count(), 0);
+    assert_eq!(fs::read_dir(cwd.path()).unwrap().count(), 0);
+}
+
+#[test]
+fn session_overviews_and_empty_list_are_headless_and_read_only() {
+    workdeck()
+        .args(["session"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Usage: workdeck session <subcommand>",
+        ));
+    workdeck()
+        .args(["session", "comment"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("workdeck session comment add"));
+    workdeck()
+        .args(["session", "highlight"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("workdeck session highlight add"));
+    workdeck()
+        .env("WORKDECK_MCP_PORT", "1")
+        .args(["session", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No active Workdeck sessions."));
+}
+
+#[test]
+fn malformed_session_commands_fail_before_daemon_or_repository_access() {
+    let cases = [
+        (vec!["session", "quit"], "Specify one live Workdeck session"),
+        (
+            vec!["session", "quit", "session-1", "--repo", "."],
+            "Specify either <session-id> or --repo",
+        ),
+        (vec!["session", "get"], "Specify one live Workdeck session"),
+        (
+            vec!["session", "get", "session-1", "--repo", "."],
+            "Specify either <session-id> or --repo",
+        ),
+        (
+            vec!["session", "navigate", "session-1", "--hunk", "1"],
+            "Specify exactly one navigation selector",
+        ),
+        (
+            vec![
+                "session",
+                "comment",
+                "add",
+                "session-1",
+                "--file",
+                "README.md",
+                "--summary",
+                "note",
+            ],
+            "requires exactly one positive --old-line or --new-line",
+        ),
+        (
+            vec!["session", "comment", "apply", "session-1"],
+            "reads its batch payload only from --stdin",
+        ),
+        (
+            vec!["session", "comment", "rm", "session-1"],
+            "Specify a session id and comment id",
+        ),
+        (
+            vec!["session", "comment", "clear", "session-1"],
+            "Pass --yes to clear comments",
+        ),
+        (
+            vec![
+                "session",
+                "highlight",
+                "add",
+                "session-1",
+                "--file",
+                "src/App.tsx",
+                "--start",
+                "0",
+                "--end",
+                "4",
+            ],
+            "requires exactly one positive --old-line or --new-line",
+        ),
+        (
+            vec![
+                "session",
+                "highlight",
+                "add",
+                "session-1",
+                "--file",
+                "src/App.tsx",
+                "--new-line",
+                "42",
+                "--start",
+                "5",
+                "--end",
+                "5",
+            ],
+            "--end must be greater than --start",
+        ),
+        (
+            vec!["session", "reload", "--", "diff"],
+            "Specify one live Workdeck session",
+        ),
+        (
+            vec!["session", "reload", "session-1", "--", "pager"],
+            "Session reload requires a Workdeck review command",
+        ),
+        (
+            vec!["--fast", "session", "list"],
+            "--fast` must be used with a Workdeck review command",
+        ),
+    ];
+
+    for (args, message) in cases {
+        workdeck()
+            .args(["--cwd", "/definitely/missing/workdeck/session-root"])
+            .args(args)
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains(message));
+    }
+}
+
+#[test]
+fn hunk_command_failures_keep_exit_one_and_workdeck_diagnostics() {
+    for args in [
+        vec!["diff", "--tab-width", "0"],
+        vec!["difftool", "only-one"],
+        vec![
+            "session",
+            "navigate",
+            "session-1",
+            "--file",
+            "README.md",
+            "--hunk",
+            "0",
+        ],
+        vec!["session", "get"],
+        vec!["extension", "publish"],
+    ] {
+        workdeck()
+            .args(args)
+            .assert()
+            .code(1)
+            .stderr(predicate::str::contains("workdeck:"));
+    }
+}
+
+#[test]
+fn fast_shorthand_keeps_help_and_routes_review_options() {
+    workdeck()
+        .args(["--fast", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Terminal-native sidecar"));
+
+    workdeck()
+        .args(["--fast", "--staged", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "review diffs or compare two concrete files",
+        ));
+}
+
+#[test]
+fn update_help_lists_only_native_install_channels() {
+    workdeck()
+        .args(["update", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "cargo, brew, nix, curl, powershell, or direct",
+        ))
+        .stdout(predicate::str::contains("npm").not())
+        .stdout(predicate::str::contains("bun").not());
+}
+
+#[test]
+fn update_rejects_invalid_inputs_before_network_or_repository_access() {
+    workdeck()
+        .args(["update", "--method", "apt"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("Unknown update method: apt"))
+        .stderr(predicate::str::contains("Supported methods are"));
+    workdeck()
+        .args(["update", "latest"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("Invalid version: latest"));
+}
+
+#[test]
+fn update_preserves_managed_channel_exit_semantics() {
+    workdeck()
+        .args(["update", "--method", "nix"])
+        .assert()
+        .code(1)
+        .stdout(predicate::str::contains("Workdeck was installed with Nix."))
+        .stderr(predicate::str::is_empty());
+    workdeck()
+        .args(["update", "--method", "nix", "--check"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Update it through your Nix configuration",
+        ));
+}
+
+#[test]
+fn update_cli_contract_covers_help_channels_and_preflight_failures() {
+    workdeck()
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("update"));
+
+    workdeck()
+        .args(["update", "--help"])
+        .assert()
+        .success()
+        .stderr(predicate::str::is_empty())
+        .stdout(predicate::str::contains("Usage: workdeck update"))
+        .stdout(predicate::str::contains("--method <METHOD>"))
+        .stdout(predicate::str::contains(
+            "cargo, brew, nix, curl, powershell, or direct",
+        ))
+        .stdout(predicate::str::contains("--check"))
+        .stdout(predicate::str::contains("\u{1b}[?1049h").not());
+
+    workdeck()
+        .args(["update", "--method", "nix"])
+        .assert()
+        .code(1)
+        .stdout(predicate::str::contains("Workdeck was installed with Nix."))
+        .stderr(predicate::str::is_empty());
+    workdeck()
+        .args(["update", "--method", "nix", "--check"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Update it through your Nix configuration",
+        ));
+
+    for method in ["cargo", "curl", "powershell", "direct"] {
+        workdeck()
+            .args(["update", "--method", method, "not-a-version"])
+            .assert()
+            .code(2)
+            .stderr(predicate::str::contains("Invalid version: not-a-version"));
+    }
+    workdeck()
+        .args(["update", "--method", "apt"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("Unknown update method: apt"))
+        .stderr(predicate::str::contains("Supported methods are"));
+    workdeck()
+        .args(["update", "--not-a-real-flag"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("--not-a-real-flag"));
+}
+
+#[test]
+fn extension_trust_uses_shared_state_preserves_siblings_and_gates_discovery() {
+    let repo = tempdir().unwrap();
+    let config = tempdir().unwrap();
+    let extension = repo
+        .path()
+        .join(".agents/workdeck/extensions/demo/workdeck-extension.toml");
+    fs::create_dir_all(extension.parent().unwrap()).unwrap();
+    fs::write(
+        &extension,
+        "id = 'demo'\nname = 'Demo'\nversion = '0.1.0'\napi_version = 1\nexecutable = 'demo'\ncapabilities = []\n",
+    )
+    .unwrap();
+    let state_path = config.path().join("workdeck/state.json");
+    fs::create_dir_all(state_path.parent().unwrap()).unwrap();
+    fs::write(
+        &state_path,
+        r#"{"version":1,"lastSeenCliVersion":"0.17.0"}"#,
+    )
+    .unwrap();
+
+    let mut trust = workdeck();
+    trust
+        .env("XDG_CONFIG_HOME", config.path())
+        .arg("--cwd")
+        .arg(repo.path())
+        .args(["extension", "trust", "--allow", "--yes", "--json"])
+        .assert()
+        .success();
+
+    let state: Value = serde_json::from_str(&fs::read_to_string(&state_path).unwrap()).unwrap();
+    assert_eq!(state["lastSeenCliVersion"], "0.17.0");
+    let canonical_repo = fs::canonicalize(repo.path()).unwrap();
+    assert_eq!(
+        state["extensionTrust"][canonical_repo.to_string_lossy().as_ref()],
+        "trusted"
+    );
+    let mut list = workdeck();
+    list.env("XDG_CONFIG_HOME", config.path())
+        .arg("--cwd")
+        .arg(repo.path())
+        .args(["extension", "list", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"id\": \"demo\""));
+
+    let mut deny = workdeck();
+    deny.env("XDG_CONFIG_HOME", config.path())
+        .arg("--cwd")
+        .arg(repo.path())
+        .args(["extension", "trust", "--deny", "--yes"])
+        .assert()
+        .success();
+    let mut denied_list = workdeck();
+    denied_list
+        .env("XDG_CONFIG_HOME", config.path())
+        .arg("--cwd")
+        .arg(repo.path())
+        .args(["extension", "list", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"data\": []"));
+}
+
+#[test]
+fn extension_discovery_honors_config_provenance_xdg_and_provider_neutral_repo_root() {
+    let root = tempdir().unwrap();
+    let config = tempdir().unwrap();
+    let repo = root.path().join("repo");
+    let nested = repo.join("src/nested");
+    let user_extension = root.path().join("user-extension");
+    let repo_extension = root.path().join("outside-repo-extension");
+    let global_extension = config.path().join("workdeck/extensions/global-extension");
+    write_native_extension(&user_extension, "user-path");
+    write_native_extension(&repo_extension, "repo-path");
+    write_native_extension(&global_extension, "global-path");
+    fs::create_dir_all(&nested).unwrap();
+    fs::create_dir_all(repo.join(".agents/workdeck")).unwrap();
+    fs::write(
+        config.path().join("workdeck/config.toml"),
+        format!(
+            "[extensions]\npaths = [{}]\n",
+            toml::Value::String(user_extension.to_string_lossy().into())
+        ),
+    )
+    .unwrap();
+    fs::write(
+        repo.join(".agents/workdeck/config.toml"),
+        format!(
+            "[extensions]\npaths = [{}]\n",
+            toml::Value::String(repo_extension.to_string_lossy().into())
+        ),
+    )
+    .unwrap();
+
+    let mut before = workdeck();
+    let before = before
+        .env("XDG_CONFIG_HOME", config.path())
+        .arg("--cwd")
+        .arg(&nested)
+        .args(["extension", "list", "--json"])
+        .output()
+        .unwrap();
+    assert!(
+        before.status.success(),
+        "{}",
+        String::from_utf8_lossy(&before.stderr)
+    );
+    let before: Value = serde_json::from_slice(&before.stdout).unwrap();
+    let before_ids = before["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|entry| entry["id"].as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(before_ids, ["user-path", "global-path"]);
+
+    let mut trust = workdeck();
+    trust
+        .env("XDG_CONFIG_HOME", config.path())
+        .arg("--cwd")
+        .arg(&nested)
+        .args(["extension", "trust", "--allow", "--yes", "--repo"])
+        .arg(&repo)
+        .assert()
+        .success();
+
+    let mut after = workdeck();
+    let after = after
+        .env("XDG_CONFIG_HOME", config.path())
+        .arg("--cwd")
+        .arg(&nested)
+        .args(["extension", "list", "--json"])
+        .output()
+        .unwrap();
+    assert!(
+        after.status.success(),
+        "{}",
+        String::from_utf8_lossy(&after.stderr)
+    );
+    let after: Value = serde_json::from_slice(&after.stdout).unwrap();
+    let after_ids = after["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|entry| entry["id"].as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(after_ids, ["user-path", "global-path", "repo-path"]);
+}
+
+#[test]
+fn managed_extension_cli_installs_lists_updates_and_removes_native_repository() {
+    let source_root = tempdir().unwrap();
+    let source = source_root.path().join("managed-native");
+    let config = tempdir().unwrap();
+    fs::create_dir_all(source.join("bin")).unwrap();
+    git(&source, &["init"]);
+    git(&source, &["config", "user.email", "workdeck@example.test"]);
+    git(&source, &["config", "user.name", "Workdeck Test"]);
+    fs::write(
+        source.join("workdeck-extension.toml"),
+        "id = 'managed-native'\nname = 'Managed native'\nversion = '1.0.0'\napi_version = 1\nexecutable = 'bin/managed-native'\ncapabilities = []\n",
+    )
+    .unwrap();
+    fs::write(source.join("bin/managed-native"), "fixture executable\n").unwrap();
+    git(&source, &["add", "."]);
+    git(&source, &["commit", "-m", "initial"]);
+
+    let mut install = workdeck();
+    install
+        .env("XDG_CONFIG_HOME", config.path())
+        .args(["extension", "install"])
+        .arg(&source)
+        .args(["--yes", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"kind\": \"extension_install\""))
+        .stdout(predicate::str::contains("\"version\": \"1.0.0\""));
+
+    let installed = config
+        .path()
+        .join("workdeck/extensions/installed/managed-native");
+    assert!(installed.join("workdeck-extension.toml").is_file());
+    let records: Value = serde_json::from_str(
+        &fs::read_to_string(
+            config
+                .path()
+                .join("workdeck/extensions/installed/records.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        records["installs"]["managed-native"]["cloneUrl"],
+        source.to_string_lossy().as_ref()
+    );
+
+    let mut list = workdeck();
+    list.env("XDG_CONFIG_HOME", config.path())
+        .args(["extension", "list", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"id\": \"managed-native\""))
+        .stdout(predicate::str::contains("\"managed\": true"));
+
+    fs::write(
+        source.join("workdeck-extension.toml"),
+        "id = 'managed-native'\nname = 'Managed native'\nversion = '1.1.0'\napi_version = 1\nexecutable = 'bin/managed-native'\ncapabilities = []\n",
+    )
+    .unwrap();
+    git(&source, &["add", "."]);
+    git(&source, &["commit", "-m", "update"]);
+
+    let mut update = workdeck();
+    update
+        .env("XDG_CONFIG_HOME", config.path())
+        .args(["extension", "update", "managed-native", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"changed\": true"))
+        .stdout(predicate::str::contains("\"version\": \"1.1.0\""));
+
+    let mut remove = workdeck();
+    remove
+        .env("XDG_CONFIG_HOME", config.path())
+        .args(["extension", "remove", "managed-native", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"kind\": \"extension_remove\""));
+    assert!(!installed.exists());
+}
+
+#[test]
+fn managed_extension_install_requires_explicit_consent_without_a_terminal() {
+    let config = tempdir().unwrap();
+    let mut install = workdeck();
+    install
+        .env("XDG_CONFIG_HOME", config.path())
+        .args(["extension", "install", "acme/native-extension"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("re-run with --yes"));
+    assert!(!config.path().join("workdeck/extensions/installed").exists());
+}
+
+#[test]
+fn extension_help_exposes_complete_native_management_lifecycle() {
+    workdeck()
+        .args(["extension", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("install"))
+        .stdout(predicate::str::contains("list"))
+        .stdout(predicate::str::contains("update"))
+        .stdout(predicate::str::contains("remove"))
+        .stdout(predicate::str::contains("validate"))
+        .stdout(predicate::str::contains("trust"));
+
+    workdeck()
+        .args(["ext"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "workdeck extension install <source>",
+        ))
+        .stdout(predicate::str::contains(
+            "only install repositories you trust",
+        ));
+    workdeck()
+        .args(["extension", "uninstall", "example", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Remove one managed native extension",
+        ));
+}
+
+#[test]
+fn invalid_extension_cli_syntax_and_hard_disable_never_start_a_provider() {
+    let root = tempdir().unwrap();
+    let extension = root.path().join("provider");
+    write_native_extension(&extension, "provider");
+
+    for args in [
+        vec![
+            "--extension".to_owned(),
+            extension.display().to_string(),
+            "--bogus".to_owned(),
+        ],
+        vec![
+            "--extension".to_owned(),
+            "--no-extensions".to_owned(),
+            "--extension".to_owned(),
+            extension.display().to_string(),
+            "provider".to_owned(),
+        ],
+        vec![
+            "--no-extensions".to_owned(),
+            "--extension".to_owned(),
+            extension.display().to_string(),
+            "provider".to_owned(),
+        ],
+    ] {
+        let output = workdeck().args(args).output().unwrap();
+        assert!(!output.status.success());
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(
+            !stderr.contains("extension executable does not exist"),
+            "provider discovery ran before syntax or hard-disable rejection: {stderr}"
+        );
+    }
+}
+
+#[test]
+fn pager_plain_text_fallback_is_headless_sanitized_and_read_only() {
+    let dir = tempdir().unwrap();
+    git(dir.path(), &["init"]);
+
+    let mut command = assert_cmd::Command::cargo_bin("workdeck").unwrap();
+    command
+        .env("HOME", "/nonexistent/workdeck-test-home")
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("pager")
+        .write_stdin("plain\x1b]52;c;SGVsbG8=\x07 output\x1b[2J")
+        .assert()
+        .success()
+        .stdout("plain output");
+
+    assert!(!dir.path().join(".agents/workdeck").exists());
+}
+
+#[test]
+fn pager_redirected_diff_passthrough_preserves_pipeline_exit_and_read_only_behavior() {
+    let dir = tempdir().unwrap();
+    git(dir.path(), &["init"]);
+    let patch = "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-old\n+new\n";
+    let mut command = assert_cmd::Command::cargo_bin("workdeck").unwrap();
+    command
+        .env("HOME", "/nonexistent/workdeck-test-home")
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("pager")
+        .write_stdin(patch)
+        .assert()
+        .success()
+        .stdout(patch)
+        .stderr(predicate::str::is_empty());
+    assert!(!dir.path().join(".agents/workdeck").exists());
+}
+
+#[test]
+fn captured_pager_redirect_preserves_sgr_but_strips_terminal_commands() {
+    let dir = tempdir().unwrap();
+    git(dir.path(), &["init"]);
+    let patch =
+        "\x1b[31mdiff --git a/a b/a\x1b[0m\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-old\n+new\x1b[2J\n";
+    let mut command = assert_cmd::Command::cargo_bin("workdeck").unwrap();
+    command
+        .env("HOME", "/nonexistent/workdeck-test-home")
+        .env("TERM", "dumb")
+        .env("LV", "-c")
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("pager")
+        .write_stdin(patch)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "\x1b[31mdiff --git a/a b/a\x1b[0m",
+        ))
+        .stdout(predicate::str::contains("\x1b[2J").not())
+        .stderr(predicate::str::is_empty());
+    assert!(!dir.path().join(".agents/workdeck").exists());
+}
+
+#[test]
+fn markup_render_defaults_to_stdin_and_emits_hunks_exact_json_shape() {
+    let mut command = assert_cmd::Command::cargo_bin("workdeck").unwrap();
+    command
+        .env("HOME", "/nonexistent/workdeck-test-home")
+        .args(["markup", "render", "--width", "12", "--json"])
+        .write_stdin("<box border>hi</box>")
+        .assert()
+        .success()
+        .stdout(concat!(
+            "{\n",
+            "  \"width\": 12,\n",
+            "  \"lines\": [\n",
+            "    \"┌──────────┐\",\n",
+            "    \"│hi        │\",\n",
+            "    \"└──────────┘\"\n",
+            "  ],\n",
+            "  \"notes\": []\n",
+            "}\n"
+        ))
+        .stderr(predicate::str::is_empty());
+}
+
+#[test]
+fn hunk_stml_cli_oracle_runs_exactly_under_workdeck_naming() {
+    let fixture: Value =
+        serde_json::from_str(include_str!("../../../port/hunk/oracles/stml-cli.json")).unwrap();
+    assert_eq!(
+        fixture["baseline"],
+        "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2"
+    );
+    for run in fixture["runs"].as_array().unwrap() {
+        let input = &run["input"];
+        let mut args = vec![
+            "markup".to_owned(),
+            "render".to_owned(),
+            input["file"].as_str().unwrap().to_owned(),
+            "--width".to_owned(),
+            input["width"].as_u64().unwrap().to_string(),
+            "--color".to_owned(),
+            input["color"].as_str().unwrap().to_owned(),
+        ];
+        if let Some(theme) = input["theme"].as_str() {
+            args.extend(["--theme".to_owned(), theme.to_owned()]);
+        }
+        if input["json"].as_bool().unwrap() {
+            args.push("--json".into());
+        }
+        let output = assert_cmd::Command::cargo_bin("workdeck")
+            .unwrap()
+            .env("HOME", "/nonexistent/workdeck-test-home")
+            .args(args)
+            .write_stdin(run["markup"].as_str().unwrap())
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.code(),
+            run["exit"].as_i64().map(|code| code as i32),
+            "input: {input}"
+        );
+        assert_eq!(
+            String::from_utf8(output.stdout).unwrap(),
+            run["stdout"].as_str().unwrap(),
+            "input: {input}"
+        );
+        assert_eq!(
+            String::from_utf8(output.stderr).unwrap(),
+            run["stderr"].as_str().unwrap(),
+            "input: {input}"
+        );
+    }
+}
+
+#[test]
+fn markup_render_routes_degradation_notes_to_stderr_and_reads_relative_files() {
+    let directory = tempdir().unwrap();
+    fs::write(directory.path().join("note.stml"), "<wat>x</wat>").unwrap();
+    let mut command = assert_cmd::Command::cargo_bin("workdeck").unwrap();
+    command
+        .env("HOME", "/nonexistent/workdeck-test-home")
+        .current_dir(directory.path())
+        .args(["markup", "render", "note.stml", "--color", "never"])
+        .assert()
+        .success()
+        .stdout("x\n")
+        .stderr("note: unknown tag <wat>\n");
+}
+
+#[test]
+fn markup_render_always_color_uses_span_styles_even_in_json() {
+    let markup = "<b><c fg=\"success\">ok</c></b>";
+    let mut colored = assert_cmd::Command::cargo_bin("workdeck").unwrap();
+    colored
+        .env("HOME", "/nonexistent/workdeck-test-home")
+        .args([
+            "markup",
+            "render",
+            "-",
+            "--color",
+            "always",
+            "--theme",
+            "github-dark-default",
+        ])
+        .write_stdin(markup)
+        .assert()
+        .success()
+        .stdout("\x1b[1;38;2;46;160;67mok\x1b[0m\n")
+        .stderr(predicate::str::is_empty());
+
+    let mut json = assert_cmd::Command::cargo_bin("workdeck").unwrap();
+    let output = json
+        .env("HOME", "/nonexistent/workdeck-test-home")
+        .args(["markup", "render", "-", "--color", "always", "--json"])
+        .write_stdin(markup)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert!(!output.stdout.contains(&0x1b));
+    let payload: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        payload["lines"],
+        serde_json::json!(["\u{1b}[1;38;2;46;160;67mok\u{1b}[0m"])
+    );
+}
+
+#[test]
+fn markup_guide_is_headless_and_contains_the_reference_width_contract() {
+    workdeck()
+        .args(["markup", "guide"])
+        .assert()
+        .success()
+        .stdout(predicate::str::starts_with(
+            "# STML — terminal markup for Workdeck agent notes\n",
+        ))
+        .stdout(predicate::str::contains("Design for ~56 cols"))
+        .stderr(predicate::str::is_empty());
 }
 
 #[test]
@@ -46,9 +1349,42 @@ fn outside_git_repo_prints_actionable_error() {
 }
 
 #[test]
-fn init_creates_agents_workdeck_store() {
+fn invalid_show_ref_is_friendly_and_has_no_runtime_backtrace() {
+    let repo = tempdir().unwrap();
+    git(repo.path(), &["init"]);
+    git(repo.path(), &["config", "user.name", "Workdeck Test"]);
+    git(
+        repo.path(),
+        &["config", "user.email", "workdeck@example.test"],
+    );
+    fs::write(repo.path().join("alpha.rs"), "pub const ALPHA: u8 = 1;\n").unwrap();
+    git(repo.path(), &["add", "alpha.rs"]);
+    git(repo.path(), &["commit", "-m", "initial"]);
+
+    workdeck()
+        .arg("--cwd")
+        .arg(repo.path())
+        .args(["show", "HEAD~999"])
+        .assert()
+        .code(1)
+        .stdout(predicate::str::is_empty())
+        .stderr(predicate::str::contains(
+            "workdeck: `workdeck show HEAD~999` could not resolve Git ref `HEAD~999`.",
+        ))
+        .stderr(predicate::str::contains(
+            "Check the ref name and try again.",
+        ))
+        .stderr(predicate::str::contains("panicked at").not())
+        .stderr(predicate::str::contains("stack backtrace").not());
+}
+
+#[test]
+fn init_flag_initializes_native_root_without_replacing_app_preferences() {
     let dir = tempdir().unwrap();
     git(dir.path(), &["init"]);
+    fs::create_dir_all(dir.path().join(".workdeck")).unwrap();
+    let preferences = "[ui]\ntheme = \"github-dark-default\"\n";
+    fs::write(dir.path().join(".workdeck/config.toml"), preferences).unwrap();
 
     workdeck()
         .arg("--cwd")
@@ -56,19 +1392,26 @@ fn init_creates_agents_workdeck_store() {
         .arg("--init")
         .assert()
         .success()
-        .stdout(predicate::str::contains(".agents/workdeck"));
+        .stdout(predicate::str::contains("initialized"))
+        .stdout(predicate::str::contains(".workdeck"));
 
-    assert!(dir.path().join(".agents/workdeck/config.toml").exists());
-    assert!(dir.path().join(".agents/workdeck/issues").is_dir());
-    assert!(dir.path().join(".agents/workdeck/agents").is_dir());
-    let config = fs::read_to_string(dir.path().join(".agents/workdeck/config.toml")).unwrap();
-    assert!(config.contains("group_changes = \"g\""));
-    assert!(config.contains("toggle_dirstat = \"w\""));
-    assert!(config.contains("[git]"));
-    assert!(config.contains("[refresh]"));
-    assert!(config.contains("git = \"G\""));
-    assert!(config.contains("recent_commits = 30"));
-    assert!(config.contains("interval_ms = 1500"));
+    assert!(dir.path().join(".workdeck/config.yml").exists());
+    assert!(!dir.path().join(".agents/workdeck").exists());
+    assert_eq!(
+        fs::read_to_string(dir.path().join(".workdeck/config.toml")).unwrap(),
+        preferences
+    );
+    let first = fs::read(dir.path().join(".workdeck/config.yml")).unwrap();
+    workdeck()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("--init")
+        .assert()
+        .success();
+    assert_eq!(
+        fs::read(dir.path().join(".workdeck/config.yml")).unwrap(),
+        first
+    );
 }
 
 #[test]
@@ -197,11 +1540,13 @@ fn doctor_reports_corrupt_store_data_as_failed_checks() {
 fn issue_commands_manage_file_backed_issues() {
     let dir = tempdir().unwrap();
     git(dir.path(), &["init"]);
-
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args([
+    migrated_planning_store(dir.path());
+    for label in ["git", "mvp"] {
+        native_json(dir.path(), &["label", "create", label, "--id", label]);
+    }
+    let created = native_json(
+        dir.path(),
+        &[
             "issue",
             "create",
             "Render changes",
@@ -217,77 +1562,77 @@ fn issue_commands_manage_file_backed_issues() {
             "abc123",
             "--file",
             "src/main.rs",
-            "--json",
-        ])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("\"key\": \"WD-1\""))
-        .stdout(predicate::str::contains("\"status\": \"in-progress\""))
-        .stdout(predicate::str::contains("\"due_at\": \"2026-05-31\""))
-        .stdout(predicate::str::contains("\"abc123\""))
-        .stdout(predicate::str::contains("\"src/main.rs\""));
-
+        ],
+    );
+    let id = created["result"]["metadata"]["id"].as_str().unwrap();
+    assert!(id.starts_with("WD-"));
+    assert_eq!(created["result"]["metadata"]["status"], "in_progress");
+    assert_eq!(created["result"]["metadata"]["due_at"], "2026-05-31");
+    assert!(created.to_string().contains("abc123"));
+    assert!(created.to_string().contains("src/main.rs"));
     assert!(
         dir.path()
-            .join(".agents/workdeck/issues/WD-1.toml")
+            .join(format!(".workdeck/issues/{id}/item.md"))
             .exists()
     );
-
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args([
+    let changed = native_json(
+        dir.path(),
+        &[
             "issue",
             "update",
-            "WD-1",
+            id,
             "--title",
             "Render nested changes",
             "--priority",
             "urgent",
             "--commit",
             "def456,abc123",
-            "--json",
-        ])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Render nested changes"))
-        .stdout(predicate::str::contains("\"priority\": \"urgent\""))
-        .stdout(predicate::str::contains("\"def456\""));
-
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args(["issue", "link", "WD-1", "src/lib.rs", "--json"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("\"src/lib.rs\""));
-
+        ],
+    );
+    assert_eq!(
+        changed["result"]["metadata"]["title"],
+        "Render nested changes"
+    );
+    assert_eq!(changed["result"]["metadata"]["priority"], "urgent");
+    assert!(changed.to_string().contains("def456"));
+    assert!(
+        native_json(dir.path(), &["issue", "link", id, "src/lib.rs"])
+            .to_string()
+            .contains("src/lib.rs")
+    );
     workdeck()
         .arg("--cwd")
         .arg(dir.path())
         .args(["issue", "list"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("WD-1"))
+        .stdout(predicate::str::contains(id))
         .stdout(predicate::str::contains("Render nested changes"));
-
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args(["issue", "show", "WD-1", "--json"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("\"key\": \"WD-1\""))
-        .stdout(predicate::str::contains("\"src/main.rs\""))
-        .stdout(predicate::str::contains("\"src/lib.rs\""))
-        .stdout(predicate::str::contains("\"abc123\""))
-        .stdout(predicate::str::contains("\"def456\""));
+    let shown = native_json(dir.path(), &["issue", "show", id]);
+    assert_eq!(shown["result"]["metadata"]["id"], id);
+    // Repeating a link cannot duplicate the stored file identity.
+    let repeated = native_json(dir.path(), &["issue", "link", id, "src/lib.rs"]);
+    assert_eq!(
+        repeated["result"]["metadata"]["files"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(
+        shown["result"]["metadata"]["commits"],
+        serde_json::json!(["abc123", "def456"])
+    );
+    for link in ["src/main.rs", "src/lib.rs", "abc123", "def456"] {
+        assert!(shown.to_string().contains(link));
+    }
 }
 
 #[test]
 fn issue_command_rejects_invalid_status() {
     let dir = tempdir().unwrap();
     git(dir.path(), &["init"]);
+    migrated_planning_store(dir.path());
 
     workdeck()
         .arg("--cwd")
@@ -295,34 +1640,29 @@ fn issue_command_rejects_invalid_status() {
         .args(["issue", "create", "Bad status", "--status", "wat"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("unknown status"));
+        .stderr(predicate::str::contains("unknown workflow state"));
 }
 
 #[test]
 fn reference_commands_manage_projects_cycles_and_labels() {
     let dir = tempdir().unwrap();
     git(dir.path(), &["init"]);
-
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args([
+    migrated_planning_store(dir.path());
+    let project = native_json(
+        dir.path(),
+        &[
             "project",
             "save",
             "Workdeck MVP",
             "--description",
             "Initial local release",
-            "--json",
-        ])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("\"id\": \"workdeck-mvp\""))
-        .stdout(predicate::str::contains("Initial local release"));
-
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args([
+        ],
+    );
+    assert_eq!(project["result"]["metadata"]["id"], "workdeck-mvp");
+    assert_eq!(project["result"]["body"], "Initial local release");
+    let cycle = native_json(
+        dir.path(),
+        &[
             "cycle",
             "save",
             "MVP",
@@ -330,21 +1670,12 @@ fn reference_commands_manage_projects_cycles_and_labels() {
             "mvp",
             "--starts-at",
             "2026-05-24",
-            "--json",
-        ])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("\"starts_at\": \"2026-05-24\""));
-
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args(["label", "save", "Git", "--color", "green", "--json"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("\"id\": \"git\""))
-        .stdout(predicate::str::contains("\"color\": \"green\""));
-
+        ],
+    );
+    assert_eq!(cycle["result"]["metadata"]["starts_at"], "2026-05-24");
+    let label = native_json(dir.path(), &["label", "save", "Git", "--color", "green"]);
+    assert_eq!(label["result"]["metadata"]["id"], "git");
+    assert_eq!(label["result"]["metadata"]["color"], "green");
     workdeck()
         .arg("--cwd")
         .arg(dir.path())
@@ -352,31 +1683,27 @@ fn reference_commands_manage_projects_cycles_and_labels() {
         .assert()
         .success()
         .stdout(predicate::str::contains("workdeck-mvp"));
-
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args(["doctor", "--json"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains(
-            "1 project(s), 1 cycle(s), 1 label(s)",
-        ));
-
-    assert!(dir.path().join(".agents/workdeck/projects.toml").exists());
-    assert!(dir.path().join(".agents/workdeck/cycles.toml").exists());
-    assert!(dir.path().join(".agents/workdeck/labels.toml").exists());
+    let doctor = native_json(dir.path(), &["doctor"]);
+    assert_eq!(doctor["result"]["valid"], true);
+    // Three references plus the preserved historical event collection.
+    assert_eq!(doctor["result"]["checked_records"], 4);
+    assert!(
+        dir.path()
+            .join(".workdeck/projects/workdeck-mvp/item.md")
+            .exists()
+    );
+    assert!(dir.path().join(".workdeck/cycles/mvp/item.md").exists());
+    assert!(dir.path().join(".workdeck/labels.yml").exists());
 }
 
 #[test]
 fn agent_commands_record_list_and_show_sessions() {
     let dir = tempdir().unwrap();
     git(dir.path(), &["init"]);
-
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args([
+    migrated_planning_store(dir.path());
+    let recorded = native_json(
+        dir.path(),
+        &[
             "agent",
             "record",
             "Implement shell",
@@ -402,20 +1729,20 @@ fn agent_commands_record_list_and_show_sessions() {
             "cargo test",
             "--note",
             "Continue with previews",
-            "--json",
-        ])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("\"id\": \"session-1\""))
-        .stdout(predicate::str::contains("\"src/main.rs\""))
-        .stdout(predicate::str::contains("Inspect repo"));
-
+        ],
+    );
+    let session = &recorded["result"]["session"];
+    assert_eq!(session["id"], "session-1");
+    assert_eq!(
+        session["plan"],
+        serde_json::json!(["Inspect repo", "Build shell"])
+    );
+    assert_eq!(session["touched_files"][0]["path"], "src/main.rs");
     assert!(
         dir.path()
-            .join(".agents/workdeck/agents/session-1.toml")
+            .join(".workdeck/imported-sessions/session-1.toml")
             .exists()
     );
-
     workdeck()
         .arg("--cwd")
         .arg(dir.path())
@@ -424,21 +1751,20 @@ fn agent_commands_record_list_and_show_sessions() {
         .success()
         .stdout(predicate::str::contains("session-1"))
         .stdout(predicate::str::contains("Implement shell"));
-
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args(["agent", "show", "session-1", "--json"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("\"agent\": \"codex\""))
-        .stdout(predicate::str::contains("Continue with previews"));
+    let shown = native_json(dir.path(), &["agent", "show", "session-1"]);
+    assert_eq!(shown["result"]["session"]["agent"], "codex");
+    assert_eq!(
+        shown["result"]["session"]["handoff_notes"][0],
+        "Continue with previews"
+    );
+    assert_eq!(shown["result"]["evidence"], "historical_annotation");
 }
 
 #[test]
 fn agent_import_reads_jsonl_sessions() {
     let dir = tempdir().unwrap();
     git(dir.path(), &["init"]);
+    migrated_planning_store(dir.path());
     let jsonl = dir.path().join("sessions.jsonl");
     fs::write(
         &jsonl,
@@ -456,13 +1782,13 @@ fn agent_import_reads_jsonl_sessions() {
         .arg("--json")
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"id\": \"session-jsonl-1\""))
-        .stdout(predicate::str::contains("\"id\": \"session-jsonl-2\""))
+        .stdout(predicate::str::contains("\"id\":\"session-jsonl-1\""))
+        .stdout(predicate::str::contains("\"id\":\"session-jsonl-2\""))
         .stdout(predicate::str::contains("parse jsonl"));
 
     assert!(
         dir.path()
-            .join(".agents/workdeck/agents/session-jsonl-1.toml")
+            .join(".workdeck/imported-sessions/session-jsonl-1.toml")
             .exists()
     );
 
@@ -491,6 +1817,11 @@ fn export_emits_json_and_jsonl_without_mutating_empty_store() {
         .stdout(predicate::str::contains("\"agent_sessions\": []"));
 
     assert!(!dir.path().join(".agents/workdeck").exists());
+    migrated_planning_store(dir.path());
+    native_json(
+        dir.path(),
+        &["project", "create", "Workdeck", "--id", "workdeck"],
+    );
 
     workdeck()
         .arg("--cwd")
@@ -512,15 +1843,38 @@ fn export_emits_json_and_jsonl_without_mutating_empty_store() {
         .assert()
         .success();
 
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args(["export", "--jsonl"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("\"kind\":\"issue\""))
-        .stdout(predicate::str::contains("\"kind\":\"agent_session\""))
-        .stdout(predicate::str::contains("\"kind\":\"event\""));
+    for format in ["--json", "--jsonl"] {
+        let output = workdeck()
+            .arg("--cwd")
+            .arg(dir.path())
+            .args(["export", format])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let workdeck_pm::ImportSource::Native(snapshot) =
+            workdeck_pm::decode_transfer(&output.stdout).unwrap()
+        else {
+            panic!("expected native snapshot");
+        };
+        assert!(
+            snapshot
+                .files
+                .iter()
+                .any(|file| file.kind == workdeck_pm::SnapshotKind::Issue)
+        );
+        assert!(
+            snapshot
+                .files
+                .iter()
+                .any(|file| file.path == std::path::Path::new("imported-sessions/export-run.toml"))
+        );
+        assert!(
+            snapshot
+                .files
+                .iter()
+                .any(|file| file.kind == workdeck_pm::SnapshotKind::Operation)
+        );
+    }
 }
 
 #[test]
@@ -586,6 +1940,7 @@ fn repo_read_only_commands_do_not_create_store() {
 fn json_commands_use_success_and_error_envelopes() {
     let dir = tempdir().unwrap();
     git(dir.path(), &["init"]);
+    migrated_planning_store(dir.path());
     fs::write(dir.path().join("README.md"), "hello\n").unwrap();
 
     let status = workdeck()
@@ -609,9 +1964,15 @@ fn json_commands_use_success_and_error_envelopes() {
     assert!(created.status.success());
     let created_json: Value = serde_json::from_slice(&created.stdout).unwrap();
     assert_eq!(created_json["ok"], true);
-    assert_eq!(created_json["kind"], "issue");
-    assert_eq!(created_json["action"], "create");
-    assert_eq!(created_json["data"]["key"], "WD-1");
+    assert_eq!(created_json["kind"], "issue_create");
+    assert_eq!(created_json["api_version"], 1);
+    assert!(
+        created_json["result"]["metadata"]["id"]
+            .as_str()
+            .unwrap()
+            .starts_with("WD-")
+    );
+    assert_eq!(created_json["receipt"]["operation"], "issue.create");
 
     let missing = workdeck()
         .arg("--cwd")
@@ -636,118 +1997,97 @@ fn json_commands_use_success_and_error_envelopes() {
 fn issue_commands_cover_headless_lifecycle() {
     let dir = tempdir().unwrap();
     git(dir.path(), &["init"]);
-
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args(["issue", "create", "Ship CLI", "--file", "src/main.rs"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("WD-1"));
-
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args(["issue", "assign", "WD-1", "rutger"])
-        .assert()
-        .success();
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args(["issue", "label", "add", "WD-1", "cli"])
-        .assert()
-        .success();
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args(["issue", "link-commit", "WD-1", "abc123"])
-        .assert()
-        .success();
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args(["issue", "close", "WD-1"])
-        .assert()
-        .success();
-
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args([
-            "issue", "list", "--status", "done", "--label", "cli", "--json",
-        ])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("\"key\": \"WD-1\""));
-
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args(["issue", "unlink-file", "WD-1", "src/main.rs"])
-        .assert()
-        .success();
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args(["issue", "unlink-commit", "WD-1", "abc123"])
-        .assert()
-        .success();
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args(["issue", "reopen", "WD-1"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("WD-1"));
-
+    migrated_planning_store(dir.path());
+    for label in ["cli", "json"] {
+        native_json(dir.path(), &["label", "create", label, "--id", label]);
+    }
+    let created = native_json(
+        dir.path(),
+        &["issue", "create", "Ship CLI", "--file", "src/main.rs"],
+    );
+    let id = created["result"]["metadata"]["id"].as_str().unwrap();
+    assert!(id.starts_with("WD-"));
+    for args in [
+        vec!["issue", "assign", id, "rutger"],
+        vec!["issue", "label", "add", id, "cli"],
+        vec!["issue", "link-commit", id, "abc123"],
+        vec!["issue", "close", id],
+    ] {
+        native_json(dir.path(), &args);
+    }
+    let listed = native_json(
+        dir.path(),
+        &["issue", "list", "--status", "done", "--label", "cli"],
+    );
+    assert!(listed.to_string().contains(id));
+    for args in [
+        vec!["issue", "reopen", id],
+        vec!["issue", "unlink-file", id, "src/main.rs"],
+        vec!["issue", "unlink-commit", id, "abc123"],
+    ] {
+        assert_eq!(
+            native_json(dir.path(), &args)["result"]["metadata"]["id"],
+            id
+        );
+    }
+    let shown = native_json(dir.path(), &["issue", "show", id]);
+    assert_eq!(shown["result"]["metadata"]["status"], "ready");
+    assert!(!shown["result"].to_string().contains("src/main.rs"));
+    assert!(!shown["result"].to_string().contains("abc123"));
     let issue_json = dir.path().join("issue.json");
-    fs::write(
-        &issue_json,
-        r#"{
-          "title": "JSON issue",
-          "description": "Created without shell quoting",
-          "status": "todo",
-          "labels": ["json"],
-          "linked_files": ["src/json.rs"]
-        }"#,
-    )
-    .unwrap();
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args([
+    fs::write(&issue_json, r#"{"title":"JSON issue","description":"Created without shell quoting","status":"todo","labels":["json"],"linked_files":["src/json.rs"]}"#).unwrap();
+    let from_json = native_json(
+        dir.path(),
+        &[
             "issue",
             "create",
             "--from-json",
             issue_json.to_str().unwrap(),
-            "--json",
-        ])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("\"title\": \"JSON issue\""))
-        .stdout(predicate::str::contains("src/json.rs"));
-
+        ],
+    );
+    assert_eq!(from_json["result"]["metadata"]["title"], "JSON issue");
+    assert_eq!(from_json["result"]["body"], "Created without shell quoting");
+    assert!(from_json.to_string().contains("src/json.rs"));
     workdeck()
         .arg("--cwd")
         .arg(dir.path())
         .args(["issue", "show", "WD-404"])
         .assert()
         .code(3)
-        .stderr(predicate::str::contains("issue WD-404 does not exist"));
-
-    workdeck()
-        .arg("--cwd")
-        .arg(dir.path())
-        .args(["issue", "delete", "WD-1", "--yes"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("deleted WD-1"));
+        .stderr(predicate::str::contains("WD-404"));
+    let deleted = native_json(dir.path(), &["issue", "delete", id, "--yes"]);
+    assert_eq!(deleted["receipt"]["operation"], "record.retire");
+    // Native delete retires the record while preserving reviewable history.
+    assert!(
+        dir.path()
+            .join(format!(".workdeck/issues/{id}/item.md"))
+            .exists()
+    );
+    assert_eq!(
+        native_json(dir.path(), &["issue", "show", id])["result"]["metadata"]["archived"],
+        true
+    );
+    let listing = native_json(dir.path(), &["issue", "list"]);
+    let retired = listing["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|issue| issue["metadata"]["id"] == id)
+        .unwrap();
+    assert_eq!(retired["metadata"]["archived"], true);
+    assert_eq!(retired["retirement"]["target"]["id"], id);
+    assert!(
+        dir.path()
+            .join(format!(".workdeck/tombstones/issues/{id}.yml"))
+            .exists()
+    );
 }
 
 #[test]
 fn reference_agent_config_events_and_import_commands_are_headless() {
     let dir = tempdir().unwrap();
     git(dir.path(), &["init"]);
+    migrated_planning_store(dir.path());
 
     workdeck()
         .arg("--cwd")
@@ -774,14 +2114,14 @@ fn reference_agent_config_events_and_import_commands_are_headless() {
         .args(["project", "show", "workdeck", "--json"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"id\": \"workdeck\""));
+        .stdout(predicate::str::contains("\"id\":\"workdeck\""));
     workdeck()
         .arg("--cwd")
         .arg(dir.path())
         .args(["label", "list", "--color", "green", "--json"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"id\": \"cli\""));
+        .stdout(predicate::str::contains("\"id\":\"cli\""));
 
     workdeck()
         .arg("--cwd")
@@ -807,7 +2147,7 @@ fn reference_agent_config_events_and_import_commands_are_headless() {
         .args(["agent", "finish", "run-cli", "--summary", "Done", "--json"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"status\": \"done\""));
+        .stdout(predicate::str::contains("\"status\":\"done\""));
 
     workdeck()
         .arg("--cwd")
@@ -843,7 +2183,7 @@ fn reference_agent_config_events_and_import_commands_are_headless() {
         .args(["events", "list", "--json"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("agent_session_saved"));
+        .stdout(predicate::str::contains("history.session.create"));
 
     let export = workdeck()
         .arg("--cwd")
@@ -857,24 +2197,45 @@ fn reference_agent_config_events_and_import_commands_are_headless() {
 
     let import_dir = tempdir().unwrap();
     git(import_dir.path(), &["init"]);
-    workdeck()
-        .arg("--cwd")
-        .arg(import_dir.path())
-        .args([
+    // A fresh destination restores the same native identity; subsequent --replace
+    // verifies the matching-record import route without replacing unrelated data.
+    let preview = native_json(
+        import_dir.path(),
+        &[
             "import",
             export_path.to_str().unwrap(),
+            "--restore",
             "--dry-run",
-            "--json",
-        ])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("\"projects\": 1"));
-    workdeck()
-        .arg("--cwd")
-        .arg(import_dir.path())
-        .args(["import", export_path.to_str().unwrap(), "--replace"])
-        .assert()
-        .success();
+        ],
+    );
+    assert_eq!(preview["result"]["allowed"], true, "{preview}");
+    assert!(
+        preview["result"]["changes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|change| change["path"] == "projects/workdeck/item.md")
+    );
+    native_json(
+        import_dir.path(),
+        &[
+            "import",
+            export_path.to_str().unwrap(),
+            "--restore",
+            "--request-id",
+            "restore-headless",
+        ],
+    );
+    native_json(
+        import_dir.path(),
+        &[
+            "import",
+            export_path.to_str().unwrap(),
+            "--replace",
+            "--request-id",
+            "replace-headless",
+        ],
+    );
     workdeck()
         .arg("--cwd")
         .arg(import_dir.path())
@@ -882,6 +2243,46 @@ fn reference_agent_config_events_and_import_commands_are_headless() {
         .assert()
         .success()
         .stdout(predicate::str::contains("Run CLI"));
+}
+
+// PM03 intentionally closes prototype writes. These command scenarios now
+// migrate real legacy configuration/history, then exercise native authority.
+// Legacy reader and no-write compatibility live in pm_legacy_admission.rs.
+fn migrated_planning_store(root: &std::path::Path) {
+    let legacy = root.join(".agents/workdeck");
+    legacy_fixture::init(&legacy);
+    fs::write(
+        legacy.join("events.jsonl"),
+        "{\"kind\":\"fixture_created\",\"created_at\":\"2026-09-01T00:00:00Z\"}\n",
+    )
+    .unwrap();
+    let options = workdeck_pm::migration::PreviewOptions {
+        config: workdeck_pm::Config::new("WD").unwrap(),
+        imported_at: "2026-09-09T00:00:00Z".parse().unwrap(),
+    };
+    let plan = workdeck_pm::migration::preview(&legacy, &root.join(".workdeck"), &options).unwrap();
+    assert!(plan.complete, "{:?}", plan.blockers);
+    workdeck_pm::migration::apply(&plan, &workdeck_pm::RequestId::new()).unwrap();
+}
+
+fn native_json(root: &std::path::Path, args: &[&str]) -> Value {
+    let output = workdeck()
+        .arg("--cwd")
+        .arg(root)
+        .args(args)
+        .arg("--json")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{args:?}: {} {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(result["api_version"], 1);
+    assert_eq!(result["ok"], true);
+    result
 }
 
 fn git(cwd: &std::path::Path, args: &[&str]) {

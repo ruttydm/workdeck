@@ -1,0 +1,34 @@
+{
+  "sourcePath": "src/ui/AppHost.interactions.test.tsx",
+  "sourceTests": [
+    "theme selector reopens on the active theme",
+    "theme selector Escape reverts previews"
+  ],
+  "baselineInterval": {
+    "byteStart": 30255,
+    "byteEnd": 33267,
+    "lineStart": 988,
+    "lineEnd": 1088,
+    "sha256": "a19b37e15797f76c14467fc7f4394f2dbafa923374acdda059a588bc534f1e5f"
+  },
+  "runs": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/main/src/ui/AppHost.interactions.test.tsx:\nThe current testing environment is not configured to support act(...)\n(pass) App interactions > theme selector reopens on the active theme [331.91ms]\n(pass) App interactions > theme selector Escape reverts previews [206.88ms]\n\n 2 pass\n 74 filtered out\n 0 fail\n 6 expect() calls\nRan 2 tests across 1 file. [1172.00ms]\n"
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/stable/src/ui/AppHost.interactions.test.tsx:\nThe current testing environment is not configured to support act(...)\n(pass) App interactions > theme selector reopens on the active theme [272.27ms]\nThe current testing environment is not configured to support act(...)\n(pass) App interactions > theme selector Escape reverts previews [218.58ms]\n\n 2 pass\n 72 filtered out\n 0 fail\n 6 expect() calls\nRan 2 tests across 1 file. [911.00ms]\n"
+    }
+  ],
+  "native": {
+    "test": "tests::theme_selector_reopens_accepted_theme_and_escape_restores_original",
+    "passed": 1,
+    "failed": 0,
+    "filtered": 1149,
+    "seconds": 0.83
+  },
+  "scope": "Two independent 240x24 single alpha.ts 1-to-2 reviews. Dracula t/Tab/Enter/t reopens dracula-soft; default t/Down/Down/Escape/t restores default. Six source assertions reproduced with explicit selected-theme and actual applied-id checks added. Source waitForFrame predicates are not assertions; native checks them where relevant. No full terminal-cell, raw input, persistence, or extension-event parity claimed."
+}

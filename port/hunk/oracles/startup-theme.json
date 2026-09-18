@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "runtime": {
+    "name": "Bun",
+    "version": "1.3.5",
+    "execution": "disposable pinned Hunk worktrees"
+  },
+  "command": [
+    "bun",
+    "test",
+    "src/app/startup.test.ts",
+    "--test-name-pattern",
+    "opens the controlling terminal for any app startup with piped stdin|detects auto theme through the controlling terminal before app startup"
+  ],
+  "baselines": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "startup_blob": "79c05c50e63fa4f533fbb1c7b3c3868913750386",
+      "test_blob": "2a346bcb5cbebd34376663bb79c832f9d25fc44f",
+      "passed": 2,
+      "failed": 0,
+      "filtered_out": 23,
+      "expect_calls": 5
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "startup_blob": "672a2f7966498e616cddab940ca07757b1e393c2",
+      "test_blob": "6084991177e681b6e28b3dc328a3d0aa58ea12c2",
+      "passed": 2,
+      "failed": 0,
+      "filtered_out": 18,
+      "expect_calls": 5
+    }
+  ],
+  "expected": {
+    "piped_app": {
+      "stdin_is_tty": false,
+      "stdout_is_tty": true,
+      "concrete_theme": "github-dark-default",
+      "opens_controlling_terminal": true,
+      "returns_controlling_terminal_in_app_plan": true
+    },
+    "auto_theme": {
+      "configured_theme": "auto",
+      "osc_11_query": "\u001b]11;?\u001b\\",
+      "probe_input": "controlling_terminal.stdin",
+      "probe_output": "stdout",
+      "detected_mode": "dark",
+      "bootstrap_initial_theme_mode": "dark",
+      "probe_occurs_before_app_startup": true
+    }
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "sourcePath": "src/ui/AppHost.interactions.test.tsx",
+  "sourceTest": "PageDown and PageUp scrolling update the active file to match the viewport",
+  "baselineInterval": {
+    "byteStart": 103482,
+    "byteEnd": 105607,
+    "lineStart": 3522,
+    "lineEnd": 3595,
+    "sha256": "31fbc2795458b0b2c80bf598a43d3c4ad029cbf785d965bdba74479c167e9637"
+  },
+  "runs": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/main/src/ui/AppHost.interactions.test.tsx:\nThe current testing environment is not configured to support act(...)\n(pass) App interactions > PageDown and PageUp scrolling update the active file to match the viewport [312.38ms]\n\n 1 pass\n 75 filtered out\n 0 fail\n 3 expect() calls\nRan 1 test across 1 file. [887.00ms]\n"
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/stable/src/ui/AppHost.interactions.test.tsx:\n(pass) App interactions > PageDown and PageUp scrolling update the active file to match the viewport [242.49ms]\n\n 1 pass\n 73 filtered out\n 0 fail\n 3 expect() calls\nRan 1 test across 1 file. [699.00ms]\n"
+    }
+  ],
+  "native": {
+    "test": "app_host::tests::page_keys_publish_viewport_file_selection_in_both_directions",
+    "passed": 1,
+    "failed": 0,
+    "filtered": 1133,
+    "seconds": 0.81
+  },
+  "scope": "220x12 source mouse-scroll fixture. PageDown up to eight times selects second.ts; PageUp up to eight times returns first.ts hunk0. Production snapshot publication to in-process host. Source deliberately does not require a particular second-file hunk because timing can vary. This does not prove all intermediate center selections or raw key decoding."
+}

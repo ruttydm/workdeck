@@ -1,0 +1,182 @@
+{
+  "schemaVersion": 1,
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "source": {
+    "path": "src/ui/components/scrollbar/VerticalScrollbar.tsx",
+    "blob": "55e98bd8e0b3648fce4e80811214de88a6bd98a2",
+    "sha256": "d077de8c2684445d17cad042c04f83daeff6186d2e2f36feed001f7ab9d433e4",
+    "bytes": 7147,
+    "lines": 236
+  },
+  "sourceTest": {
+    "path": "src/ui/components/scrollbar/VerticalScrollbar.test.tsx",
+    "blob": "9a89eb0ba8439ede0ddbee6dc101fe39268f60d0",
+    "sha256": "ebd3e53b2340de7c3b8c290b02a90a2c82a36e002ea60da161a339cef7473763",
+    "bytes": 14314,
+    "lines": 504
+  },
+  "stableSource": {
+    "blob": "ae09268346c843a2487aa6ede59f1480ad6438e5",
+    "sha256": "663e61771a3d6f93f4ec2d140effd435d7177ba15e632513e95347f94c0d5f28"
+  },
+  "stableSourceTest": {
+    "blob": "6522d52e1b7e89cc800c52c925dee61bdd49e466",
+    "sha256": "7346351af778bcfaa860a2e0e8ef4676d97585361478bb595340fa8fef74070e"
+  },
+  "history": [
+    {
+      "commit": "d17537ba871ff92d793f5ecf5c037cabf7612585",
+      "subject": "Add auto-hide vertical scrollbar to diff pane (#93)"
+    },
+    {
+      "commit": "cabff6a5ffbbffe4dff3464d8bd31b90e8952594",
+      "subject": "Fix scrollbar click-drag on large diffs (#120)"
+    },
+    {
+      "commit": "3cd541c23169a9d9df333c0e0aa13207da8c3422",
+      "subject": "Pin the current file header while scrolling the review pane (#141)"
+    },
+    {
+      "commit": "893759e288749f7426d02682d6423b7f36d555dd",
+      "subject": "test: replace fixed waits with observable readiness (#694)"
+    },
+    {
+      "commit": "506bffab47d0d1006d19c26da80401a1f3616d87",
+      "subject": "test: stabilize Windows CI suites (#885)"
+    }
+  ],
+  "baselineOracle": {
+    "runtime": "bun 1.3.5",
+    "command": "bun test src/ui/components/scrollbar/VerticalScrollbar.test.tsx",
+    "passed": 8,
+    "failed": 0,
+    "assertions": 20
+  },
+  "stableOracle": {
+    "runtime": "bun 1.3.5",
+    "command": "bun test src/ui/components/scrollbar/VerticalScrollbar.test.tsx",
+    "passed": 8,
+    "failed": 0,
+    "assertions": 13,
+    "relationship": "same eight behaviors; baseline adds injected scheduler and deterministic stale-callback assertions"
+  },
+  "numericVectors": [
+    {
+      "contentHeight": 40,
+      "viewportHeight": 10,
+      "scrollTop": 0,
+      "thumbHeight": 2,
+      "thumbY": 0
+    },
+    {
+      "contentHeight": 100,
+      "viewportHeight": 10,
+      "scrollTop": 0,
+      "maxScroll": 90,
+      "maxThumbY": 8,
+      "dragDeltaY": 4,
+      "resultScrollTop": 45
+    },
+    {
+      "contentHeight": 100,
+      "viewportHeight": 10,
+      "scrollTop": 20,
+      "clickBelow": 8,
+      "belowResult": 30,
+      "clickAbove": 0,
+      "aboveResult": 10
+    },
+    {
+      "contentHeight": 11,
+      "viewportHeight": 10,
+      "scrollTop": 0,
+      "thumbHeight": 9,
+      "maxThumbY": 1,
+      "dragDeltaY": 5,
+      "resultScrollTop": 1
+    }
+  ],
+  "destinations": [
+    {
+      "path": "crates/workdeck-tui/src/vertical_scrollbar.rs",
+      "sha256": "7343b028badf1fb416a932abd324989d040e7506f71e4dd7cf0881ceae0bb7f8"
+    },
+    {
+      "path": "crates/workdeck-tui/src/lib.rs",
+      "sha256": "c0616868462572f17e20e5a6abb16b5f638c4f2a719439a5e263cde83acb71d3"
+    },
+    {
+      "path": "docs/native-review-scrollbar.md",
+      "sha256": "d03f1b725fde7e3c52af1a97f4b98441f6e3dced96c0a5d91a67ac679b812c30"
+    }
+  ],
+  "sourceCoverage": [
+    [[[[1, 31], [0, 774]]], "constants, scheduler contract, default scheduler, and scheduled-hide ownership"],
+    [[[[32, 72], [774, 1950]]], "imperative handle, properties, mounted state, drag anchors, timer generation, and live options"],
+    [[[[73, 109], [1950, 3161]]], "superseding hide schedule, reveal activity, imperative exposure, and unmount cancellation"],
+    [[[[110, 124], [3161, 3818]]], "overflow visibility and exact track, thumb, range, and scroll-position geometry"],
+    [[[[125, 137], [3818, 4222]]], "left-button thumb capture, drag anchors, reveal, and propagation ownership"],
+    [[[[138, 157], [4222, 4889]]], "guarded drag ratio, zero-range fallback, clamping, scrolling, and hide restart"],
+    [[[[158, 180], [4889, 5772]]], "track hit coordinates and one-viewport paging above or below the thumb"],
+    [[[[181, 193], [5772, 6081]]], "idempotent drag release and fresh auto-hide window"],
+    [[[[194, 236], [6081, 7147]]], "one-cell overlay, track and drag-aware thumb palette, geometry, and pointer handlers"]
+  ],
+  "testCoverage": [
+    [[[[1, 206], [0, 5733]]], "real diff harness, paint inspection, observable viewport readiness, and deterministic scheduler"],
+    [[[[207, 238], [5733, 6590]]], "overflow reveal paints the muted thumb"],
+    [[[[239, 281], [6590, 7903]]], "auto-hide retains the thumb before and removes it at the deadline"],
+    [[[[282, 308], [7903, 8830]]], "mouse-wheel activity moves overflowing review rows"],
+    [[[[309, 352], [8830, 10232]]], "repeated activity cancels and generation-guards the preceding deadline"],
+    [[[[353, 382], [10232, 11014]]], "content fitting the viewport never paints a scrollbar"],
+    [[[[383, 429], [11014, 12419]]], "thumb drag maps four track rows to forty-five content rows and release restarts expiry"],
+    [[[[430, 469], [12419, 13430]]], "track clicks page one viewport in both directions"],
+    [[[[470, 504], [13430, 14314]]], "bare overflow avoids a zero divisor and clamps to its only scroll row"]
+  ],
+  "testMappings": [
+    {
+      "source": "shows scrollbar when content exceeds viewport height",
+      "rust": ["vertical_scrollbar::tests::overflowing_content_is_revealed_for_one_complete_hide_window", "tests::review_scroll_activity_paints_and_then_hides_the_native_scrollbar"]
+    },
+    {
+      "source": "hides scrollbar after scroll activity stops",
+      "rust": ["vertical_scrollbar::tests::overflowing_content_is_revealed_for_one_complete_hide_window", "tests::review_scroll_activity_paints_and_then_hides_the_native_scrollbar"]
+    },
+    {
+      "source": "mouse wheel activity scrolls overflowing review content",
+      "rust": ["tests::review_mouse_wheel_starts_precise_and_accumulates_burst_acceleration", "tests::review_scroll_activity_paints_and_then_hides_the_native_scrollbar"]
+    },
+    {
+      "source": "repeated activity restarts the auto-hide deadline",
+      "rust": ["vertical_scrollbar::tests::repeated_activity_restarts_deadline_and_stale_callbacks_do_not_hide"]
+    },
+    {
+      "source": "scrollbar is hidden when content fits in viewport",
+      "rust": ["vertical_scrollbar::tests::content_that_fits_never_produces_a_presentation"]
+    },
+    {
+      "source": "thumb drag scrolls content and restarts auto-hide after release",
+      "rust": ["vertical_scrollbar::tests::dragging_maps_track_cells_to_content_and_restarts_hide_on_release", "tests::review_scrollbar_track_and_thumb_own_real_ratatui_pointer_geometry"]
+    },
+    {
+      "source": "track click scrolls by one viewport",
+      "rust": ["vertical_scrollbar::tests::track_click_pages_one_viewport_above_or_below_the_thumb", "tests::review_scrollbar_track_and_thumb_own_real_ratatui_pointer_geometry"]
+    },
+    {
+      "source": "handles edge case when content barely exceeds viewport",
+      "rust": ["vertical_scrollbar::tests::barely_overflowing_content_clamps_a_large_drag_to_the_only_row"]
+    }
+  ],
+  "integrationTests": [
+    "cargo test -p workdeck-tui vertical_scrollbar --lib",
+    "cargo test -p workdeck-tui review_scroll_activity_paints_and_then_hides_the_native_scrollbar --lib",
+    "cargo test -p workdeck-tui review_scrollbar_track_and_thumb_own_real_ratatui_pointer_geometry --lib",
+    "cargo test -p workdeck-tui --lib"
+  ],
+  "nativeAdaptations": [
+    "Ratatui paints the one-cell overlay after the review Paragraph and owns its exact cell hit map.",
+    "The existing terminal-loop tick replaces JavaScript timers; generation checks preserve canceled-callback behavior without a background thread.",
+    "The first rendered scroll position is the same non-activity baseline as Hunk's first deferred viewport read.",
+    "OpenTUI ScrollBox rounds scrollTo values; the native usize viewport rounds at the same drag boundary."
+  ]
+}

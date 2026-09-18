@@ -1,0 +1,64 @@
+{
+  "baselineCommits": [
+    "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+    "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"
+  ],
+  "input": {
+    "id": "src/lib.rs",
+    "path": "src/lib.rs",
+    "patch": "",
+    "stats": {
+      "additions": 4,
+      "deletions": 3
+    },
+    "changeType": "change",
+    "hunks": [
+      {
+        "index": 0,
+        "header": "fn alpha()",
+        "oldRange": [3, 5],
+        "newRange": [3, 6]
+      },
+      {
+        "index": 1,
+        "header": "fn omega()",
+        "oldRange": [0, 0],
+        "newRange": [21, 23]
+      }
+    ]
+  },
+  "layout": {
+    "rows": [
+      {
+        "id": "hunk-0-summary",
+        "spans": [{ "text": "Hunk 1: fn alpha()", "tone": "accent" }],
+        "sourceRanges": [
+          { "side": "old", "range": [3, 5] },
+          { "side": "new", "range": [3, 6] }
+        ],
+        "component": { "height": 2 }
+      },
+      {
+        "id": "hunk-0-detail",
+        "spans": [{ "text": "lines 3–6 (symbolic fallback)", "tone": "muted" }],
+        "component": { "height": 2 }
+      },
+      {
+        "id": "hunk-1-summary",
+        "spans": [{ "text": "Hunk 2: fn omega()", "tone": "accent" }],
+        "sourceRanges": [{ "side": "new", "range": [21, 23] }],
+        "component": { "height": 2 }
+      },
+      {
+        "id": "hunk-1-detail",
+        "spans": [{ "text": "lines 21–23 (symbolic fallback)", "tone": "muted" }],
+        "component": { "height": 2 }
+      }
+    ],
+    "hunkRows": [
+      { "startRow": 0, "endRow": 1 },
+      { "startRow": 2, "endRow": 3 }
+    ]
+  },
+  "oneHunkLayout": null
+}

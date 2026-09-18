@@ -1,0 +1,17 @@
+{
+  "source": "benchmarks/changeset-parse.ts",
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "runtime": "Bun 1.3.14 macOS arm64",
+  "capture": "Complete scripts executed successfully in both disposable pinned checkouts. All structural metrics agreed. Runs overlapped compilation and are not performance acceptance evidence.",
+  "scenarios": [
+    {"name": "many_small_files", "files": 240, "patch_bytes": 376703},
+    {"name": "balanced_changeset", "files": 96, "patch_bytes": 682727},
+    {"name": "large_single_file", "files": 1, "patch_bytes": 284479}
+  ],
+  "timingOrder": ["normalize_patch_ms", "parse_patch_ms", "split_chunks_ms", "build_diff_files_ms"],
+  "diagnosticTimingsMs": {
+    "baseline": [[0.64, 23.60, 2.69, 5.75], [0.76, 4.17, 1.15, 0.38], [0.33, 1.43, 0.37, 0.11]],
+    "stable": [[0.65, 5.34, 1.01, 2.38], [0.78, 4.11, 1.22, 0.49], [0.33, 1.61, 0.43, 0.09]]
+  }
+}

@@ -1,0 +1,249 @@
+{
+  "generator": "Pinned Hunk buildSeriesCard under Bun 1.3.14",
+  "results": [
+    {
+      "pin": "main",
+      "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "cases": [
+        {
+          "input": "## 1.2.0\n### Fixed\n- Fix.\n",
+          "dates": {},
+          "latest": false,
+          "expected": {
+            "slug": "1.2",
+            "title": "Hunk 1.2",
+            "meta": "Unreleased · 1 release · 1 change",
+            "alt": "Hunk 1.2 release notes — Unreleased · 1 release · 1 change"
+          }
+        },
+        {
+          "input": "## 1.2.0\n### Fixed\n- Fix.\n",
+          "dates": {},
+          "latest": true,
+          "expected": {
+            "slug": "1.2",
+            "title": "Hunk 1.2",
+            "meta": "Unreleased · 1 release · 1 change",
+            "latest": true,
+            "alt": "Hunk 1.2 release notes — Unreleased · 1 release · 1 change"
+          }
+        },
+        {
+          "input": "## 1.2.0\n### Fixed\n- Fix.\n",
+          "dates": {
+            "1.2.0": "2026-08-01",
+            "1.2.1": "2026-08-02"
+          },
+          "latest": false,
+          "expected": {
+            "slug": "1.2",
+            "title": "Hunk 1.2",
+            "meta": "August 1, 2026 · 1 release · 1 change",
+            "alt": "Hunk 1.2 release notes — August 1, 2026 · 1 release · 1 change"
+          }
+        },
+        {
+          "input": "## 1.2.0\n### Fixed\n- Fix.\n",
+          "dates": {
+            "1.2.0": "2026-08-01",
+            "1.2.1": "2026-08-02"
+          },
+          "latest": true,
+          "expected": {
+            "slug": "1.2",
+            "title": "Hunk 1.2",
+            "meta": "August 1, 2026 · 1 release · 1 change",
+            "latest": true,
+            "alt": "Hunk 1.2 release notes — August 1, 2026 · 1 release · 1 change"
+          }
+        },
+        {
+          "input": "## 1.2.1\n## 1.2.0\n### Highlights\nA **summary**.\n",
+          "dates": {},
+          "latest": false,
+          "expected": {
+            "slug": "1.2",
+            "title": "Hunk 1.2",
+            "tagline": "A summary.",
+            "meta": "Unreleased · 2 releases · 0 changes",
+            "alt": "Hunk 1.2 release notes — Unreleased · 2 releases · 0 changes"
+          }
+        },
+        {
+          "input": "## 1.2.1\n## 1.2.0\n### Highlights\nA **summary**.\n",
+          "dates": {},
+          "latest": true,
+          "expected": {
+            "slug": "1.2",
+            "title": "Hunk 1.2",
+            "tagline": "A summary.",
+            "meta": "Unreleased · 2 releases · 0 changes",
+            "latest": true,
+            "alt": "Hunk 1.2 release notes — Unreleased · 2 releases · 0 changes"
+          }
+        },
+        {
+          "input": "## 1.2.1\n## 1.2.0\n### Highlights\nA **summary**.\n",
+          "dates": {
+            "1.2.0": "2026-08-01",
+            "1.2.1": "2026-08-02"
+          },
+          "latest": false,
+          "expected": {
+            "slug": "1.2",
+            "title": "Hunk 1.2",
+            "tagline": "A summary.",
+            "meta": "August 1, 2026 – August 2, 2026 · 2 releases · 0 changes",
+            "chips": [
+              "1.2.1",
+              "1.2.0"
+            ],
+            "alt": "Hunk 1.2 release notes — August 1, 2026 – August 2, 2026 · 2 releases · 0 changes"
+          }
+        },
+        {
+          "input": "## 1.2.1\n## 1.2.0\n### Highlights\nA **summary**.\n",
+          "dates": {
+            "1.2.0": "2026-08-01",
+            "1.2.1": "2026-08-02"
+          },
+          "latest": true,
+          "expected": {
+            "slug": "1.2",
+            "title": "Hunk 1.2",
+            "tagline": "A summary.",
+            "meta": "August 1, 2026 – August 2, 2026 · 2 releases · 0 changes",
+            "chips": [
+              "1.2.1",
+              "1.2.0"
+            ],
+            "latest": true,
+            "alt": "Hunk 1.2 release notes — August 1, 2026 – August 2, 2026 · 2 releases · 0 changes"
+          }
+        }
+      ]
+    },
+    {
+      "pin": "stable",
+      "baseline": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "cases": [
+        {
+          "input": "## 1.2.0\n### Fixed\n- Fix.\n",
+          "dates": {},
+          "latest": false,
+          "expected": {
+            "slug": "1.2",
+            "title": "Hunk 1.2",
+            "meta": "Unreleased · 1 release · 1 change",
+            "alt": "Hunk 1.2 release notes — Unreleased · 1 release · 1 change"
+          }
+        },
+        {
+          "input": "## 1.2.0\n### Fixed\n- Fix.\n",
+          "dates": {},
+          "latest": true,
+          "expected": {
+            "slug": "1.2",
+            "title": "Hunk 1.2",
+            "meta": "Unreleased · 1 release · 1 change",
+            "latest": true,
+            "alt": "Hunk 1.2 release notes — Unreleased · 1 release · 1 change"
+          }
+        },
+        {
+          "input": "## 1.2.0\n### Fixed\n- Fix.\n",
+          "dates": {
+            "1.2.0": "2026-08-01",
+            "1.2.1": "2026-08-02"
+          },
+          "latest": false,
+          "expected": {
+            "slug": "1.2",
+            "title": "Hunk 1.2",
+            "meta": "August 1, 2026 · 1 release · 1 change",
+            "alt": "Hunk 1.2 release notes — August 1, 2026 · 1 release · 1 change"
+          }
+        },
+        {
+          "input": "## 1.2.0\n### Fixed\n- Fix.\n",
+          "dates": {
+            "1.2.0": "2026-08-01",
+            "1.2.1": "2026-08-02"
+          },
+          "latest": true,
+          "expected": {
+            "slug": "1.2",
+            "title": "Hunk 1.2",
+            "meta": "August 1, 2026 · 1 release · 1 change",
+            "latest": true,
+            "alt": "Hunk 1.2 release notes — August 1, 2026 · 1 release · 1 change"
+          }
+        },
+        {
+          "input": "## 1.2.1\n## 1.2.0\n### Highlights\nA **summary**.\n",
+          "dates": {},
+          "latest": false,
+          "expected": {
+            "slug": "1.2",
+            "title": "Hunk 1.2",
+            "tagline": "A summary.",
+            "meta": "Unreleased · 2 releases · 0 changes",
+            "alt": "Hunk 1.2 release notes — Unreleased · 2 releases · 0 changes"
+          }
+        },
+        {
+          "input": "## 1.2.1\n## 1.2.0\n### Highlights\nA **summary**.\n",
+          "dates": {},
+          "latest": true,
+          "expected": {
+            "slug": "1.2",
+            "title": "Hunk 1.2",
+            "tagline": "A summary.",
+            "meta": "Unreleased · 2 releases · 0 changes",
+            "latest": true,
+            "alt": "Hunk 1.2 release notes — Unreleased · 2 releases · 0 changes"
+          }
+        },
+        {
+          "input": "## 1.2.1\n## 1.2.0\n### Highlights\nA **summary**.\n",
+          "dates": {
+            "1.2.0": "2026-08-01",
+            "1.2.1": "2026-08-02"
+          },
+          "latest": false,
+          "expected": {
+            "slug": "1.2",
+            "title": "Hunk 1.2",
+            "tagline": "A summary.",
+            "meta": "August 1, 2026 – August 2, 2026 · 2 releases · 0 changes",
+            "chips": [
+              "1.2.1",
+              "1.2.0"
+            ],
+            "alt": "Hunk 1.2 release notes — August 1, 2026 – August 2, 2026 · 2 releases · 0 changes"
+          }
+        },
+        {
+          "input": "## 1.2.1\n## 1.2.0\n### Highlights\nA **summary**.\n",
+          "dates": {
+            "1.2.0": "2026-08-01",
+            "1.2.1": "2026-08-02"
+          },
+          "latest": true,
+          "expected": {
+            "slug": "1.2",
+            "title": "Hunk 1.2",
+            "tagline": "A summary.",
+            "meta": "August 1, 2026 – August 2, 2026 · 2 releases · 0 changes",
+            "chips": [
+              "1.2.1",
+              "1.2.0"
+            ],
+            "latest": true,
+            "alt": "Hunk 1.2 release notes — August 1, 2026 – August 2, 2026 · 2 releases · 0 changes"
+          }
+        }
+      ]
+    }
+  ]
+}

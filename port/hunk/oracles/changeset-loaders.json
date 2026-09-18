@@ -1,0 +1,184 @@
+{
+  "schema_version": 1,
+  "captured_with": "bun 1.3.5 executing the untouched pinned src/core/changeset/loaders.test.ts",
+  "source": {
+    "baseline": {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "source_blob": "aece09bc494a7d5f56e6d70601c2fdfb967efaec",
+      "test_blob": "9950f19daa506712c599567f68f3844390bdc7c0",
+      "result": { "passed": 73, "skipped": 3, "failed": 0, "expectations": 198 }
+    },
+    "stable": {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "source_blob": "e979d3d0cdd8f1c8cf50dc49bf8bd25400bc22fe",
+      "test_blob": "f09a7249dbf6784751874e7de693c7a1360ad32d",
+      "result": { "passed": 72, "skipped": 3, "failed": 0, "expectations": 196 }
+    }
+  },
+  "test_groups": [
+    {
+      "id": "bootstrap-and-direct-files",
+      "hunk_tests": [
+        "synthesizes untracked file diffs an adapter reported by path",
+        "captures a watched signature before content loading",
+        "does not fail a valid initial load when best-effort watch signing fails",
+        "loads file-pair diffs and agent context",
+        "loads git changes and relative agent context from an explicit cwd override",
+        "skips binary file-pair diffs instead of reading their contents"
+      ],
+      "rust_tests": [
+        "workdeck_vcs::materialize::tests::parses_patch_hydrates_exact_sides_and_synthesizes_untracked_files",
+        "workdeck_cli::review_cli_option_tests::watch_signature_is_captured_before_direct_file_content_changes",
+        "workdeck_cli::review_cli_option_tests::prepared_direct_file_bootstrap_applies_relative_agent_context_before_handoff",
+        "workdeck_vcs::file_comparison::tests::direct_files_use_hunk_identity_title_sources_and_context",
+        "workdeck_vcs::file_comparison::tests::binary_pairs_are_sniffed_before_text_loading_and_have_no_sources",
+        "workdeck_core::bootstrap::tests::bootstrap_retains_every_resolved_launch_and_reload_field"
+      ]
+    },
+    {
+      "id": "provider-working-tree-and-file-shapes",
+      "hunk_tests": [
+        "marks git binary diffs as skipped binary content",
+        "loads git working tree changes from a temporary repo",
+        "includes untracked files in working tree reviews by default",
+        "includes Sapling unknown files in working copy reviews",
+        "keeps generated large tracked diffs as skipped placeholders",
+        "keeps generated large untracked files as skipped placeholders",
+        "caps skipped untracked-file stats when byte-size detection would require a full huge read",
+        "skips untracked symlinks to directories while loading the rest of the review",
+        "reviews untracked file symlinks as links without following their targets",
+        "reports untracked executable files with git's 100755 mode",
+        "can exclude untracked files from working tree reviews",
+        "includes untracked files when diff compares the working tree against one ref",
+        "excludes untracked files for explicit git ranges that do not include the working tree",
+        "excludes untracked files for revset diffs like HEAD^! that do not include the working tree",
+        "loads untracked files whose names need parser-safe diff headers",
+        "loads exact tracked Unicode paths regardless of Git quoting",
+        "loads untracked files even when diff.external is configured in the repo",
+        "still shows an untracked agent sidecar when it lives inside the repo",
+        "includes repo-wide untracked files even when launched from a subdirectory",
+        "loads git working tree changes when diff.noprefix is enabled",
+        "loads git working tree changes when diff.mnemonicPrefix is enabled",
+        "tags moved lines from git diff.colorMoved output"
+      ],
+      "rust_tests": [
+        "workdeck_vcs::tests::hunk_loader_marks_tracked_binary_and_large_files_as_bounded_placeholders",
+        "workdeck_vcs::tests::hunk_loader_applies_worktree_range_pathspec_and_repository_config_semantics",
+        "workdeck_vcs::tests::hunk_loader_skips_directory_symlinks_and_preserves_exact_untracked_names",
+        "workdeck_vcs::tests::loads_tracked_and_untracked_working_tree_files",
+        "workdeck_vcs::tests::keeps_large_untracked_files_as_bounded_review_placeholders",
+        "workdeck_vcs::tests::git_provider_keeps_empty_executable_and_symlink_untracked_semantics",
+        "workdeck_vcs::tests::captures_git_color_moved_lines_with_deterministic_palette",
+        "workdeck_vcs::untracked::tests::preserves_literal_backslashes_in_untracked_unix_filenames",
+        "workdeck_vcs::large_file::tests::skips_by_line_limit_and_keeps_complete_stats",
+        "workdeck_vcs::large_file::tests::skips_by_byte_limit_with_bounded_truncated_stats",
+        "workdeck_vcs::sapling_adapter::tests::product_loader_materializes_tracked_and_unknown_files_from_the_native_adapter",
+        "workdeck_core::tests::agent_context_validates_matches_renames_and_orders_files"
+      ]
+    },
+    {
+      "id": "provider-routing-errors-and-history",
+      "hunk_tests": [
+        "reports a friendly error when git review runs outside a repository",
+        "reports a friendly error when diff cannot resolve a range",
+        "uses agent sidecar file order for the review stream",
+        "loads staged-only git diffs from the full UI command path",
+        "loads staged new Unicode files before the first commit",
+        "staged diffs against an explicit ref fetch old source from that ref",
+        "loads staged-only git diffs when diff.noprefix is enabled",
+        "loads pathspec-limited git diffs from the full UI command path",
+        "loads jj diff output for a configured revset",
+        "loads jj show output for a configured revset",
+        "applies pathspec filtering to untracked files in working tree reviews",
+        "loads show output for the latest commit and an explicit ref",
+        "reports a friendly error when show cannot resolve a ref",
+        "loads show output limited by pathspec",
+        "loads show output when diff.noprefix is enabled",
+        "loads stash show output as a full review changeset",
+        "loads stash show output when diff.noprefix is enabled",
+        "rejects stash show when configured for jj",
+        "reports a friendly error when no stash entries exist",
+        "reports a friendly error when a stash ref does not exist",
+        "strips parser-added line endings from rename-only paths"
+      ],
+      "rust_tests": [
+        "workdeck_cli::tests::outside_git_repo_prints_actionable_error",
+        "workdeck_vcs::git_commands::tests::staged_diff_in_unborn_repo_uses_missing_old_source",
+        "workdeck_vcs::git_commands::tests::staged_diff_against_explicit_ref_compares_ref_to_index",
+        "workdeck_vcs::git_commands::tests::parent_bang_range_resolves_parent_and_commit_pair",
+        "workdeck_vcs::git_adapter::tests::loads_two_revision_diff_with_exact_sources_and_no_untracked_paths",
+        "workdeck_vcs::git_adapter::tests::loads_revision_and_stash_patches_with_source_capabilities",
+        "workdeck_vcs::jujutsu_adapter::tests::loads_working_copy_and_revision_patches_with_immutable_sources",
+        "workdeck_vcs::jujutsu_adapter::tests::product_loader_materializes_the_native_adapter_and_source_snapshots",
+        "workdeck_vcs::catalog::tests::stash_error_recommends_the_catalog_adapter_that_supports_it",
+        "workdeck_vcs::tests::hunk_loader_applies_worktree_range_pathspec_and_repository_config_semantics",
+        "workdeck_core::tests::agent_context_validates_matches_renames_and_orders_files",
+        "workdeck_diff::tests::finds_fallback_chunks_by_current_or_previous_normalized_path"
+      ]
+    },
+    {
+      "id": "external-patch-normalization",
+      "hunk_tests": [
+        "treats malformed inline patch text as an empty review instead of throwing",
+        "loads colorized git patch files like the real pager stdin stream",
+        "loads no-index patches whose file paths include /2/ segments",
+        "loads patch text emitted with diff.noprefix=true (e.g. from `hunk pager` stdin)",
+        "loads patch text emitted with diff.mnemonicPrefix=true (e.g. from `hunk pager` stdin)",
+        "loads renamed patch text emitted with diff.mnemonicPrefix=true",
+        "does not strip real directories that look like mnemonic prefixes in noprefix renames",
+        "loads noprefix rename patches by recovering the rename pair from the headers",
+        "loads quoted noprefix patch text emitted for escaped git paths",
+        "preserves literal backslashes when matching exact Git-quoted paths",
+        "preserves trailing control characters in exact Git-quoted paths",
+        "decodes Git-quoted UTF-8 paths from external patch input",
+        "decodes both sides of Git-quoted UTF-8 rename metadata",
+        "does not mangle a deleted SQL `-- comment` line in a noprefix patch",
+        "leaves correctly prefixed patches untouched even when paths sit inside an `a/` directory"
+      ],
+      "rust_tests": [
+        "workdeck_diff::tests::hunk_patch_boundary_returns_sanitized_empty_review_for_malformed_text",
+        "workdeck_diff::tests::strips_crlf_and_terminal_color_sequences",
+        "workdeck_diff::tests::hunk_loader_accepts_noprefix_mnemonic_and_nested_a_directory_patches",
+        "workdeck_diff::tests::hunk_loader_preserves_rename_paths_across_prefix_modes",
+        "workdeck_diff::tests::hunk_loader_decodes_exact_quoted_paths_and_rename_metadata",
+        "workdeck_diff::tests::hunk_loader_does_not_rewrite_sql_deletion_lines_as_file_headers",
+        "workdeck_diff::git_format::tests::normalizes_multiple_blocks_and_keeps_path_metadata_aligned",
+        "workdeck_diff::git_format::tests::decodes_quoted_utf8_and_preserves_exact_c_style_paths",
+        "workdeck_diff::language::tests::extensions_filenames_and_globs_match_review_paths_exactly"
+      ]
+    },
+    {
+      "id": "source-snapshots",
+      "hunk_tests": [
+        "file-pair diffs attach a fetcher that resolves both fs sides",
+        "git working-tree diffs read the new side from the working tree and the old side from the index",
+        "git source fetchers use the custom git executable from bootstrap loading",
+        "unstaged working-tree diffs read old source from the index when it differs from HEAD",
+        "`hunk show <ref>` resolves both sides through git blobs",
+        "`hunk show <ref>` refuses to expand source blobs above the source cap",
+        "`hunk show <ref>` pins expansion sources after the ref moves",
+        "`hunk stash show` pins expansion sources after stash@{0} moves",
+        "untracked files attach a fetcher whose old side is null",
+        "deleted Unicode files attach a fetcher with new=null and old source",
+        "renamed Unicode files read the old side from previousPath blob",
+        "raw patch input does not attach a source fetcher"
+      ],
+      "rust_tests": [
+        "workdeck_vcs::file_comparison::tests::direct_files_use_hunk_identity_title_sources_and_context",
+        "workdeck_vcs::git_source::tests::reads_index_and_working_tree_as_distinct_sources",
+        "workdeck_vcs::git_source::tests::passes_custom_executable_through_actual_source_reads",
+        "workdeck_vcs::git_source::tests::reports_blob_and_index_sources_above_the_configured_limit",
+        "workdeck_vcs::git_adapter::tests::loads_working_tree_and_untracked_paths_through_neutral_operation",
+        "workdeck_vcs::git_adapter::tests::loads_revision_and_stash_patches_with_source_capabilities",
+        "workdeck_vcs::tests::hunk_loader_show_stash_and_unicode_sources_are_immutable_snapshots",
+        "workdeck_vcs::tests::loads_tracked_and_untracked_working_tree_files",
+        "workdeck_vcs::tests::patch_input_uses_hunk_empty_review_semantics_and_separate_source_label"
+      ]
+    }
+  ],
+  "native_adaptation": {
+    "source_fetcher": "Workdeck resolves Hunk's immutable source-fetcher capability into attested Rust source snapshots during materialization. Missing and over-limit sides stay absent and are never guessed.",
+    "custom_file_languages": "The extension-driven language registry is applied at the CLI composition boundary after provider-neutral parsing; exact backslash matching is tested in the registry and patch parser independently.",
+    "branding": "Expected user errors and command examples use workdeck in place of hunk."
+  }
+}

@@ -1,0 +1,127 @@
+{
+  "source": "test/helpers/diff-helpers.ts and src/core/changeset/loaders.ts createTwoFilesPatch call",
+  "verification": {
+    "command": "cargo xtask verify",
+    "exitCode": 0,
+    "workspaceTests": "passed, one tooling test ignored",
+    "diffTestsPassed": 126,
+    "tuiTestsPassed": 1175,
+    "ptyTestsPassed": 98,
+    "formatting": "passed",
+    "clippyWarningsDenied": "passed",
+    "releaseBuild": "passed in 3m 32s",
+    "largeRepositorySmoke": "passed",
+    "strictAudit": "fails: 270 unmapped intervals and 11 cached upstream commits",
+    "performanceParity": "not established by this run"
+  },
+  "baselines": {
+    "main": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+    "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"
+  },
+  "initialNativeFailures": [
+    "Snapshot comparison reported zero additions and one deletion instead of one of each.",
+    "After preserving the source rows, the full-span clipping fast path leaked terminal controls."
+  ],
+  "nativeTests": [
+    "snapshot_path_cannot_inject_binary_or_rename_metadata",
+    "snapshot_comparison_preserves_terminal_bytes_and_lone_carriage_returns",
+    "direct_file_patch_keeps_lone_carriage_returns_inside_source_lines",
+    "segment_windows_sanitize_full_partial_and_control_only_spans",
+    "pinned_dynamic_review_output_rejects_terminal_controls"
+  ],
+  "scope": "Correct source-data versus display-sanitization boundaries. No new source-ledger completion or full-renderer parity claim.",
+  "runs": [
+    {
+      "pin": "main",
+      "path": "evil\u001b]52;c;SGVsbG8=\u0007\u001b[2J\u001bPqpayload\u001b\\\u0007\rspoof\bhidden\u001b.ts",
+      "before": "export const value = \"before\u001b]52;c;SGVsbG8=\u0007\u001b[2J\u001bPqpayload\u001b\\\u0007\rspoof\bhidden\u001b\";\n",
+      "after": "export const value = \"after\u001b]52;c;SGVsbG8=\u0007\u001b[2J\u001bPqpayload\u001b\\\u0007\rspoof\bhidden\u001b\";\n",
+      "stats": {
+        "additions": 1,
+        "deletions": 1
+      },
+      "old": [
+        "export const value = \"before\u001b]52;c;SGVsbG8=\u0007\u001b[2J\u001bPqpayload\u001b\\\u0007\rspoof\bhidden\u001b\";\n"
+      ],
+      "new": [
+        "export const value = \"after\u001b]52;c;SGVsbG8=\u0007\u001b[2J\u001bPqpayload\u001b\\\u0007\rspoof\bhidden\u001b\";\n"
+      ],
+      "hunks": [
+        {
+          "collapsedBefore": 0,
+          "splitLineCount": 1,
+          "splitLineStart": 0,
+          "unifiedLineCount": 2,
+          "unifiedLineStart": 0,
+          "additionCount": 1,
+          "additionStart": 1,
+          "additionLines": 1,
+          "deletionCount": 1,
+          "deletionStart": 1,
+          "deletionLines": 1,
+          "deletionLineIndex": 0,
+          "additionLineIndex": 0,
+          "hunkContent": [
+            {
+              "type": "change",
+              "additions": 1,
+              "deletions": 1,
+              "additionLineIndex": 0,
+              "deletionLineIndex": 0
+            }
+          ],
+          "hunkSpecs": "@@ -1,1 +1,1 @@\n",
+          "noEOFCRAdditions": false,
+          "noEOFCRDeletions": false
+        }
+      ],
+      "loneCarriageReturnPatch": "Index: after.ts\n===================================================================\n--- after.ts\t\n+++ after.ts\t\n@@ -1,1 +1,1 @@\n-before\rinside\n+after\rinside\n"
+    },
+    {
+      "pin": "stable",
+      "path": "evil\u001b]52;c;SGVsbG8=\u0007\u001b[2J\u001bPqpayload\u001b\\\u0007\rspoof\bhidden\u001b.ts",
+      "before": "export const value = \"before\u001b]52;c;SGVsbG8=\u0007\u001b[2J\u001bPqpayload\u001b\\\u0007\rspoof\bhidden\u001b\";\n",
+      "after": "export const value = \"after\u001b]52;c;SGVsbG8=\u0007\u001b[2J\u001bPqpayload\u001b\\\u0007\rspoof\bhidden\u001b\";\n",
+      "stats": {
+        "additions": 1,
+        "deletions": 1
+      },
+      "old": [
+        "export const value = \"before\u001b]52;c;SGVsbG8=\u0007\u001b[2J\u001bPqpayload\u001b\\\u0007\rspoof\bhidden\u001b\";\n"
+      ],
+      "new": [
+        "export const value = \"after\u001b]52;c;SGVsbG8=\u0007\u001b[2J\u001bPqpayload\u001b\\\u0007\rspoof\bhidden\u001b\";\n"
+      ],
+      "hunks": [
+        {
+          "collapsedBefore": 0,
+          "splitLineCount": 1,
+          "splitLineStart": 0,
+          "unifiedLineCount": 2,
+          "unifiedLineStart": 0,
+          "additionCount": 1,
+          "additionStart": 1,
+          "additionLines": 1,
+          "deletionCount": 1,
+          "deletionStart": 1,
+          "deletionLines": 1,
+          "deletionLineIndex": 0,
+          "additionLineIndex": 0,
+          "hunkContent": [
+            {
+              "type": "change",
+              "additions": 1,
+              "deletions": 1,
+              "additionLineIndex": 0,
+              "deletionLineIndex": 0
+            }
+          ],
+          "hunkSpecs": "@@ -1,1 +1,1 @@\n",
+          "noEOFCRAdditions": false,
+          "noEOFCRDeletions": false
+        }
+      ],
+      "loneCarriageReturnPatch": "Index: after.ts\n===================================================================\n--- after.ts\t\n+++ after.ts\t\n@@ -1,1 +1,1 @@\n-before\rinside\n+after\rinside\n"
+    }
+  ]
+}

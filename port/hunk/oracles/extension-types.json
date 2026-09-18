@@ -1,0 +1,160 @@
+{
+  "schema_version": 1,
+  "captured_with": "bun 1.3.5 importing untouched pinned src/extensions/types.ts and notifications.ts",
+  "baselines": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "source_blob": "1a399b57f2081ee8a7d06b8ad6cd4ae1a9bd6610",
+      "source_bytes": 10899,
+      "registry_keys": [
+        "extensions",
+        "sessionOptions",
+        "themes",
+        "fileLanguages",
+        "vcsAdapters",
+        "changesetTransforms",
+        "panes",
+        "fileViews",
+        "lineHighlighters",
+        "keyboardModes",
+        "cliCommands",
+        "commands",
+        "eventHandlers",
+        "customEventHandlers",
+        "pendingCustomEvents",
+        "eventBusPhase",
+        "logs"
+      ],
+      "event_handler_keys": [
+        "startup",
+        "changeset_loaded",
+        "command_executed",
+        "selection_changed",
+        "file_viewed",
+        "hunk_viewed",
+        "filter_changed",
+        "theme_changed",
+        "layout_changed",
+        "watch_reload_pending",
+        "note_created",
+        "note_edited",
+        "note_changed",
+        "session_reload",
+        "shutdown"
+      ]
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "source_blob": "1d676159d629f4903bef686ceb7db8187bd1d8f9",
+      "source_bytes": 10393,
+      "registry_keys": [
+        "extensions",
+        "sessionOptions",
+        "themes",
+        "fileLanguages",
+        "vcsAdapters",
+        "changesetTransforms",
+        "panes",
+        "fileViews",
+        "lineHighlighters",
+        "keyboardModes",
+        "commands",
+        "eventHandlers",
+        "customEventHandlers",
+        "pendingCustomEvents",
+        "eventBusPhase",
+        "logs"
+      ],
+      "event_handler_keys": [
+        "startup",
+        "changeset_loaded",
+        "command_executed",
+        "selection_changed",
+        "file_viewed",
+        "filter_changed",
+        "theme_changed",
+        "layout_changed",
+        "watch_reload_pending",
+        "note_created",
+        "note_edited",
+        "session_reload",
+        "shutdown"
+      ]
+    }
+  ],
+  "runtime": {
+    "derived_ids": [
+      ["foo.ts", "foo"],
+      ["nested/foo.test.ts", "foo.test"],
+      ["foo/index.ts", "foo"],
+      ["index.ts", "."]
+    ],
+    "context_notifications": [
+      { "message": "default", "type": "info" },
+      { "message": "warning", "type": "warning" }
+    ],
+    "empty_registry_phase": "loading",
+    "empty_registry_array_lengths": {
+      "extensions": 0,
+      "sessionOptions": 0,
+      "themes": 0,
+      "fileLanguages": 0,
+      "vcsAdapters": 0,
+      "changesetTransforms": 0,
+      "panes": 0,
+      "fileViews": 0,
+      "lineHighlighters": 0,
+      "keyboardModes": 0,
+      "cliCommands": 0,
+      "commands": 0,
+      "customEventHandlers": 0,
+      "pendingCustomEvents": 0,
+      "logs": 0
+    },
+    "empty_result_keys": [
+      "registry",
+      "issues",
+      "loaded",
+      "context",
+      "notifications",
+      "loadState"
+    ],
+    "empty_result_cwd": "/empty/repo",
+    "reuses_supplied_notification_hub": true,
+    "buffered_default_notification": {
+      "id": 1,
+      "message": "buffered",
+      "type": "info"
+    }
+  },
+  "native_adaptation": {
+    "entry_identity": "workdeck-extension.toml owns the executable id while derive_extension_id preserves legacy Hunk inventory ids without executing TypeScript",
+    "origins": "ManifestOrigin covers bundled, flag, config, global, and repo provenance and LoadedExtension retains the winning origin and canonical source manifest",
+    "registry": "typed handshake registrations plus host and Ratatui registries replace in-process callback arrays while preserving declaration order and extension ownership",
+    "context": "the session cwd is sent in every native handshake and all extension notifications share one result-owned hub with info as the default severity",
+    "factory_events": "pending custom event declarations are validated atomically, drained after all subscriptions register, and replayed in declaration order",
+    "event_names": "custom event names follow Hunk's open non-blank string contract, including spaces and Unicode",
+    "logs": "the subprocess stderr stream is reserved for extension logs and captured as ordered extension-attributed lines in one result-owned hub",
+    "phase": "ExtensionLoadControl and each runtime registry expose loading, ready, closing, and closed authority with shared bounded retirement",
+    "empty_result": "create_empty_extension_load_result is disk-free, keeps the supplied notification hub, the exact cwd, empty candidates/config/loaded/issues/logs, and loading phase"
+  },
+  "rust_tests": [
+    "extension_discovery::tests::derives_stable_legacy_ids_for_single_files_and_index_folders",
+    "extension_discovery::tests::origin_labels_cover_the_complete_public_provenance_contract",
+    "startup::tests::disabled_startup_returns_empty_without_reading_an_explicit_manifest",
+    "tests::parses_native_notification_messages_and_defaults_to_info",
+    "tests::custom_event_names_match_hunks_open_non_empty_contract",
+    "extension_registration::tests::validates_all_method_backed_registration_metadata_before_publication",
+    "discovers_global_extensions_and_delivers_their_configuration",
+    "ratatui_replays_factory_events_after_every_native_subscription_is_registered",
+    "unknown_vcs_ids_fall_back_with_a_sanitized_startup_notice",
+    "adapter_patch_repo_root_overrides_built_in_discovery_for_the_session"
+  ],
+  "rust_commands": [
+    "cargo test -p workdeck-extension-api",
+    "cargo test -p workdeck-extension-host",
+    "cargo test -p workdeck-examples --test startup_lifecycle",
+    "cargo test -p workdeck-examples --test review_triage",
+    "cargo test -p workdeck-cli"
+  ]
+}

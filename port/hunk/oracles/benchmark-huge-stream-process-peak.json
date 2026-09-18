@@ -1,0 +1,26 @@
+{
+  "command": "/usr/bin/time -l bun benchmarks/huge-stream.ts",
+  "runtime": "Bun 1.3.14 (0d9b296a), disposable oracle only",
+  "host": "Darwin arm64",
+  "sourceBlobAtBothPins": "c4c006ac2729ca0a2a33d0dd7e5c8ae3ab01008f",
+  "peakSemantics": "macOS time -l maximum resident set size in bytes for the child process, including fixture construction; not peak memory footprint or heapUsed",
+  "limitations": [
+    "One run per pin; no repeated acceptance matrix.",
+    "Native retained peak sample uses an unoptimized build and is higher than either source observation.",
+    "These observations do not satisfy the no-peak-memory-regression release gate."
+  ],
+  "runs": [
+    {
+      "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "peakProcessRssBytes": 872185856,
+      "combinedOutput": "METRIC huge_fixture_build_ms=999.39\nMETRIC huge_cold_first_frame_ms=7.42\nMETRIC huge_after_first_frame_rss_bytes=721387520\nMETRIC huge_after_first_frame_heap_used_bytes=209602998\nMETRIC huge_scroll_tick_median_ms=13.48\nMETRIC huge_scroll_tick_p95_ms=159.68\nMETRIC huge_hunk_nav_press_median_ms=75.08\nMETRIC huge_hunk_nav_press_p95_ms=128.32\nMETRIC huge_after_navigation_rss_bytes=872185856\nMETRIC huge_after_navigation_heap_used_bytes=292656122\nMETRIC navigation_presses=4\nMETRIC scroll_ticks=6\nMETRIC files=1001\nMETRIC lines_per_file=300\nMETRIC giant_file_lines=50000\n        3.48 real         4.48 user         0.38 sys\n           872185856  maximum resident set size\n                   0  average shared memory size\n                   0  average unshared data size\n                   0  average unshared stack size\n               56349  page reclaims\n                2219  page faults\n                   0  swaps\n                   0  block input operations\n                   0  block output operations\n                   0  messages sent\n                   0  messages received\n                   0  signals received\n                1331  voluntary context switches\n               10529  involuntary context switches\n         58702491808  instructions retired\n         14943970778  cycles elapsed\n           805537448  peak memory footprint\n"
+    },
+    {
+      "baseline": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "peakProcessRssBytes": 902791168,
+      "combinedOutput": "METRIC huge_fixture_build_ms=987.14\nMETRIC huge_cold_first_frame_ms=5.52\nMETRIC huge_after_first_frame_rss_bytes=756301824\nMETRIC huge_after_first_frame_heap_used_bytes=209018335\nMETRIC huge_scroll_tick_median_ms=4.06\nMETRIC huge_scroll_tick_p95_ms=149.84\nMETRIC huge_hunk_nav_press_median_ms=48.01\nMETRIC huge_hunk_nav_press_p95_ms=193.97\nMETRIC huge_after_navigation_rss_bytes=902791168\nMETRIC huge_after_navigation_heap_used_bytes=292711459\nMETRIC navigation_presses=4\nMETRIC scroll_ticks=6\nMETRIC files=1001\nMETRIC lines_per_file=300\nMETRIC giant_file_lines=50000\n        3.13 real         4.38 user         0.32 sys\n           902791168  maximum resident set size\n                   0  average shared memory size\n                   0  average unshared data size\n                   0  average unshared stack size\n               57857  page reclaims\n                 132  page faults\n                   0  swaps\n                   0  block input operations\n                   0  block output operations\n                   0  messages sent\n                   0  messages received\n                   0  signals received\n                 999  voluntary context switches\n                6261  involuntary context switches\n         57733194896  instructions retired\n         14442370499  cycles elapsed\n           775341760  peak memory footprint\n"
+    }
+  ]
+}

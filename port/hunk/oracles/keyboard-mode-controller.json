@@ -1,0 +1,44 @@
+{
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "source": {
+    "path": "src/ui/keyboardModes/useKeyboardModeController.ts",
+    "baselineBlob": "e267f75bc62793a54843dd96afd0f65f9ab7f96e",
+    "stableBlob": "e267f75bc62793a54843dd96afd0f65f9ab7f96e"
+  },
+  "test": {
+    "path": "src/ui/keyboardModes/useKeyboardModeController.test.tsx",
+    "baselineBlob": "d6e81285c67c8c21dec79022f9103b72bc4cfd6b",
+    "stableBlob": "d6e81285c67c8c21dec79022f9103b72bc4cfd6b"
+  },
+  "baselineOracle": {
+    "runtime": "bun 1.3.5",
+    "passed": 10,
+    "failed": 0,
+    "expectations": 52
+  },
+  "stableOracle": {
+    "runtime": "bun 1.3.5",
+    "passed": 10,
+    "failed": 0,
+    "expectations": 52
+  },
+  "invariants": [
+    "one session mode is active and a later authorized entry tears down its predecessor",
+    "closed or replaced registry authority retires the active mode synchronously and retained controls become inert",
+    "enter and exit lifecycle callbacks cannot change keyboard ownership",
+    "failed entry tears down once and permits a later healthy entry",
+    "a key callback may install a replacement and its predecessor exit result normalizes to handled",
+    "host exit clears activation identity before lifecycle work and deferred old controls remain inert",
+    "old activation scopes cannot inspect or exit a same-extension replacement",
+    "same-registry content updates preserve activation while registry identity replacement exits it",
+    "unmount exits once and permanently closes retained controls",
+    "throwing key handlers are contained and retire through the controller"
+  ],
+  "nativeAdaptation": {
+    "controls": "JSON-RPC actions replace retained JavaScript control closures. Each key-response batch carries its activation identity; ordinary command actions are unscoped and lifecycle ownership actions are inert.",
+    "lifecycle": "The Ratatui host clears ownership before exit callbacks, invokes exit after failed entry, and runs teardown during review-app drop.",
+    "replacement": "Monotonic activation IDs preserve the source object-identity contract even when a mode replaces itself with the same extension and mode IDs.",
+    "coverage": "Ten Rust controller behavior tests translate all ten upstream tests; Ratatui and compiled Vim-extension tests exercise action filtering, routing, Escape, reload, status, and teardown integration."
+  }
+}

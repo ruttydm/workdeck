@@ -1,0 +1,11 @@
+[[projects]]
+id = "account_access"
+name = "Account Access"
+description = "Synthetic project used to exercise stable underscore IDs."
+status = "active"
+created_at = "2026-08-01T10:00:00Z"
+updated_at = "2026-09-01T09:00:00Z"
+fixture_extra = "Do not discard unknown reference fields."
+
+[projects.custom]
+owner_team = "fixture-team"

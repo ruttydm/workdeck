@@ -1,0 +1,12 @@
+{
+  "source": "test/pty/harness.ts",
+  "baselines": ["2c00f4358b89cfc0a6b04459ffc538ba601aa3c2", "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"],
+  "runtime": "Bun 1.3.14, disposable pinned checkouts, macOS arm64",
+  "capture": "Call exported rightmostColumnOf(text, needle) and lineIndexOf(text, needle) for each input. Both pins independently produced identical outputs. Negative one maps to Rust None. These are snapshot string positions, not display-cell coordinates.",
+  "cases": [
+    {"text":"abc X\nX","needle":"X","rightmost":4,"row":0},
+    {"text":"🧪X\n界界X","needle":"X","rightmost":2,"row":0},
+    {"text":"abc\n","needle":"","rightmost":3,"row":0},
+    {"text":"no match","needle":"X","rightmost":-1,"row":-1}
+  ]
+}

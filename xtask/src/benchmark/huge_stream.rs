@@ -1,0 +1,269 @@
+//! Partial MIT port of Hunk huge-stream.ts. Native diagnostic, not heap parity.
+use super::{large_stream::Renderer, native_memory, stream};
+use anyhow::{Result, ensure};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
+use std::time::Instant;
+
+fn measure(bootstrap: workdeck_core::AppBootstrap) -> Result<serde_json::Value> {
+    let files = bootstrap.changeset.files.len();
+    // Keep setup outside the source's first-frame interval, but expose its
+    // allocations separately so a lower live snapshot cannot hide an earlier peak.
+    let before_renderer = native_memory::snapshot()?;
+    let peak_before_renderer = native_memory::peak_rss_bytes()?;
+    let setup_start = Instant::now();
+    let mut setup = Renderer::from_bootstrap(bootstrap);
+    let renderer_setup_ms = setup_start.elapsed().as_secs_f64() * 1000.0;
+    let after_renderer = native_memory::snapshot()?;
+    let peak_after_renderer = native_memory::peak_rss_bytes()?;
+    let start = Instant::now();
+    setup.render_pass(1);
+    let first_frame = start.elapsed().as_secs_f64() * 1000.0;
+    let first_memory = native_memory::snapshot()?;
+    setup.render_pass(2);
+    let mut scroll = Vec::new();
+    let before_scroll = setup.app.review_scroll();
+    for _ in 0..6 {
+        let start = Instant::now();
+        setup.app.handle_mouse_event(MouseEvent {
+            kind: MouseEventKind::ScrollDown,
+            column: 170,
+            row: 12,
+            modifiers: KeyModifiers::NONE,
+        });
+        setup.render_pass(1);
+        std::thread::yield_now();
+        scroll.push(start.elapsed().as_secs_f64() * 1000.0);
+    }
+    ensure!(
+        setup.app.review_scroll() > before_scroll,
+        "huge workload did not scroll"
+    );
+    let mut navigation = Vec::new();
+    for _ in 0..4 {
+        let before = setup.app.shared_state().lock().unwrap().selection();
+        let start = Instant::now();
+        setup
+            .app
+            .handle_key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
+        setup.render_pass(1);
+        std::thread::yield_now();
+        navigation.push(start.elapsed().as_secs_f64() * 1000.0);
+        ensure!(
+            setup.app.shared_state().lock().unwrap().selection() != before,
+            "huge workload navigation did not change selection"
+        );
+    }
+    let after_navigation = native_memory::snapshot()?;
+    Ok(serde_json::json!({
+        "diagnosticOnly":true,"files":files,"firstFrameMs":first_frame,
+        "rendererSetupMs":renderer_setup_ms,
+        "beforeRenderer":before_renderer,"afterRenderer":after_renderer,
+        "peakBeforeRendererBytes":peak_before_renderer,
+        "peakAfterRendererBytes":peak_after_renderer,
+        "scrollTickMs":scroll,"navigationPressMs":navigation,
+        "afterFirstFrame":first_memory,"afterNavigation":after_navigation,
+        "sequence":"one renderer: first frame, two settle frames, six scroll ticks, four navigation presses",
+        "memorySemantics":"Current native RSS and available malloc usage; not peak RSS or JavaScript heapUsed"
+    }))
+}
+
+pub(super) fn run_diagnostic(mut args: impl Iterator<Item = String>) -> Result<()> {
+    ensure!(
+        args.next().is_none(),
+        "huge-stream-diagnostic accepts no arguments"
+    );
+    native_memory::snapshot()?;
+    let start = Instant::now();
+    let bootstrap = stream::huge_bootstrap(std::env::current_dir()?)?;
+    let fixture_ms = start.elapsed().as_secs_f64() * 1000.0;
+    let mut report = measure(bootstrap)?;
+    report["peakProcessRssBytes"] = serde_json::json!(native_memory::peak_rss_bytes()?);
+    report["peakMemorySemantics"] = serde_json::json!(
+        "Process lifetime peak resident/working-set bytes, including fixture construction; not JavaScript heapUsed"
+    );
+    report["fixtureBuildMs"] = serde_json::json!(fixture_ms);
+    report["linesPerFile"] = serde_json::json!(stream::HUGE_LINES_PER_FILE);
+    report["giantFileLines"] = serde_json::json!(stream::GIANT_SINGLE_FILE_LINES);
+    println!("{}", serde_json::to_string_pretty(&report)?);
+    Ok(())
+}
+
+/// Execute the opt-in runner workload and emit the same metric families as the
+/// pinned benchmark. Native allocator counters are emitted only when the host
+/// exposes a comparable backend; RSS remains the authoritative cross-platform
+/// memory signal and is never relabeled as JavaScript heap usage.
+pub(super) fn run(mut args: impl Iterator<Item = String>) -> Result<()> {
+    ensure!(
+        args.next().is_none(),
+        "benchmark huge-stream accepts no arguments"
+    );
+    native_memory::snapshot()?;
+    let fixture_start = Instant::now();
+    let bootstrap = stream::huge_bootstrap(std::env::current_dir()?)?;
+    let fixture_build_ms = fixture_start.elapsed().as_secs_f64() * 1000.0;
+    let report = measure(bootstrap)?;
+
+    let number = |path: &[&str]| -> Result<f64> {
+        report
+            .pointer(&format!("/{}", path.join("/")))
+            .and_then(serde_json::Value::as_f64)
+            .ok_or_else(|| anyhow::anyhow!("huge benchmark report is missing {}", path.join(".")))
+    };
+    let samples = |path: &[&str]| -> Result<Vec<f64>> {
+        report
+            .pointer(&format!("/{}", path.join("/")))
+            .and_then(serde_json::Value::as_array)
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(serde_json::Value::as_f64)
+                    .collect()
+            })
+            .filter(|values: &Vec<f64>| !values.is_empty())
+            .ok_or_else(|| anyhow::anyhow!("huge benchmark report is missing {}", path.join(".")))
+    };
+    let scroll = samples(&["scrollTickMs"])?;
+    let navigation = samples(&["navigationPressMs"])?;
+    for (name, value) in [
+        ("huge_fixture_build_ms", fixture_build_ms),
+        ("huge_cold_first_frame_ms", number(&["firstFrameMs"])?),
+        (
+            "huge_after_first_frame_rss_bytes",
+            number(&["afterFirstFrame", "rssBytes"])?,
+        ),
+        (
+            "huge_scroll_tick_median_ms",
+            super::percentile(&scroll, 50.0),
+        ),
+        ("huge_scroll_tick_p95_ms", super::percentile(&scroll, 95.0)),
+        (
+            "huge_hunk_nav_press_median_ms",
+            super::percentile(&navigation, 50.0),
+        ),
+        (
+            "huge_hunk_nav_press_p95_ms",
+            super::percentile(&navigation, 95.0),
+        ),
+        (
+            "huge_after_navigation_rss_bytes",
+            number(&["afterNavigation", "rssBytes"])?,
+        ),
+    ] {
+        let digits = if name.ends_with("_bytes") { 0 } else { 2 };
+        println!("METRIC {name}={}", super::fixed(value, digits));
+    }
+    if let Some(value) = report
+        .pointer("/afterFirstFrame/mallocInUseBytes")
+        .and_then(serde_json::Value::as_f64)
+    {
+        println!(
+            "METRIC huge_after_first_frame_malloc_in_use_bytes={}",
+            super::fixed(value, 0)
+        );
+    }
+    if let Some(value) = report
+        .pointer("/afterNavigation/mallocInUseBytes")
+        .and_then(serde_json::Value::as_f64)
+    {
+        println!(
+            "METRIC huge_after_navigation_malloc_in_use_bytes={}",
+            super::fixed(value, 0)
+        );
+    }
+    println!("METRIC navigation_presses=4");
+    println!("METRIC scroll_ticks=6");
+    println!("METRIC files={}", stream::HUGE_FILE_COUNT + 1);
+    println!("METRIC lines_per_file={}", stream::HUGE_LINES_PER_FILE);
+    println!(
+        "METRIC giant_file_lines={}",
+        stream::GIANT_SINGLE_FILE_LINES
+    );
+    Ok(())
+}
+
+#[test]
+fn both_pinned_huge_runs_preserve_the_full_workload_and_metric_set() {
+    let oracle: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../port/hunk/oracles/benchmark-huge-stream.json"
+    ))
+    .unwrap();
+    let runs = oracle["runs"].as_array().unwrap();
+    assert_eq!(runs.len(), 2);
+    for run in runs {
+        assert_eq!(run["exitCode"], 0);
+        let metrics = super::runner::parse_metrics(run["combinedOutput"].as_str().unwrap());
+        assert_eq!(metrics.len(), 15);
+        for (name, value) in &metrics {
+            assert!(value.is_finite() && *value > 0.0, "invalid metric {name}");
+        }
+        for (name, count) in [
+            ("files", stream::HUGE_FILE_COUNT + 1),
+            ("lines_per_file", stream::HUGE_LINES_PER_FILE),
+            ("giant_file_lines", stream::GIANT_SINGLE_FILE_LINES),
+            ("navigation_presses", 4),
+            ("scroll_ticks", 6),
+        ] {
+            assert_eq!(
+                metrics.iter().find(|(key, _)| key == name).unwrap().1,
+                count as f64
+            );
+        }
+    }
+}
+
+#[test]
+fn source_process_peak_evidence_distinguishes_resident_peak_from_footprint() {
+    let oracle: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../port/hunk/oracles/benchmark-huge-stream-process-peak.json"
+    ))
+    .unwrap();
+    let runs = oracle["runs"].as_array().unwrap();
+    assert_eq!(runs.len(), 2);
+    for run in runs {
+        assert_eq!(run["exitCode"], 0);
+        let output = run["combinedOutput"].as_str().unwrap();
+        let read = |label: &str| {
+            let values = output
+                .lines()
+                .filter_map(|line| line.trim().strip_suffix(label))
+                .map(|value| value.trim().parse::<u64>().unwrap())
+                .collect::<Vec<_>>();
+            assert_eq!(values.len(), 1);
+            values[0]
+        };
+        let peak = read("maximum resident set size");
+        assert!(peak > 0);
+        assert_eq!(run["peakProcessRssBytes"], peak);
+        assert_ne!(peak, read("peak memory footprint"));
+        let metrics = super::runner::parse_metrics(output);
+        assert_eq!(metrics.len(), 15);
+        assert!(
+            metrics
+                .iter()
+                .filter(|(name, _)| name.ends_with("_rss_bytes"))
+                .all(|(_, value)| *value <= peak as f64)
+        );
+    }
+}
+
+#[test]
+fn huge_interaction_sequence_executes_on_a_small_fixture() {
+    let fixture =
+        stream::large_bootstrap(std::env::current_dir().unwrap(), 6, 120, 37, 84, false).unwrap();
+    let report = measure(fixture).unwrap();
+    assert_eq!(report["files"], 6);
+    assert_eq!(report["scrollTickMs"].as_array().unwrap().len(), 6);
+    assert_eq!(report["navigationPressMs"].as_array().unwrap().len(), 4);
+    assert!(report["firstFrameMs"].as_f64().unwrap() > 0.0);
+    assert!(report["rendererSetupMs"].as_f64().unwrap() > 0.0);
+    for phase in ["beforeRenderer", "afterRenderer", "afterFirstFrame"] {
+        assert!(report[phase]["rssBytes"].as_u64().unwrap() > 0);
+    }
+    let before_peak = report["peakBeforeRendererBytes"].as_u64().unwrap();
+    let after_peak = report["peakAfterRendererBytes"].as_u64().unwrap();
+    assert!(before_peak > 0);
+    assert!(after_peak >= before_peak);
+    assert!(report["beforeRenderer"]["rssBytes"].as_u64().unwrap() <= before_peak);
+    assert!(report["afterRenderer"]["rssBytes"].as_u64().unwrap() <= after_peak);
+    assert!(run(["unexpected".into()].into_iter()).is_err());
+}

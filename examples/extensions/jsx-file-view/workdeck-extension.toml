@@ -1,0 +1,7 @@
+id = "example.jsx-file-view"
+name = "Fixed-height file-view component example"
+version = "0.1.0"
+api_version = 1
+executable = "bin/workdeck-example-jsx-file-view-extension"
+capabilities = ["commands", "file-views"]
+description = "Shows stateful, host-rendered two-line cards for multi-hunk files"

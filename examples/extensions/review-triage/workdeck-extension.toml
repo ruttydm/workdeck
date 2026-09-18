@@ -1,0 +1,7 @@
+id = "example.review-triage"
+name = "Review triage"
+version = "0.1.0"
+api_version = 1
+executable = "bin/workdeck-example-review-triage-extension"
+capabilities = ["commands", "panes", "events", "dialogs", "notifications", "review-navigation"]
+description = "Session-local hunk review decisions and progress board"

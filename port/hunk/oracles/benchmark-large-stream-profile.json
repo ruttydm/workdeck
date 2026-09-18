@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "runtime": "Bun 1.3.14",
+  "method": "Executed original large-stream-profile.ts in both pinned disposable checkouts. Functional oracle capture only; native verification was running concurrently, so timings are not admitted performance comparisons.",
+  "runs": [
+    {
+      "sourceCommit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "combinedOutput": "METRIC section_geometry_ms=19.62\nMETRIC split_rows_ms=3.80\nMETRIC review_plan_ms=7.27\nMETRIC split_rows=10260\nMETRIC planned_rows=10260\nMETRIC files=180\nMETRIC lines_per_file=120\n"
+    },
+    {
+      "sourceCommit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "combinedOutput": "METRIC section_geometry_ms=19.23\nMETRIC split_rows_ms=3.75\nMETRIC review_plan_ms=7.34\nMETRIC split_rows=10260\nMETRIC planned_rows=10260\nMETRIC files=180\nMETRIC lines_per_file=120\n"
+    }
+  ]
+}

@@ -1,5 +1,11 @@
 # Workdeck Product and Implementation Plan
 
+Historical prototype plan. Current product ownership is defined in
+[Product Boundaries](PRODUCT_BOUNDARIES.md); the [standalone project-management
+implementation plan](project-management-implementation-plan.md) supersedes this document's
+PM storage, command, and UI proposals. In particular, `.workdeck/` is the canonical planning
+root and Workdeck does not host coding-agent processes.
+
 Workdeck is a terminal-native sidecar for agentic coding. It is not an editor replacement. It is the persistent mental map pane beside Codex, an editor, lazygit, or a terminal multiplexer layout.
 
 The product should run well in a narrow cmux pane while still scaling up to wider terminal layouts. It gives a structured overview of repo changes, file trees, previews, diffs, local issues, and agent work state.

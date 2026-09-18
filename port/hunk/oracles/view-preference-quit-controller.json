@@ -1,0 +1,162 @@
+{
+  "schemaVersion": 1,
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "introducedBy": {
+    "commit": "60f618580a2197c011c7ab4bc5f17433671edf61",
+    "subject": "refactor(ui): isolate view preference quit flow (#863)"
+  },
+  "source": {
+    "path": "src/ui/hooks/useViewPreferenceQuitController.ts",
+    "blob": "af1b64d331082eeb91610bb74ea1b1c34af34511",
+    "sha256": "96f0b34c5a1248956316484c7a55b984cdd6a707cd788df9069719b4ebab24f5",
+    "bytes": 7375,
+    "lines": 209
+  },
+  "sourceTest": {
+    "path": "src/ui/hooks/useViewPreferenceQuitController.test.tsx",
+    "blob": "827e6970daa112cb96b213d083ffd2bd3070813d",
+    "sha256": "11d19296e3a468f9a0a17be99789ce6b7abb51da425dc1e66df4e398e50638cc",
+    "bytes": 18129,
+    "lines": 477
+  },
+  "destinations": [
+    {
+      "path": "crates/workdeck-tui/src/view_preference_quit_controller.rs",
+      "sha256": "350d9c01946dcd13877327b063a58fd7de1dc61716af380c556207d82681a5a4"
+    },
+    {
+      "path": "crates/workdeck-tui/src/lib.rs",
+      "sha256": "f01008301c59a26f9bcc570e44e77478e3792e8c0e4fee2801dd330f2b069290"
+    },
+    {
+      "path": "crates/workdeck-core/src/view_preferences.rs",
+      "sha256": "12e0b022a34a8d42ec35d01c5712ef7a3dfba86854888e4596c7d5684966c0d0"
+    },
+    {
+      "path": "crates/workdeck-core/src/lib.rs",
+      "sha256": "1077d00f193113685b5a7a39fa551e2b8c6c3b0d602b9e4b600c91fb9e58f2a6"
+    },
+    {
+      "path": "crates/workdeck-cli/src/config.rs",
+      "sha256": "9b39adb8b1129acdc4cbd1ddc683604a6df185cfbd3b7ca03a9e853e2845e635"
+    },
+    {
+      "path": "crates/workdeck-cli/src/main.rs",
+      "sha256": "f6e751810b8a0b1b2bc1db3fbeaea907d9b73bbb9bc9d3d1343e42907c9313c8"
+    },
+    {
+      "path": "crates/workdeck-cli/src/tui/mod.rs",
+      "sha256": "b119768322f68846f97a4352fb294f5b47bf991099278f619474d2c682ef5712"
+    }
+  ],
+  "baselineOracle": {
+    "runtime": "bun 1.3.5",
+    "command": "bun test src/ui/hooks/useViewPreferenceQuitController.test.tsx",
+    "passed": 13,
+    "failed": 0,
+    "assertions": 76
+  },
+  "stableOracle": {
+    "status": "absent",
+    "evidence": "Neither the controller hook nor its test path exists in the pinned v0.20.1 tree."
+  },
+  "sourceCoverage": [
+    [[[1, 60], [0, 2240]], "controller ownership, scheduler, diff row, public action, input, persistence, notice, error, help, home, and injected scheduler contracts"],
+    [[[61, 71], [2240, 2769]], "ordered aligned TOML removal and addition row projection"],
+    [[[72, 105], [2769, 4121]], "mounted preference baseline, prompt state, quit lock, current dirty projection, diff memo, and home-shortened config label"],
+    [[[106, 129], [4121, 4841]], "single delayed quit scheduling, prompt close, lock release, callback execution, and unmount cancellation"],
+    [[[130, 143], [4841, 5467]], "preference persistence, baseline advancement, success notice, delayed quit, and recoverable save error"],
+    [[[144, 151], [5467, 5718]], "locked-or-immediate discard without persistence"],
+    [[[152, 164], [5718, 6293]], "prompt-policy-only persistence, notice, delay, lock, and recoverable failure"],
+    [[[165, 189], [6293, 6858]], "quit decision across pager, transient extension, policy, dirty state, help closure, and immediate exit branches"],
+    [[[190, 196], [6858, 7088]], "locked-safe prompt cancellation without baseline mutation"],
+    [[[197, 209], [7088, 7375]], "complete controller projection and action surface returned to the app"]
+  ],
+  "testCoverage": [
+    [[[1, 126], [0, 3786]], "complete preference fixture, replaceable controller harness, deterministic quit scheduler, callbacks, rerender, and teardown"],
+    [[[127, 157], [3786, 4980]], "dirty preference ordering and exactly aligned TOML removal/addition rows"],
+    [[[158, 184], [4980, 5972]], "HOME-only config-label shortening, external path preservation, unset HOME, and default label"],
+    [[[185, 201], [5972, 6553]], "dirty persistent quit opens the prompt, closes help, and does not exit"],
+    [[[202, 228], [6553, 7624]], "unchanged, pager, transient extension, and disabled-policy branches exit without prompting"],
+    [[[229, 260], [7624, 9127]], "successful save writes preferences, advances baseline, closes prompt, notifies, and delays exit by 120 ms"],
+    [[[261, 297], [9127, 10646]], "pending quit locks all duplicate persistence, discard, prompt, and exit actions"],
+    [[[298, 324], [10646, 11669]], "unmount cancels a pending delayed quit and suppresses its callback"],
+    [[[325, 346], [11669, 12627]], "save failure preserves dirty baseline and prompt while reporting without exit"],
+    [[[347, 369], [12627, 13587]], "discard creates no config, closes prompt, emits no persistence status, and exits immediately"],
+    [[[370, 406], [13587, 15252]], "never-ask preserves unrelated config, writes only policy, retains dirty state, closes prompt, notifies, and delays exit"],
+    [[[407, 428], [15252, 16200]], "never-ask failure preserves prompt and dirty state without notice or exit"],
+    [[[429, 446], [16200, 16861]], "prompt cancellation preserves dirty state and does not exit"],
+    [[[447, 477], [16861, 18129]], "soft reload replaces path and live inputs without replacing the mounted preference baseline"]
+  ],
+  "testMappings": [
+    {
+      "source": "derives dirty preferences and aligned TOML rows in persistence order",
+      "rust": "view_preference_quit_controller::tests::derives_dirty_preferences_and_aligned_toml_rows_in_persistence_order"
+    },
+    {
+      "source": "shortens config paths only when an explicit HOME contains them",
+      "rust": "view_preference_quit_controller::tests::shortens_config_paths_only_when_an_explicit_home_contains_them"
+    },
+    {
+      "source": "opens the prompt only for changed persistent preferences and closes help",
+      "rust": "tests::dirty_view_quit_renders_saves_and_exits_only_after_the_notice_window"
+    },
+    {
+      "source": "bypasses prompting when unchanged, paging, transient, or disabled by policy",
+      "rust": "view_preference_quit_controller::tests::bypasses_prompting_when_unchanged_paging_transient_or_disabled_by_policy"
+    },
+    {
+      "source": "saves preferences, closes the prompt, advances the baseline, and delays quit",
+      "rust": "view_preference_quit_controller::tests::saves_preferences_closes_prompt_advances_baseline_and_delays_quit"
+    },
+    {
+      "source": "locks persistence and quit actions after scheduling one successful quit",
+      "rust": "view_preference_quit_controller::tests::locks_persistence_and_quit_actions_after_scheduling_one_successful_quit"
+    },
+    {
+      "source": "cancels a pending delayed quit when the controller unmounts",
+      "rust": "view_preference_quit_controller::tests::dropping_a_controller_cancels_its_pending_delayed_quit"
+    },
+    {
+      "source": "reports save failures without advancing the baseline or quitting",
+      "rust": "view_preference_quit_controller::tests::reports_save_failures_without_advancing_baseline_or_quitting"
+    },
+    {
+      "source": "discards without writing and quits immediately",
+      "rust": "view_preference_quit_controller::tests::discards_without_writing_and_quits_immediately"
+    },
+    {
+      "source": "never-ask writes only prompt policy, closes the prompt, and delays quit",
+      "rust": "view_preference_quit_controller::tests::never_ask_writes_only_prompt_policy_closes_prompt_and_delays_quit"
+    },
+    {
+      "source": "reports never-ask failures without quitting",
+      "rust": "view_preference_quit_controller::tests::reports_never_ask_failures_without_quitting"
+    },
+    {
+      "source": "cancels the prompt without quitting or clearing dirty state",
+      "rust": "view_preference_quit_controller::tests::cancels_the_prompt_without_quitting_or_clearing_dirty_state"
+    },
+    {
+      "source": "preserves the mounted baseline when soft reload inputs change",
+      "rust": "view_preference_quit_controller::tests::preserves_the_mounted_baseline_when_soft_reload_inputs_change"
+    }
+  ],
+  "integrationTests": [
+    "view_preferences::tests::diff_uses_persistence_order_and_toml_values",
+    "view_preferences::tests::save_preserves_comments_and_tables_and_replaces_only_top_level_values",
+    "view_preferences::tests::prompt_save_changes_only_the_policy_key",
+    "tests::dirty_view_quit_renders_saves_and_exits_only_after_the_notice_window",
+    "tests::dirty_view_quit_prompt_mouse_actions_are_modal_and_clickable",
+    "config::tests::prompt_save_view_preferences_is_a_layered_top_level_policy",
+    "config::tests::interactive_view_save_round_trips_into_the_nested_runtime_model"
+  ],
+  "adaptations": [
+    "React hook state becomes a synchronous Rust controller; an owned Instant deadline replaces setTimeout while preserving the one-shot 120 ms notice window and drop cancellation.",
+    "Hunk config paths and branding become Workdeck paths and labels; HOME shortening retains Hunk's explicit string-prefix behavior.",
+    "The Ratatui shell owns modal geometry, keyboard swallowing, mouse hit maps, and footer notices while the controller owns the mounted baseline and action lock.",
+    "Flat Hunk-compatible persisted keys are projected into Workdeck's canonical nested runtime schema during config loading, so a successful save takes effect on the next launch.",
+    "The standalone and unified Workdeck loops both poll the owned deadline and exit without requiring an additional input event."
+  ]
+}

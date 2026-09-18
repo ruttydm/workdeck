@@ -1,0 +1,20 @@
+{
+  "source": "benchmarks/wrapped-cjk.ts",
+  "runtime": "Bun 1.3.14 darwin-arm64",
+  "environment": {"HUNK_MCP_DISABLE": "1", "HUNK_DISABLE_UPDATE_NOTICE": "1"},
+  "purpose": "Direct pinned workload observations. Diagnostic timings are not performance acceptance evidence; native verification ran concurrently with baseline capture.",
+  "viewport": {"width": 240, "height": 60},
+  "counts": {"physical_lines": 518, "long_line_characters": 8736, "wheel_burst_events": 12, "initial_content_rows": 54, "immediate_content_rows": 55, "settled_content_rows": 55},
+  "runs": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "combinedOutput": "METRIC wrapped_cjk_518_mount_first_frame_ms=115.70\nMETRIC wrapped_cjk_long_line_mount_first_frame_ms=38.69\nMETRIC wrapped_cjk_wheel_burst_immediate_ms=5.26\nMETRIC wrapped_cjk_wheel_burst_settled_ms=29.75\nMETRIC wrapped_cjk_wheel_burst_initial_content_rows=54\nMETRIC wrapped_cjk_wheel_burst_immediate_content_rows=55\nMETRIC wrapped_cjk_wheel_burst_settled_content_rows=55\nMETRIC physical_lines=518\nMETRIC long_line_characters=8736\nMETRIC wheel_burst_events=12\n"
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "combinedOutput": "The current testing environment is not configured to support act(...)\nThe current testing environment is not configured to support act(...)\nMETRIC wrapped_cjk_518_mount_first_frame_ms=73.32\nMETRIC wrapped_cjk_long_line_mount_first_frame_ms=20.59\nMETRIC wrapped_cjk_wheel_burst_immediate_ms=3.97\nMETRIC wrapped_cjk_wheel_burst_settled_ms=28.48\nMETRIC wrapped_cjk_wheel_burst_initial_content_rows=54\nMETRIC wrapped_cjk_wheel_burst_immediate_content_rows=55\nMETRIC wrapped_cjk_wheel_burst_settled_content_rows=55\nMETRIC physical_lines=518\nMETRIC long_line_characters=8736\nMETRIC wheel_burst_events=12\n"
+    }
+  ]
+}

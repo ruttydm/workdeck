@@ -1,0 +1,6 @@
+id = "fixture"
+name = "PTY extension contract fixture"
+version = "0.1.0"
+api_version = 1
+executable = "bin/workdeck-example-pty-extension-probe-extension"
+capabilities = ["commands", "panes", "dialogs", "status-line", "keyboard-modes", "notifications", "events", "changeset-transforms", "line-highlighters", "review-navigation"]

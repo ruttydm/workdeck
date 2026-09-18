@@ -1,0 +1,154 @@
+{
+  "schema_version": 1,
+  "captured_with": "bun 1.3.5 importing untouched pinned src/core/changeset/loaders.ts",
+  "baselines": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "view_defaults": {
+        "mode": "auto",
+        "theme": null,
+        "lineNumbers": true,
+        "tabWidth": 4,
+        "fileGap": 1,
+        "hunkGap": 0,
+        "wrapLines": false,
+        "hunkHeaders": true,
+        "menuBar": true,
+        "sidebar": "auto",
+        "agentNotes": false,
+        "copyDecorations": false,
+        "cursorLine": "row"
+      },
+      "watch_tests": "2 pass, 74 filtered out, 0 fail, 5 expectations"
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "view_defaults": {
+        "mode": "auto",
+        "theme": null,
+        "lineNumbers": true,
+        "tabWidth": 4,
+        "wrapLines": false,
+        "hunkHeaders": true,
+        "menuBar": true,
+        "sidebar": "auto",
+        "agentNotes": false,
+        "copyDecorations": false,
+        "cursorLine": "row"
+      },
+      "watch_tests": "2 pass, 73 filtered out, 0 fail, 5 expectations"
+    }
+  ],
+  "direct_cases": {
+    "changed": {
+      "id": "pair:after.ts",
+      "sourceLabel": "file compare",
+      "title": "before.ts ↔ after.ts",
+      "file": {
+        "id": "after.ts:0:after.ts",
+        "path": "after.ts",
+        "previousPath": "before.ts",
+        "type": "change",
+        "additions": 1,
+        "deletions": 1,
+        "isBinary": false,
+        "hunkCount": 1,
+        "splitLineCount": 5,
+        "unifiedLineCount": 6,
+        "patch": "Index: after.ts\n===================================================================\n--- after.ts\t\n+++ after.ts\t\n@@ -1,5 +1,5 @@\n zero\n one\n-two\n+changed\n three\n four\n",
+        "oldSource": "zero\none\ntwo\nthree\nfour\n",
+        "newSource": "zero\none\nchanged\nthree\nfour\n"
+      }
+    },
+    "difftool": {
+      "id": "pair:src/main.rs",
+      "sourceLabel": "git difftool",
+      "title": "git difftool: src/main.rs",
+      "file": {
+        "id": "src/main.rs:0:src/main.rs",
+        "path": "src/main.rs",
+        "previousPath": "left.tmp",
+        "type": "change",
+        "additions": 1,
+        "deletions": 1,
+        "isBinary": false,
+        "hunkCount": 1,
+        "splitLineCount": 1,
+        "unifiedLineCount": 2,
+        "patch": "Index: src/main.rs\n===================================================================\n--- src/main.rs\t\n+++ src/main.rs\t\n@@ -1,1 +1,1 @@\n-before\n+after\n",
+        "oldSource": "before\n",
+        "newSource": "after\n"
+      }
+    },
+    "binary": {
+      "id": "pair:right.bin",
+      "sourceLabel": "file compare",
+      "title": "left.bin ↔ right.bin",
+      "file": {
+        "id": "right.bin:0:right.bin",
+        "path": "right.bin",
+        "previousPath": "left.bin",
+        "type": "change",
+        "additions": 0,
+        "deletions": 0,
+        "isBinary": true,
+        "hunkCount": 0,
+        "splitLineCount": 0,
+        "unifiedLineCount": 0,
+        "patch": "Binary file skipped: left.bin ↔ right.bin\n",
+        "oldSource": null,
+        "newSource": null
+      }
+    },
+    "identical": {
+      "id": "pair:same.txt",
+      "sourceLabel": "file compare",
+      "title": "same.txt",
+      "file": {
+        "id": "same.txt:0:same.txt",
+        "path": "same.txt",
+        "previousPath": "same.txt",
+        "type": "change",
+        "additions": 0,
+        "deletions": 0,
+        "isBinary": false,
+        "hunkCount": 0,
+        "splitLineCount": 0,
+        "unifiedLineCount": 0,
+        "patch": "Index: same.txt\n===================================================================\n--- same.txt\t\n+++ same.txt\t\n",
+        "oldSource": "same\n",
+        "newSource": "same\n"
+      }
+    }
+  },
+  "patch_cases": {
+    "file": {
+      "sourceLabel": "nested/input.patch",
+      "title": "Patch review: input.patch",
+      "path": "a.txt",
+      "hasSource": false
+    },
+    "malformed": {
+      "sourceLabel": "stdin patch",
+      "title": "Patch review: stdin patch",
+      "summary": "not really a patch\n--- separator only\n@@ section heading",
+      "fileCount": 0,
+      "hasInitialWatchSignature": false
+    }
+  },
+  "native_adaptation": {
+    "changeset_ids": "Workdeck uses deterministic patch:<label> ids for patch inputs; direct pair ids and per-file runtime ids match Hunk.",
+    "source_fetchers": "Immutable, attested Rust source snapshots replace JavaScript fetcher closures and are absent for binary and raw-patch inputs.",
+    "theme_mode": "Terminal theme detection remains a Ratatui-shell concern; the bootstrap preserves its optional initial value.",
+    "stable_gap_fields": "fileGap and hunkGap were absent at v0.20.1 and are present in the pinned main baseline with defaults 1 and 0."
+  },
+  "rust_tests": [
+    "bootstrap::tests::bootstrap_retains_every_resolved_launch_and_reload_field",
+    "file_comparison::tests::native_direct_loader_matches_both_pinned_hunk_oracles",
+    "tests::patch_loader_projection_matches_both_pinned_hunk_oracles",
+    "review_cli_option_tests::composed_bootstrap_crosses_the_core_boundary_with_exact_initial_state",
+    "review_cli_option_tests::prepared_direct_file_bootstrap_applies_relative_agent_context_before_handoff",
+    "review_cli_option_tests::watch_signature_is_captured_before_direct_file_content_changes",
+    "watched_input::tests::preloaded_signature_is_authoritative_when_the_driver_mounts"
+  ]
+}

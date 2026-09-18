@@ -1,0 +1,42 @@
+{
+  "sourcePath": "src/ui/AppHost.interactions.test.tsx",
+  "sourceTest": "menu navigation wraps across the first and last top-level menus",
+  "baselineInterval": {
+    "byteStart": 83786,
+    "byteEnd": 84950,
+    "lineStart": 2841,
+    "lineEnd": 2882,
+    "sha256": "b1863e686028de86b9b95882766b81d9469b32a938f92ff2486cd7613a330fa7"
+  },
+  "runtime": "Bun 1.3.14 (0d9b296a), disposable oracle only",
+  "runs": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "passed": 1,
+      "filtered": 75,
+      "assertions": 6,
+      "testMilliseconds": 194.11,
+      "totalMilliseconds": 759
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "passed": 1,
+      "filtered": 73,
+      "assertions": 6,
+      "testMilliseconds": 183.98,
+      "totalMilliseconds": 596
+    }
+  ],
+  "sourceWarning": "The current testing environment is not configured to support act(...)",
+  "native": {
+    "test": "tests::top_level_menu_navigation_wraps_from_file_to_help_and_back",
+    "command": "CARGO_INCREMENTAL=0 cargo test -p workdeck-tui --lib tests::top_level_menu_navigation_wraps_from_file_to_help_and_back -- --exact",
+    "passed": 1,
+    "failed": 0,
+    "filtered": 1120,
+    "seconds": 0.78
+  },
+  "scope": "220x24 terminal, F10 then Left then Right: file menu, help menu, file menu; both positive and negative text assertions at every step. Typed Crossterm input, not escape decoding or whole-cell differential parity."
+}

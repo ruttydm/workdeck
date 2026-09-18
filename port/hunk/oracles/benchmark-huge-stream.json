@@ -1,0 +1,26 @@
+{
+  "runtime": "Bun 1.3.14 (0d9b296a), disposable oracle only",
+  "host": "Darwin arm64",
+  "command": "bun benchmarks/huge-stream.ts",
+  "source": "benchmarks/huge-stream.ts",
+  "sourceBlobAtBothPins": "c4c006ac2729ca0a2a33d0dd7e5c8ae3ab01008f",
+  "interactionHelperBlobAtBothPins": "f74d2e1017f4b301787d7df94ff503205003890b",
+  "limitations": [
+    "One source run per pin, not a controlled repeated acceptance benchmark.",
+    "Source RSS snapshots follow Bun.gc(true); heapUsed is JavaScript-specific, not native malloc usage.",
+    "No process peak RSS captured by these source commands.",
+    "Native retained samples use an unoptimized build; cross-profile ratios do not prove the release gate."
+  ],
+  "runs": [
+    {
+      "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "combinedOutput": "METRIC huge_fixture_build_ms=985.52\nMETRIC huge_cold_first_frame_ms=5.97\nMETRIC huge_after_first_frame_rss_bytes=778174464\nMETRIC huge_after_first_frame_heap_used_bytes=179336036\nMETRIC huge_scroll_tick_median_ms=11.42\nMETRIC huge_scroll_tick_p95_ms=161.39\nMETRIC huge_hunk_nav_press_median_ms=136.75\nMETRIC huge_hunk_nav_press_p95_ms=182.32\nMETRIC huge_after_navigation_rss_bytes=915881984\nMETRIC huge_after_navigation_heap_used_bytes=304087280\nMETRIC navigation_presses=4\nMETRIC scroll_ticks=6\nMETRIC files=1001\nMETRIC lines_per_file=300\nMETRIC giant_file_lines=50000\n"
+    },
+    {
+      "baseline": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "combinedOutput": "METRIC huge_fixture_build_ms=967.97\nMETRIC huge_cold_first_frame_ms=6.15\nMETRIC huge_after_first_frame_rss_bytes=753139712\nMETRIC huge_after_first_frame_heap_used_bytes=208818436\nMETRIC huge_scroll_tick_median_ms=3.38\nMETRIC huge_scroll_tick_p95_ms=153.20\nMETRIC huge_hunk_nav_press_median_ms=42.36\nMETRIC huge_hunk_nav_press_p95_ms=197.65\nMETRIC huge_after_navigation_rss_bytes=899399680\nMETRIC huge_after_navigation_heap_used_bytes=292912990\nMETRIC navigation_presses=4\nMETRIC scroll_ticks=6\nMETRIC files=1001\nMETRIC lines_per_file=300\nMETRIC giant_file_lines=50000\n"
+    }
+  ]
+}

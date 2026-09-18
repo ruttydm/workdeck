@@ -1,0 +1,106 @@
+{
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "identicalAcrossPinnedTrees": true,
+  "sources": [
+    {
+      "path": "scripts/launch-video/README.md",
+      "blob": "367b5dc2f7dfa45cd1905a36b6506560eec65c69",
+      "bytes": 769
+    },
+    {
+      "path": "scripts/launch-video/capture.ts",
+      "blob": "277a245ce1fab13ad81929cbff1d46f347bdeaa5",
+      "bytes": 13429
+    },
+    {
+      "path": "scripts/launch-video/compose.mjs",
+      "blob": "20af432afe538dd342aab3d308fc8c092d189261",
+      "bytes": 7282
+    },
+    {
+      "path": "skills/hunk-launch-video/SKILL.md",
+      "blob": "8c2688d48a4bd25467ccd2f353e149686746c5ad",
+      "bytes": 16699
+    }
+  ],
+  "capture": {
+    "geometry": { "cols": 140, "rows": 32 },
+    "sceneGroups": ["review", "stml", "cli", "pager", "triage", "fileview"],
+    "keyframes": [
+      "review-walk-00",
+      "review-walk-01",
+      "review-walk-02",
+      "review-walk-03",
+      "review-walk-04",
+      "review-walk-05",
+      "review-walk-06",
+      "review-walk-07",
+      "review-walk-08",
+      "review-walk-09",
+      "review-walk-10",
+      "review-walk-11",
+      "review-walk-12",
+      "review-walk-13",
+      "review-draft",
+      "review-typed",
+      "review-note",
+      "stml-review",
+      "stml-notes",
+      "stml-scroll-4",
+      "stml-scroll-9",
+      "stml-note-2",
+      "cli-typing-10",
+      "cli-typing-22",
+      "cli-typing-34",
+      "cli-typed",
+      "cli-rendered",
+      "pager-typing-9",
+      "pager-typed",
+      "pager-review",
+      "pager-sidebar",
+      "triage-review",
+      "triage-sidebar",
+      "triage-select",
+      "triage-rationale",
+      "triage-marked",
+      "triage-board",
+      "fileview-palette-raw",
+      "fileview-palette-rendered",
+      "fileview-deps-raw",
+      "fileview-deps-rendered"
+    ],
+    "manifestIsCurrentRunOnly": true,
+    "framesRemainCumulative": true,
+    "keyboardProbe": {
+      "key": "?",
+      "upstreamPattern": "Controls help",
+      "nativePattern": "Workdeck help",
+      "dismissKey": "escape"
+    }
+  },
+  "storyboard": {
+    "shots": 41,
+    "requiredKeyframes": 38,
+    "plannedFramesAt30Fps": 295,
+    "totalSeconds": 63.57,
+    "captionAnimationSeconds": 0.45,
+    "unusedCapturedKeyframes": ["triage-review", "triage-marked", "fileview-deps-raw"]
+  },
+  "encode": {
+    "fps": 30,
+    "pixelFormat": "yuv420p",
+    "mp4": ["libx264", "slow", "crf=18", "+faststart"],
+    "webm": ["libvpx-vp9", "b:v=0", "crf=32", "row-mt=1"]
+  },
+  "nativeAdaptation": {
+    "brand": "workdeck",
+    "sourceRuntime": "compiled Rust executable",
+    "terminal": "portable-pty plus qwertty-term-vt",
+    "rasterizer": "Swash",
+    "compositorControl": "native WebDriver client",
+    "extensions": "compiled JSON-RPC subprocesses",
+    "storyboard": "media/launch/storyboard.json",
+    "applicationJavaScriptRuntime": false
+  }
+}

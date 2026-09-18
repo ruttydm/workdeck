@@ -1,0 +1,36 @@
+{
+  "commit": "5c02594ffa19e0db9e2163a0c9ab7bc3dda20ae4",
+  "worktree": "clean",
+  "host": "Darwin arm64",
+  "profile": "release (optimized)",
+  "buildCommand": "CARGO_INCREMENTAL=0 cargo build --release -p xtask",
+  "command": "target/release/xtask benchmark huge-stream-diagnostic",
+  "binarySha256": "d619e717f72b772f914b9be3d8a55877300513a231393532d7b60f3169b4a652",
+  "exitCode": 0,
+  "report": {
+    "diagnosticOnly": true,
+    "files": 1001,
+    "firstFrameMs": 43.938083000000006,
+    "scrollTickMs": [11.939959, 12.887832999999999, 11.534125, 11.568291, 11.474167, 12.427375],
+    "navigationPressMs": [32.275375000000004, 32.106457999999996, 35.413667000000004, 34.327833000000005],
+    "afterFirstFrame": {"rssBytes": 1255456768, "mallocInUseBytes": 561099056},
+    "afterNavigation": {"rssBytes": 1264828416, "mallocInUseBytes": 561942960},
+    "sequence": "one renderer: first frame, two settle frames, six scroll ticks, four navigation presses",
+    "memorySemantics": "Current native RSS and available malloc usage; not peak RSS or JavaScript heapUsed",
+    "peakProcessRssBytes": 1289142272,
+    "peakMemorySemantics": "Process lifetime peak resident/working-set bytes, including fixture construction; not JavaScript heapUsed",
+    "fixtureBuildMs": 799.738042,
+    "linesPerFile": 300,
+    "giantFileLines": 50000
+  },
+  "verification": [
+    {"command": "CARGO_INCREMENTAL=0 cargo clippy --workspace --all-targets -- -D warnings", "exitCode": 0},
+    {"command": "CARGO_INCREMENTAL=0 cargo fmt --all -- --check", "exitCode": 0}
+  ],
+  "limitations": [
+    "Single fresh native process, not a repeated or interleaved source/native comparison.",
+    "The release build and this workspace Clippy run finished before the diagnostic started; other host activity was not controlled.",
+    "Source/native render and async-flush boundaries remain unverified.",
+    "This does not demonstrate a peak-memory improvement over the prior native samples or pass the benchmark gate."
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "commit": "6b7b7396904d735fa48354423a4ae1d634047170",
+  "worktree": "clean",
+  "host": "Darwin arm64",
+  "profile": "release (optimized)",
+  "buildCommand": "CARGO_INCREMENTAL=0 cargo build --release -p xtask",
+  "command": "target/release/xtask benchmark huge-stream-diagnostic",
+  "binarySha256": "13a8cdd8712f9bb2d4dccba232c6ed096eec9294979749bacf98bac06ac759a0",
+  "exitCode": 0,
+  "report": {
+    "diagnosticOnly": true,
+    "files": 1001,
+    "firstFrameMs": 46.4855,
+    "rendererSetupMs": 781.1463749999999,
+    "beforeRenderer": {"rssBytes": 215564288, "mallocInUseBytes": 110010784},
+    "afterRenderer": {"rssBytes": 1220952064, "mallocInUseBytes": 552871776},
+    "peakBeforeRendererBytes": 215564288,
+    "peakAfterRendererBytes": 1287897088,
+    "scrollTickMs": [11.768249999999998, 13.061625000000001, 11.364083, 11.501125, 11.362, 12.334792],
+    "navigationPressMs": [32.923958000000006, 33.077125, 34.012042, 33.337375],
+    "afterFirstFrame": {"rssBytes": 1250656256, "mallocInUseBytes": 561156304},
+    "afterNavigation": {"rssBytes": 1259913216, "mallocInUseBytes": 561915344},
+    "sequence": "one renderer: first frame, two settle frames, six scroll ticks, four navigation presses",
+    "memorySemantics": "Current native RSS and available malloc usage; not peak RSS or JavaScript heapUsed",
+    "peakProcessRssBytes": 1287897088,
+    "peakMemorySemantics": "Process lifetime peak resident/working-set bytes, including fixture construction; not JavaScript heapUsed",
+    "fixtureBuildMs": 751.336208,
+    "linesPerFile": 300,
+    "giantFileLines": 50000
+  },
+  "limitations": [
+    "Single fresh native process with uncontrolled host activity; not a paired benchmark acceptance run.",
+    "No peak-memory improvement over the preceding phase sample is demonstrated.",
+    "Source/native render and async-flush equivalence remains open."
+  ]
+}

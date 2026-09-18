@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "captured_with": "bun 1.3.5 executing each untouched pinned tree's src/extensions/reviewSnapshot.test.ts",
+  "baselines": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "source_blob": "832b271d57bde33e398bdf3321859d580c818739",
+      "test_blob": "a698069a0cbfe0a31b7c360f746c4d4e08fa3267",
+      "passed": 3,
+      "failed": 0,
+      "expect_calls": 19
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "source_blob": "85fb06712deb65919d5fc04d3de1294092aabffe",
+      "test_blob": "876045755456dd4efcd4e4b6a8bbff4020f56a33",
+      "passed": 2,
+      "failed": 0,
+      "expect_calls": 18
+    }
+  ],
+  "snapshot_contract": {
+    "generation": "opaque producer identity",
+    "state_revision": "comparable only within one generation",
+    "files": "authoritative review order with copied semantic and source identities",
+    "notes": "all saved notes in authoritative order, including stale and orphaned, excluding drafts",
+    "ownership": "all nested vectors, ranges, flags, statistics, and strings are owned copies"
+  },
+  "note_diff_contract": {
+    "baseline": "available at the main baseline and absent from stable v0.20.1",
+    "equality": "complete public note value identity",
+    "order": ["removed in previous-list order", "updated and created in next-list order"],
+    "generation_rule": "reloads and extension-runtime replacements seed a new baseline without note_changed events"
+  },
+  "rust_commands": [
+    "cargo test -p workdeck-review extension_review --lib",
+    "cargo test -p workdeck-tui extension_note --lib"
+  ],
+  "test_mapping": [
+    {
+      "source_test": "projects every saved note and stable file identity without including drafts",
+      "rust_test": "tests::extension_review_snapshot_copies_complete_saved_notes_and_authoritative_file_identity"
+    },
+    {
+      "source_test": "copies and freezes nested public data without freezing or mutating ReviewStore state",
+      "rust_test": "tests::extension_review_snapshot_owns_deep_data_without_mutating_review_state"
+    },
+    {
+      "source_test": "reports created, updated, and removed notes in a stable kind order",
+      "rust_test": "tests::extension_review_note_diff_reports_removed_updated_and_created_in_stable_order"
+    }
+  ]
+}

@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 1,
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "introducedBy": {
+    "commit": "570e9e71ade2d9619eaed3913a3c49a2c36e9ee7",
+    "subject": "refactor(ui): isolate theme selector state (#864)"
+  },
+  "source": {
+    "path": "src/ui/hooks/useThemeSelectorController.ts",
+    "blob": "7db6223da5edf57cf0c1fcf92e79b2307f369308",
+    "sha256": "9006a16331bfcedd53e53d10b576e3635c5bc0bca4ea5f5fa087ba5a1cc03b46",
+    "bytes": 7553,
+    "lines": 214
+  },
+  "sourceTest": {
+    "path": "src/ui/hooks/useThemeSelectorController.test.tsx",
+    "blob": "f69dc8e3e0726f5c1e23afcb376d369f2894ad71",
+    "sha256": "1e0cb21ee2e1e1bd7f1aa828a4077ae2b8c8a7b79debe76008e80dcab3b4b1dc",
+    "bytes": 13602,
+    "lines": 353
+  },
+  "destinations": [
+    {
+      "path": "crates/workdeck-tui/src/theme_selector_controller.rs",
+      "sha256": "ef07a5abe76309809f152a207ea996ffcfbea76535a23c1549c6b8b7fce9a6a9"
+    },
+    {
+      "path": "crates/workdeck-tui/src/lib.rs",
+      "sha256": "62b7280852556b4715e3a6f030dfb7c8f052ab2741d3018faaa57ffc148bfa95"
+    },
+    {
+      "path": "crates/workdeck-tui/src/theme.rs",
+      "sha256": "7cd003505c6eca2ac818d15e33aca333b7e77b3e527b2172966eed9daa0fb976"
+    },
+    {
+      "path": "crates/workdeck-tui/src/theme_selector_dialog.rs",
+      "sha256": "af5246ef4e8b04341170d0e4a44ef08b1b66222caaffb6cc7c105fa49a26fa64"
+    }
+  ],
+  "baselineOracle": {
+    "runtime": "bun 1.3.5",
+    "command": "bun test src/ui/hooks/useThemeSelectorController.test.tsx",
+    "passed": 8,
+    "failed": 0,
+    "assertions": 56
+  },
+  "stableOracle": {
+    "status": "absent",
+    "evidence": "Neither the controller nor its test path exists in the pinned v0.20.1 tree; ThemeSelectorDialog is the complete stable selector surface."
+  },
+  "sourceCoverage": [
+    [[[1, 6], [0, 385]], "React hooks, terminal-mode, custom-theme, dialog-item, and theme-resolution dependencies"],
+    [[[7, 13], [385, 541]], "committed, open, preview, and selected controller identities"],
+    [[[14, 21], [541, 800]], "replaceable custom catalog, launch inputs, notice callback, and transparency options"],
+    [[[22, 39], [800, 1532]], "controller construction, launch-only detected mode, and resolved committed initialization"],
+    [[[40, 52], [1532, 2290]], "catalog projection, committed fallback, selected-index resolution, and latest selection identity"],
+    [[[53, 77], [2290, 3121]], "validated preview, base and transparent active themes, and active item descriptions"],
+    [[[78, 106], [3121, 4107]], "catalog replacement reconciliation preserving raw committed identity and valid transient identities"],
+    [[[107, 122], [4107, 4679]], "open without preview and cancel back to committed projection"],
+    [[[123, 152], [4679, 5646]], "empty-catalog handling, signed wraparound movement, and immediate selection reference update"],
+    [[[153, 168], [5646, 6078]], "bounds-checked pointer preview without committed mutation"],
+    [[[169, 184], [6078, 6573]], "atomic commit, preview clearing, selector close, and user notice"],
+    [[[185, 199], [6573, 7199]], "validated pointer accept and latest highlighted keyboard accept"],
+    [[[200, 214], [7199, 7553]], "complete public controller projection and action surface"]
+  ],
+  "testCoverage": [
+    [[[1, 58], [0, 1741]], "hook harness, atomic render boundary, teardown, custom-theme factory, and suite setup"],
+    [[[59, 83], [1741, 2625]], "detected light and dark auto initialization"],
+    [[[84, 117], [2625, 4040]], "committed opening and wrapped keyboard previews"],
+    [[[118, 149], [4040, 5482]], "transient pointer preview, invalid indexes, and cancel restoration"],
+    [[[150, 182], [5482, 7111]], "pointer and keyboard atomic acceptance with notices"],
+    [[[183, 210], [7111, 8206]], "same-batch movement followed by acceptance"],
+    [[[211, 230], [8206, 9044]], "transparent surface-only projection"],
+    [[[231, 315], [9044, 12334]], "custom catalog reorder, palette replacement, removal, fallback, and restoration"],
+    [[[316, 353], [12334, 13602]], "soft-bootstrap detected-mode and in-session choice preservation"]
+  ],
+  "testMappings": [
+    {
+      "source": "resolves auto initialization from the detected light or dark terminal mode",
+      "rust": "theme_selector_controller::tests::resolves_auto_initialization_from_detected_light_or_dark_terminal_mode"
+    },
+    {
+      "source": "opens on the committed theme and wraps keyboard preview movement",
+      "rust": "theme_selector_controller::tests::opens_on_committed_theme_and_wraps_keyboard_preview_movement"
+    },
+    {
+      "source": "pointer preview stays transient, cancel restores, and invalid item indexes are safe",
+      "rust": "theme_selector_controller::tests::pointer_preview_is_transient_cancel_restores_and_invalid_indexes_are_safe"
+    },
+    {
+      "source": "pointer and keyboard acceptance commit atomically and preserve notices",
+      "rust": "theme_selector_controller::tests::pointer_and_keyboard_acceptance_commit_atomically_and_return_notices"
+    },
+    {
+      "source": "accepts movement queued in the same React batch",
+      "rust": "theme_selector_controller::tests::movement_immediately_followed_by_acceptance_commits_latest_identity"
+    },
+    {
+      "source": "transparent backgrounds only project the resolved base-theme surfaces",
+      "rust": "theme_selector_controller::tests::transparent_background_only_projects_resolved_base_theme_surfaces"
+    },
+    {
+      "source": "catalog replacement re-resolves palettes while preserving valid selected identities",
+      "rust": "theme_selector_controller::tests::catalog_replacement_re_resolves_palettes_and_preserves_valid_selection"
+    },
+    {
+      "source": "soft bootstrap replacement preserves detected mode and the in-session choice",
+      "rust": "theme_selector_controller::tests::soft_bootstrap_replacement_preserves_detected_mode_and_in_session_choice"
+    }
+  ],
+  "adaptations": [
+    "React state and refs become one synchronous Rust controller; therefore movement followed immediately by acceptance naturally observes the newest identity.",
+    "The notice callback is represented by the accepted id and label returned to the Ratatui application, which owns the transient status surface.",
+    "Soft-bootstrap replacement is explicit and ignores replacement launch theme and terminal-mode inputs while reconciling the native catalog.",
+    "Generation checks and idempotent cursor-palette writes remain alongside the selector state for the two related stable-only regressions."
+  ]
+}

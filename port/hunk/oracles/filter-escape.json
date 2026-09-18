@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "source": {
+    "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+    "path": "test/pty/filter-escape.test.ts",
+    "blob": "b386d05a6575ae0f0ee1e31b10034bb5fe02b369",
+    "sha256": "f8d8d8bba4f1b0ac34471a69e2ae9563da9b4a83858b652e56bc123de4338a5a",
+    "bytes": 2054,
+    "lines": 63,
+    "stable_v0_20_1": "absent"
+  },
+  "execution": {
+    "runtime": "Bun 1.3.14",
+    "date": "2026-09-06",
+    "passed": 1,
+    "failed": 0,
+    "expect_calls": 3
+  },
+  "terminal": {
+    "columns": 220,
+    "rows": 12,
+    "layout": "split"
+  },
+  "source_tests": [
+    "a second Escape clears a re-typed no-match filter query"
+  ],
+  "state_sequence": [
+    "focus filter and type zzz",
+    "render No files match the current filter.",
+    "Escape clears the query and keeps filter focus",
+    "type zzz again",
+    "render No files match the current filter. again",
+    "Escape clears the query again and restores the diff while keeping filter focus"
+  ],
+  "native_test": {
+    "file": "crates/workdeck-tui/src/lib.rs",
+    "test": "tests::repeated_escape_clears_each_retyped_no_match_filter_before_exiting"
+  }
+}

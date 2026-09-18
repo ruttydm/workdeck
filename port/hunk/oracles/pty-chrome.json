@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "runtime": "Bun 1.3.14",
+  "captured_at": "2026-09-07",
+  "source": {
+    "path": "test/pty/chrome.test.ts",
+    "baseline": {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "blob": "0eea9d935de1a96d8ae687effe5b82fe8f579a3c",
+      "sha256": "46c98ce4b530b0f9c72fbb6238176f06fd243eea464c3112a178f94192d393ce",
+      "bytes": 13200,
+      "lines": 394
+    },
+    "stable": {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "blob": "2df6e6c8453df0fe5c43c489cb9c0f7e3a98c4e5",
+      "sha256": "18d800559060c077ecf9e0b838c42e01084845309adcb3fcc5caaec8d0a34a5f",
+      "bytes": 13170,
+      "lines": 393
+    }
+  },
+  "oracle_runs": {
+    "baseline": { "command": "bun test test/pty/chrome.test.ts", "passed": 9, "failed": 0, "expect_calls": 43 },
+    "stable": { "command": "bun test test/pty/chrome.test.ts", "passed": 9, "failed": 0, "expect_calls": 43 }
+  },
+  "native_evidence": "crates/workdeck-tui/src/lib.rs",
+  "test_module": "tests::pty_chrome",
+  "test_mapping": [
+    { "source_test": "top menu mouse navigation can open themes, toggle agent notes, and open help", "test": "mouse_theme_notes_and_help_menu_round_trip" },
+    { "source_test": "rapid theme preview key repeats keep the selector responsive", "test": "rapid_theme_previews_remain_responsive_with_large_highlighted_files" },
+    { "source_test": "quit prompt shows the config diff and saves preferences on mouse click", "test": "mouse_save_persists_previewed_theme_before_quit" },
+    { "source_test": "filter focus narrows the visible review stream in the live app", "test": "tab_filter_narrows_the_live_review_stream" },
+    { "source_test": "slash focuses the filter and narrows the visible review stream", "test": "slash_filter_reaches_a_file_beyond_the_initial_viewport" },
+    { "source_test": "keyboard help can open with ? in a real PTY", "test": "question_mark_opens_keyboard_controls" },
+    { "source_test": "mouse menu navigation can switch the diff layout", "test": "mouse_menu_switches_to_stacked_layout" },
+    { "source_test": "keyboard menu navigation can switch layouts in a real PTY", "test": "keyboard_menu_switches_to_stacked_layout" },
+    { "source_test": "the menu bar leaves the same one-column gutter the body panes leave", "test": "menu_bar_and_body_share_one_column_outer_gutters" }
+  ],
+  "verification": [
+    "Ratatui TestBackend frames use source terminal dimensions; routed key and mouse events verify menu, selector, notes, filtering and save behavior.",
+    "Exact stacked gutter text and outer-cell background equality are asserted without geometry normalization.",
+    "One hundred rendered theme previews exercise eight 150-line highlighted files, with 30ms between events.",
+    "Saving uses an isolated Workdeck config destination and checks file contents before the delayed quit signal.",
+    "These behavioral translations do not claim complete cross-renderer cell-buffer or performance parity."
+  ]
+}

@@ -1,0 +1,218 @@
+{
+  "schemaVersion": 1,
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "source": {
+    "path": "src/ui/AppHost.tsx",
+    "baseline": {
+      "blob": "9e6fd2e78cd18bd028049a9ca2050fa79a26dc95",
+      "sha256": "de14cbb1cc6d076b23e795f38fa439a0becff59242e102edd5f342be63c3d242",
+      "bytes": 23127,
+      "lines": 538
+    },
+    "stable": {
+      "blob": "e2359fc8c0f8fc62213d554dd15d67272bc9a67a",
+      "sha256": "7c90a0c8b3df0184ed595df9f9bd3c0cc7edc4358a419a0eada8f2d5c2f34008",
+      "bytes": 22525,
+      "lines": 528
+    }
+  },
+  "applicationOracle": {
+    "files": 20,
+    "baseline": {
+      "runtime": "bun 1.3.14",
+      "command": "bun test src/ui/AppHost*.test.tsx",
+      "passed": 220,
+      "failed": 0,
+      "assertions": 759,
+      "elapsedSeconds": 36.69
+    },
+    "stable": {
+      "runtime": "bun 1.3.5",
+      "command": "bun test src/ui/AppHost*.test.tsx",
+      "passed": 212,
+      "failed": 0,
+      "assertions": 724,
+      "elapsedSeconds": 36.20
+    },
+    "runtimeNote": "The pinned baseline intentionally rejects Bun 1.3.5 watch reloads, so its disposable oracle used Bun 1.3.14. The stable tree and the Rust product have no affected Bun runtime."
+  },
+  "pinDelta": [
+    {
+      "baselineLines": [6, 6, 326, 327, 374, 375],
+      "behavior": "The newer main baseline added explicit rollback around its process-global file-language registry; the pinned stable tree predates that change.",
+      "rustEvidence": "Dynamic replacement languages live only inside ProvisionalExtensionPaneRuntime; rollback drops that runtime and leaves the mounted registry unchanged."
+    },
+    {
+      "baselineLines": [37, 37, 60, 60, 76, 77, 271, 273],
+      "behavior": "The newer main baseline added a Bun-version watch guard that the pinned stable tree predates.",
+      "rustEvidence": "Workdeck watch reloads use the Rust workdeck-vcs watcher and therefore need no Bun version gate or JavaScript runtime dependency."
+    },
+    {
+      "baselineLines": [30, 38],
+      "behavior": "The two pins import workspace authority types from different modules without changing the public host contract.",
+      "rustEvidence": "Workspace authority remains host-owned in ReviewApp and the dynamic AppHost commit path."
+    }
+  ],
+  "sourceCoverage": [
+    {
+      "lines": [1, 39],
+      "bytes": [0, 1836],
+      "behavior": "Configuration, producer, session, VCS, extension, watch, workspace, and mounted application dependencies.",
+      "rust": [
+        "crates/workdeck-tui/src/app_host.rs",
+        "crates/workdeck-tui/src/session_review_controller.rs",
+        "crates/workdeck-cli/src/main.rs"
+      ]
+    },
+    {
+      "lines": [40, 49],
+      "bytes": [1836, 2210],
+      "behavior": "Prepared replacement ownership and the stable shutdown refusal.",
+      "rust": [
+        "crates/workdeck-tui/src/lib.rs",
+        "crates/workdeck-tui/src/app_host.rs"
+      ]
+    },
+    {
+      "lines": [50, 87],
+      "bytes": [2210, 3518],
+      "behavior": "Host inputs, injected authorities, and bundled VCS fallback.",
+      "rust": [
+        "crates/workdeck-tui/src/lib.rs",
+        "crates/workdeck-tui/src/app_host.rs"
+      ]
+    },
+    {
+      "lines": [88, 145],
+      "bytes": [3518, 6843],
+      "behavior": "Mounted bootstrap, one producer, launch-only flags, reload bounds, replacement and write tracking, and startup notices.",
+      "rust": [
+        "crates/workdeck-tui/src/app_host.rs",
+        "crates/workdeck-tui/src/lib.rs"
+      ]
+    },
+    {
+      "lines": [146, 177],
+      "bytes": [6843, 8004],
+      "behavior": "Startup and reload lifecycle publication after the matching review generation is mounted.",
+      "rust": [
+        "crates/workdeck-tui/src/lib.rs",
+        "crates/workdeck-tui/src/session_review_controller.rs"
+      ]
+    },
+    {
+      "lines": [178, 226],
+      "bytes": [8004, 10209],
+      "behavior": "Provisional replacement ownership, adoption, deduplicated retirement, and quit races.",
+      "rust": [
+        "crates/workdeck-cli/src/main.rs",
+        "crates/workdeck-tui/src/lib.rs"
+      ]
+    },
+    {
+      "lines": [227, 239],
+      "bytes": [10209, 10653],
+      "behavior": "Irreversible workspace writes start atomically with host tracking and report their actual result once started.",
+      "rust": [
+        "crates/workdeck-tui/src/lib.rs"
+      ]
+    },
+    {
+      "lines": [240, 321],
+      "bytes": [10653, 14176],
+      "behavior": "Runtime/config normalization, bounded cwd validation, extension rediscovery, VCS/catalog resolution, content load, transforms, and rollback.",
+      "rust": [
+        "crates/workdeck-tui/src/app_host.rs",
+        "crates/workdeck-tui/src/session_review_controller.rs",
+        "crates/workdeck-cli/src/main.rs"
+      ]
+    },
+    {
+      "lines": [322, 378],
+      "bytes": [14176, 16887],
+      "behavior": "Transactional producer reservation, broker replacement, detached stale store, and full rollback before local adoption.",
+      "rust": [
+        "crates/workdeck-review/src/lib.rs",
+        "crates/workdeck-tui/src/session_review_controller.rs",
+        "crates/workdeck-session/src/session_bridge.rs"
+      ]
+    },
+    {
+      "lines": [379, 439],
+      "bytes": [16887, 19336],
+      "behavior": "Old registry revocation, replacement adoption, hard or soft view state, lifecycle ordering, retirement drain, and protocol result.",
+      "rust": [
+        "crates/workdeck-tui/src/lib.rs",
+        "crates/workdeck-tui/src/session_review_controller.rs"
+      ]
+    },
+    {
+      "lines": [440, 459],
+      "bytes": [19336, 20089],
+      "behavior": "One FIFO reload coordinator shared by daemon, watch, workspace, and manual requests.",
+      "rust": [
+        "crates/workdeck-tui/src/app_host.rs",
+        "crates/workdeck-tui/src/lib.rs"
+      ]
+    },
+    {
+      "lines": [460, 485],
+      "bytes": [20089, 21143],
+      "behavior": "Latest mounted refresh descriptor and post-write soft reload through the canonical transaction.",
+      "rust": [
+        "crates/workdeck-tui/src/lib.rs",
+        "crates/workdeck-tui/src/current_review_refresh.rs"
+      ]
+    },
+    {
+      "lines": [486, 521],
+      "bytes": [21143, 22601],
+      "behavior": "Once-only quit, synchronous authority revocation, retirement and started-write drain, and external signal ownership.",
+      "rust": [
+        "crates/workdeck-tui/src/lib.rs",
+        "crates/workdeck-tui/src/app_host.rs"
+      ]
+    },
+    {
+      "lines": [522, 538],
+      "bytes": [22601, 23127],
+      "behavior": "Composition of the mounted app with producer, broker, reload, workspace, watch, notice, and quit authorities.",
+      "rust": [
+        "crates/workdeck-tui/src/lib.rs",
+        "crates/workdeck-cli/src/main.rs"
+      ]
+    }
+  ],
+  "nativeTests": [
+    "app_host::tests::broker_mutations_run_on_the_owner_thread_and_answer_after_commit",
+    "app_host::tests::handler_failures_cross_the_queue_without_mutating_the_review",
+    "app_host::tests::queued_reloads_run_to_completion_in_fifo_order",
+    "app_host::tests::current_review_refresh_uses_live_view_options_and_the_full_commit_gate",
+    "app_host::tests::terminal_quit_refuses_the_next_already_queued_reload",
+    "app_host::tests::snapshots_are_dependency_driven_and_retirement_detaches_once",
+    "app_host::tests::retirement_answers_already_queued_requests_and_refuses_new_ones",
+    "app_host::tests::reload_plans_restore_launch_authority_validate_before_io_and_commit_explicitly",
+    "session_review_controller::tests::broker_failure_cancels_the_publication_and_preserves_the_mounted_review",
+    "session_review_controller::tests::shutdown_refuses_reload_before_loading_or_broker_commit",
+    "session_review_controller::tests::replacement_registry_is_adopted_only_after_the_broker_commit_gate",
+    "session_review_controller::tests::failed_replacement_discards_its_session_local_file_language_registry",
+    "session_review_controller::tests::replacement_lifecycle_is_published_only_after_the_broker_commit_gate",
+    "session_review_controller::tests::reset_app_false_preserves_view_state_while_default_reload_resets_it",
+    "session_review_controller::tests::dynamic_reload_commits_resolved_host_options_with_the_review",
+    "tests::review_app_publishes_imperative_lifecycle_payloads_to_the_current_registry",
+    "tests::one_review_producer_owns_initial_and_reloaded_publications",
+    "tests::soft_reload_drains_the_dialog_controller_without_closing_its_queue",
+    "tests::extension_workspace_write_rechecks_the_captured_target_and_replaces_exact_source",
+    "tests::extension_workspace_write_reports_io_failure_and_started_result_across_reload",
+    "tests::repository_extension_trust_decisions_run_host_authority_and_reload_atomically",
+    "watched_input::tests::event_changes_debounce_and_refresh_exactly_once"
+  ],
+  "adaptations": [
+    "Ratatui owns one mutable ReviewApp on the terminal thread; broker transport threads enqueue typed commands and wait for that owner to commit them.",
+    "Rust has no render-effect phase, so extension controls are installed synchronously before lifecycle events are queued to the replacement registry.",
+    "File-language registrations are session-local values in each provisional ExtensionPaneRuntime, eliminating the baseline global mutation while preserving the stable rollback behavior.",
+    "Native extension retirement is synchronous under one shared deadline. The event loop does not return or restore the terminal until retirement and already-started owner-thread writes have completed.",
+    "The Rust watcher has no Bun runtime and therefore implements the stable tree's removal of the Bun-version reload refusal by construction."
+  ]
+}

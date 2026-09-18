@@ -1,0 +1,26 @@
+[package]
+name = "review-console"
+version = "1.8.0"
+edition = "2021"
+publish = false
+keywords = ["diff", "review", "terminal"]
+
+[package.metadata.commands]
+build = "cargo build"
+check = "cargo fmt --check && cargo test"
+dev = "cargo run"
+minimum-rust = "1.85"
+
+[dependencies]
+ratatui = "0.28.1"
+crossterm = "0.27.0"
+clap = "4.5.20"
+serde = "1.0.210"
+thiserror = "1.0.64"
+
+[dev-dependencies]
+insta = "1.40.0"
+proptest = "1.5.0"
+pretty_assertions = "1.4.0"
+tempfile = "3.12.0"
+toml = "0.8.19"

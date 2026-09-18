@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "runtime": "Bun 1.3.14",
+  "captured_at": "2026-09-07",
+  "source": {
+    "path": "test/pty/key-routing.test.ts",
+    "baseline": {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "blob": "0743fa19f5fe02946b0b2965994c480c331dd5ee",
+      "sha256": "a43623d26948f14214d119485ce4608161151edd36cfbb14f429defe41735f12",
+      "bytes": 10219,
+      "lines": 295
+    },
+    "stable": {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "blob": "3ad6126217f97f280da3c29bc31d6f752828a1b1",
+      "sha256": "1eb4a7117bf2c673f40f41f7c1c39c811796021d137d7ec260cd83ccbeeb7f71",
+      "bytes": 10208,
+      "lines": 295
+    }
+  },
+  "oracle_runs": {
+    "baseline": { "command": "bun test test/pty/key-routing.test.ts", "passed": 7, "failed": 0, "expect_calls": 17 },
+    "stable": { "command": "bun test test/pty/key-routing.test.ts", "passed": 7, "failed": 0, "expect_calls": 17 }
+  },
+  "native_evidence": "crates/workdeck-tui/src/lib.rs",
+  "test_module": "tests::pty_key_routing",
+  "test_mapping": [
+    { "source_test": "one Escape closes the help overlay without wiping typed filter text", "test": "escape_closes_help_without_erasing_filter" },
+    { "source_test": "Enter on a menu item does not also submit the focused filter", "test": "enter_runs_menu_item_without_submitting_filter" },
+    { "source_test": "F10 does not open the menu bar while a note draft is focused", "test": "note_draft_owns_f10_and_keeps_accepting_text" },
+    { "source_test": "menu arrows do not scroll the pager stream behind an open menu", "test": "menu_arrows_do_not_scroll_pager_behind_menu" },
+    { "source_test": "the theme selector uses vertical review keys without scrolling the pager stream", "test": "theme_vertical_keys_change_selection_without_scrolling_pager" },
+    { "source_test": "menu accelerators still fall through: ? opens help and closes the menu", "test": "menu_accelerator_opens_help_and_closes_menu" },
+    { "source_test": "vertical review keys move an open menu without scrolling the stream", "test": "vertical_review_key_moves_menu_without_scrolling_stream" }
+  ],
+  "verification": [
+    "Ratatui TestBackend frames at source terminal sizes verify visible overlay/filter/note state and row-20 stream anchors.",
+    "Focus, layout, menu selection, theme selection and scroll offset assertions supplement terminal text checks.",
+    "Theme movement retains the last rendered list window instead of recentering each keypress.",
+    "These behavioral translations do not claim full cross-renderer cell-buffer parity."
+  ]
+}

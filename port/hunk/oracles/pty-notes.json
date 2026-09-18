@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "runtime": "Bun 1.3.14",
+  "captured_at": "2026-09-07",
+  "translation_status": "complete source test translation; broader runtime and cell-frame parity remain separate gates",
+  "source": {
+    "path": "test/pty/notes.test.ts",
+    "baseline": {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "blob": "a3b6b503625c0279a4f61497e711fed70c24240d",
+      "sha256": "e17b44a3654442a781a109763403f8234899901f5196d242976b8784e5ddd306",
+      "bytes": 30737,
+      "lines": 839
+    },
+    "stable": {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "blob": "dbebce9528390663c9d0eb1f723b8799319cc5e2",
+      "sha256": "7af41359cba8d89326963ae94bec088ec8b84065ed55a3152a89e99bc4333732",
+      "bytes": 24894,
+      "lines": 711
+    }
+  },
+  "oracle_runs": {
+    "baseline": { "command": "bun test test/pty/notes.test.ts", "passed": 19, "failed": 0, "expect_calls": 73 },
+    "stable": { "command": "bun test test/pty/notes.test.ts", "passed": 18, "failed": 0, "expect_calls": 55 }
+  },
+  "native_evidence": "crates/workdeck-cli/tests/terminal_pager.rs",
+  "test_module": "notes",
+  "completed_test_translations": [
+    { "source_test": "opening a draft keeps the active line fixed while pushing following code down", "test": "opening_drafts_preserves_active_line_and_pushes_following_code" },
+    { "source_test": "cursor-line-off drafts still reveal their default target and full composer", "test": "cursor_off_draft_reveals_default_target_and_full_composer" },
+    { "source_test": "user notes can be drafted and saved inline in a real PTY", "test": "user_notes_draft_and_save_inline_with_newline_geometry" },
+    { "source_test": "CJK draft notes wrap instead of scrolling out of view in a real PTY", "test": "cjk_drafts_wrap_and_retain_both_ends_when_saved" },
+    { "source_test": "rapid Ctrl+S presses save a draft note exactly once", "test": "rapid_control_s_saves_a_draft_exactly_once" },
+    { "source_test": "a single Escape cancels a freshly opened empty draft note", "test": "first_escape_cancels_an_empty_draft" },
+    { "source_test": "agent notes can be revealed and hidden in the live diff UI", "test": "agent_notes_reveal_and_hide_without_experimental_markup" },
+    { "source_test": "a note anchored to collapsed lines renders inside its owning hunk", "test": "collapsed_gap_note_is_inside_owning_hunk_after_first_row" },
+    { "source_test": "experimental launches render STML note bodies", "test": "experimental_agent_notes_render_stml_instead_of_rationale" },
+    { "source_test": "add-note affordance appears only after mouse movement in a real PTY", "test": "mouse_movement_is_required_to_restore_affordance_after_wheel_or_key" },
+    { "source_test": "clicked add-note drafts can cancel and save with keyboard shortcuts", "test": "clicked_add_note_owns_keyboard_cancel_and_save" },
+    { "source_test": "clicking stack-mode add-note affordances can save draft notes", "test": "stack_add_note_affordance_saves_clicked_target" },
+    { "source_test": "clicking deletion-only add-note affordances can save draft notes", "test": "deletion_only_add_note_affordance_saves_old_side" },
+    { "source_test": "clicking context-row add-note affordances can save draft notes", "test": "context_click_overrides_keyboard_cursor_without_moving_target_row" },
+    { "source_test": "draft note focus blocks app shortcuts until cancelled", "test": "draft_focus_blocks_app_hunk_shortcut_until_cancelled" },
+    { "source_test": "draft note focus blocks pager shortcuts until cancelled", "test": "draft_focus_blocks_pager_sidebar_shortcut_until_cancelled" },
+    { "source_test": "multiple add-note drafts can be saved on one hunk", "test": "multiple_clicked_notes_survive_on_one_hunk" },
+    { "source_test": "clicking diff add-note affordances can cancel and save draft notes", "test": "clicked_add_note_can_cancel_and_save_with_mouse_controls" },
+    { "source_test": "saved notes can be edited and replied to through clickable threaded actions", "test": "saved_notes_support_clickable_threaded_edit_reply_and_delete", "baseline_only": true }
+  ],
+  "remaining": []
+}

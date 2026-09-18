@@ -1,0 +1,445 @@
+{
+  "source": "website/src/data/extensions.ts",
+  "runtime": "Bun 1.3.14 macOS arm64",
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "captures": [
+    {
+      "kind": "main",
+      "cases": [
+        {
+          "input": [],
+          "expected": []
+        },
+        {
+          "input": [
+            {
+              "categories": []
+            }
+          ],
+          "expected": []
+        },
+        {
+          "input": [
+            {
+              "categories": [
+                "Theme",
+                "Theme",
+                "Pane"
+              ]
+            },
+            {
+              "categories": [
+                "Command",
+                "Pane"
+              ]
+            }
+          ],
+          "expected": [
+            {
+              "category": "Pane",
+              "count": 2
+            },
+            {
+              "category": "Theme",
+              "count": 2
+            },
+            {
+              "category": "Command",
+              "count": 1
+            }
+          ]
+        },
+        {
+          "input": [
+            {
+              "categories": [
+                "VCS backend",
+                "Theme",
+                "Pane",
+                "Line highlighter",
+                "Keyboard mode",
+                "File view",
+                "Command",
+                "Changeset transform"
+              ]
+            }
+          ],
+          "expected": [
+            {
+              "category": "Changeset transform",
+              "count": 1
+            },
+            {
+              "category": "Command",
+              "count": 1
+            },
+            {
+              "category": "File view",
+              "count": 1
+            },
+            {
+              "category": "Keyboard mode",
+              "count": 1
+            },
+            {
+              "category": "Line highlighter",
+              "count": 1
+            },
+            {
+              "category": "Pane",
+              "count": 1
+            },
+            {
+              "category": "Theme",
+              "count": 1
+            },
+            {
+              "category": "VCS backend",
+              "count": 1
+            }
+          ]
+        },
+        {
+          "input": [
+            {
+              "categories": [
+                "VCS backend"
+              ]
+            },
+            {
+              "categories": [
+                "Pane",
+                "Command"
+              ]
+            },
+            {
+              "categories": [
+                "Theme"
+              ]
+            },
+            {
+              "categories": [
+                "Pane",
+                "Command"
+              ]
+            },
+            {
+              "categories": [
+                "Changeset transform"
+              ]
+            },
+            {
+              "categories": [
+                "Changeset transform"
+              ]
+            },
+            {
+              "categories": [
+                "Keyboard mode",
+                "Line highlighter",
+                "Pane",
+                "Command"
+              ]
+            },
+            {
+              "categories": [
+                "Pane",
+                "Command",
+                "Line highlighter",
+                "Changeset transform"
+              ]
+            },
+            {
+              "categories": [
+                "Command"
+              ]
+            },
+            {
+              "categories": [
+                "Pane",
+                "Command"
+              ]
+            },
+            {
+              "categories": [
+                "Pane",
+                "Command"
+              ]
+            },
+            {
+              "categories": [
+                "Pane",
+                "Theme",
+                "Line highlighter",
+                "Command",
+                "VCS backend"
+              ]
+            },
+            {
+              "categories": [
+                "Command",
+                "Line highlighter"
+              ]
+            },
+            {
+              "categories": [
+                "Pane",
+                "Keyboard mode",
+                "Command"
+              ]
+            },
+            {
+              "categories": [
+                "Pane",
+                "Command",
+                "Changeset transform"
+              ]
+            },
+            {
+              "categories": [
+                "Command"
+              ]
+            }
+          ],
+          "expected": [
+            {
+              "category": "Command",
+              "count": 12
+            },
+            {
+              "category": "Pane",
+              "count": 9
+            },
+            {
+              "category": "Changeset transform",
+              "count": 4
+            },
+            {
+              "category": "Line highlighter",
+              "count": 4
+            },
+            {
+              "category": "Keyboard mode",
+              "count": 2
+            },
+            {
+              "category": "Theme",
+              "count": 2
+            },
+            {
+              "category": "VCS backend",
+              "count": 2
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "stable",
+      "cases": [
+        {
+          "input": [],
+          "expected": []
+        },
+        {
+          "input": [
+            {
+              "categories": []
+            }
+          ],
+          "expected": []
+        },
+        {
+          "input": [
+            {
+              "categories": [
+                "Theme",
+                "Theme",
+                "Pane"
+              ]
+            },
+            {
+              "categories": [
+                "Command",
+                "Pane"
+              ]
+            }
+          ],
+          "expected": [
+            {
+              "category": "Pane",
+              "count": 2
+            },
+            {
+              "category": "Theme",
+              "count": 2
+            },
+            {
+              "category": "Command",
+              "count": 1
+            }
+          ]
+        },
+        {
+          "input": [
+            {
+              "categories": [
+                "VCS backend",
+                "Theme",
+                "Pane",
+                "Line highlighter",
+                "Keyboard mode",
+                "File view",
+                "Command",
+                "Changeset transform"
+              ]
+            }
+          ],
+          "expected": [
+            {
+              "category": "Changeset transform",
+              "count": 1
+            },
+            {
+              "category": "Command",
+              "count": 1
+            },
+            {
+              "category": "File view",
+              "count": 1
+            },
+            {
+              "category": "Keyboard mode",
+              "count": 1
+            },
+            {
+              "category": "Line highlighter",
+              "count": 1
+            },
+            {
+              "category": "Pane",
+              "count": 1
+            },
+            {
+              "category": "Theme",
+              "count": 1
+            },
+            {
+              "category": "VCS backend",
+              "count": 1
+            }
+          ]
+        },
+        {
+          "input": [
+            {
+              "categories": [
+                "VCS backend"
+              ]
+            },
+            {
+              "categories": [
+                "Pane",
+                "Command"
+              ]
+            },
+            {
+              "categories": [
+                "Theme"
+              ]
+            },
+            {
+              "categories": [
+                "Pane",
+                "Command"
+              ]
+            },
+            {
+              "categories": [
+                "Changeset transform"
+              ]
+            },
+            {
+              "categories": [
+                "Keyboard mode",
+                "Line highlighter",
+                "Pane",
+                "Command"
+              ]
+            },
+            {
+              "categories": [
+                "Command"
+              ]
+            },
+            {
+              "categories": [
+                "Pane",
+                "Command"
+              ]
+            },
+            {
+              "categories": [
+                "Pane",
+                "Theme",
+                "Line highlighter",
+                "Command",
+                "VCS backend"
+              ]
+            },
+            {
+              "categories": [
+                "Pane",
+                "Keyboard mode",
+                "Command"
+              ]
+            },
+            {
+              "categories": [
+                "Pane",
+                "Command",
+                "Changeset transform"
+              ]
+            },
+            {
+              "categories": [
+                "Command"
+              ]
+            }
+          ],
+          "expected": [
+            {
+              "category": "Command",
+              "count": 9
+            },
+            {
+              "category": "Pane",
+              "count": 7
+            },
+            {
+              "category": "Changeset transform",
+              "count": 2
+            },
+            {
+              "category": "Keyboard mode",
+              "count": 2
+            },
+            {
+              "category": "Line highlighter",
+              "count": 2
+            },
+            {
+              "category": "Theme",
+              "count": 2
+            },
+            {
+              "category": "VCS backend",
+              "count": 2
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

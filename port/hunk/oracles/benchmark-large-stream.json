@@ -1,0 +1,14 @@
+{
+  "source": "benchmarks/large-stream.ts",
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "runtime": "Bun 1.3.14 macOS arm64",
+  "capture": "Both complete scripts executed successfully in disposable pinned checkouts. These runs overlapped and provide structural evidence only, not performance acceptance results.",
+  "viewport": {"width": 240, "height": 28},
+  "scrollTarget": {"x": 170, "y": 12},
+  "counts": {"scroll_ticks": 4, "files": 180, "lines_per_file": 120},
+  "diagnosticTimingsMs": {
+    "baseline": {"cold_first_frame_ms": 2.38, "warm_first_frame_ms": 1.64, "windowed_scroll_ticks_ms": 207.91},
+    "stable": {"cold_first_frame_ms": 1.99, "warm_first_frame_ms": 1.47, "windowed_scroll_ticks_ms": 205.43}
+  }
+}

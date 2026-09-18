@@ -1,0 +1,130 @@
+{
+  "schemaVersion": 1,
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "source": {
+    "path": "src/ui/diff/diffRows.ts",
+    "baselineBlob": "f50bccf1e28abd641a4f9a3b319a7a3ef467b7f7",
+    "baselineSha256": "c245dcf6291788610bb66d6e870f576cbbc5c61d9d0a17de87242bdbe6ebec1e",
+    "baselineBytes": 33911,
+    "baselineLines": 999,
+    "stableBlob": "3e83f04ac68c342045be0958a30ff57349123e3e",
+    "stableSha256": "07bb0c8ff71e7ba2059dc05f9b2cac0379647a8a5dabe764ef8f07506f93b0a9",
+    "stableBytes": 33940,
+    "stableLines": 1000
+  },
+  "test": {
+    "path": "src/ui/diff/diffRows.test.ts",
+    "baselineBlob": "87b1b7f7571fc8831be92b6d2bf128ed8e10551c",
+    "baselineSha256": "c134e65c58e18b1df975f6b9839c963fb9c2346e457c06728e7c023c53ec1419",
+    "baselineBytes": 45416,
+    "baselineLines": 1286,
+    "stableBlob": "712a559897742dededfdd2c3d31f3bca7782db8f",
+    "stableSha256": "79c70af4920cfa95838dd1be50bc5f6968328db074e18dc411a3085acc688c68",
+    "stableBytes": 45481,
+    "stableLines": 1291
+  },
+  "destinations": [
+    { "path": "crates/workdeck-tui/src/diff_rows.rs", "sha256": "3515d188b56b442aac955dc4820db331ac0f6ed5cb0a0b9fb60660c34486d781" },
+    { "path": "crates/workdeck-tui/src/diff_section_row_plan.rs", "sha256": "df21616cd53de6cb3bdd4f2e1552a1b448111728be2cfa1a7eb3b10135dd7db9" },
+    { "path": "crates/workdeck-tui/src/diff_section_geometry.rs", "sha256": "9d149a2c954199d5c79c1b9ca10d968fd81b221c4de52e524c9325f79d3e76b9" },
+    { "path": "crates/workdeck-tui/src/highlighted_diff_runtime.rs", "sha256": "a18e7d7047db32e644413d6fa19abe2d92f078bbc02d9a0f2b5a18604ba2665f" },
+    { "path": "crates/workdeck-tui/src/planned_row_text.rs", "sha256": "fa1ad9301dddd0720f15921772e7e1f156f6c072ca3ecc8ebde458a87da54fb2" },
+    { "path": "crates/workdeck-tui/src/theme.rs", "sha256": "7cd003505c6eca2ac818d15e33aca333b7e77b3e527b2172966eed9daa0fb976" },
+    { "path": "crates/workdeck-tui/src/lib.rs", "sha256": "596043eda721e26b35c22b16c503f501525fe6109a96f79d6ddbe820d0d9d8a7" },
+    { "path": "crates/workdeck-diff/src/syntax.rs", "sha256": "bf264a9f1226d24019028451140730f2e20d81553a0cd2b2f30a309e27c9560d" },
+    { "path": "crates/workdeck-diff/src/highlight_worker.rs", "sha256": "c966c904aa5ddb01e00099d631454b73da64ca95773d39b6287620c8570651d4" },
+    { "path": "crates/workdeck-diff/src/compact_highlight.rs", "sha256": "85c0725116e88d5e10c6f4c48b1e60efff3f798f610cb757a43fa4385fb950ef" },
+    { "path": "crates/workdeck-diff/src/source_backed_highlight.rs", "sha256": "f8ab0456f84c383b49c1655bac874d397c6faa89fba1f03f48da9e2b71db2383" },
+    { "path": "crates/workdeck-diff/src/word_diff.rs", "sha256": "5415a40a3ef02264b42218a35ff2bb01f2e375344c1b708e639f1d795fc44190" }
+  ],
+  "baselineOracle": {
+    "runtime": "bun 1.3.5",
+    "command": "bun test src/ui/diff/diffRows.test.ts",
+    "passed": 29,
+    "failed": 0,
+    "expectations": 134
+  },
+  "stableOracle": {
+    "runtime": "bun 1.3.5",
+    "command": "bun test src/ui/diff/diffRows.test.ts",
+    "passed": 29,
+    "failed": 0,
+    "expectations": 134
+  },
+  "projectionVectors": {
+    "shared": {
+      "counts": { "file": 5, "at39": 39, "at40": 40 },
+      "decisions": { "file": true, "at39Offload": false, "at40Offload": true, "at40Default": false },
+      "splitKeys": [
+        "example:header:0",
+        "example:split:0:change:0:0",
+        "example:split:0:context:1:1",
+        "example:split:0:change:2:2"
+      ],
+      "stackKeys": [
+        "example:stack:header:0",
+        "example:stack:0:deletion:0",
+        "example:stack:0:addition:0",
+        "example:stack:0:context:1:1",
+        "example:stack:0:addition:2"
+      ],
+      "changedText": { "old": "export const answer = 41;", "new": "export const answer = 42;" },
+      "syntax": { "keyword": "#FF7B72", "variable": "#79C0FF", "punctuation": "#E6EDF3" },
+      "expandedSourceText": "export  const hiddenMarker = true;"
+    },
+    "baselineWordBackgrounds": { "deletion": "#4f2325", "addition": "#163923" },
+    "stableWordBackgrounds": { "deletion": "#4f2325", "addition": "#1c4428" }
+  },
+  "nativeAdaptation": {
+    "authority": "The pinned main tree is the product behavior authority; the stable-only queue contributes its five enumerated commits. The older stable theme palette is retained as an oracle vector, not selected over main.",
+    "highlighting": "Shiki/Pierre HAST and compact worker paths become native syntect tokens and a Rust worker, with source-backed remapping completed before row projection.",
+    "rendering": "Ratatui consumes provider-neutral DiffRow spans. Syntax colors are case-normalized to lowercase CSS hex while terminal RGB cells remain identical.",
+    "scheduling": "The explicit HighlightedDiffRuntime replaces Promise/timer serialization and preserves opt-in offload, retry, and cache behavior without JavaScript."
+  },
+  "sourceCoverage": [
+    { "lines": [1, 53], "bytes": [0, 1829], "destination": "imports, public threshold and highlighted row/source models" },
+    { "lines": [54, 107], "bytes": [1829, 3574], "destination": "theme selection, worker threshold, and rendering options" },
+    { "lines": [108, 181], "bytes": [3574, 6386], "destination": "word-emphasis contrast and transparent-background policy" },
+    { "lines": [182, 375], "bytes": [6386, 11878], "destination": "highlight flattening, compact reconstruction, tab expansion, span merging, and cells" },
+    { "lines": [376, 519], "bytes": [11878, 16324], "destination": "collapsed rows, highlighter registration, source loading, and serialized native work" },
+    { "lines": [520, 583], "bytes": [16324, 18963], "destination": "source-backed remap, patch fallback, render limits, and shared plain result" },
+    { "lines": [584, 653], "bytes": [18963, 21421], "destination": "line counts, highlight/offload decisions, compact validation, and worker result" },
+    { "lines": [654, 707], "bytes": [21421, 23626], "destination": "diff highlight loading, bounded source plan, retryable failure, and text fallback" },
+    { "lines": [708, 745], "bytes": [23626, 24764], "destination": "full-source highlight loading and fallback" },
+    { "lines": [746, 766], "bytes": [24764, 25488], "destination": "expanded-source line span projection" },
+    { "lines": [767, 887], "bytes": [25488, 30070], "destination": "split rows, paired changes, stable keys, moves, and collapsed ranges" },
+    { "lines": [888, 999], "bytes": [30070, 33911], "destination": "stack rows, side-specific lines, stable keys, moves, and collapsed ranges" }
+  ],
+  "testMapping": [
+    { "lines": [1, 270], "bytes": [0, 7730], "sourceTest": "builds split rows with Pierre-highlighted emphasis spans", "rustTests": ["diff_rows::tests::native_rows_match_the_frozen_baseline_highlight_vector"] },
+    { "lines": [271, 294], "bytes": [7730, 8772], "sourceTest": "renders a generated-scale diff as plain rows instead of highlighting it", "rustTests": ["diff_rows::tests::highlight_thresholds_match_generated_and_worker_boundaries"] },
+    { "lines": [295, 318], "bytes": [8772, 9767], "sourceTest": "offloads bundled-theme highlighting starting at 40 source lines", "rustTests": ["diff_rows::tests::highlight_thresholds_match_generated_and_worker_boundaries"] },
+    { "lines": [319, 344], "bytes": [9767, 10889], "sourceTest": "matches inline spans when an eligible bundled-theme diff uses the worker", "rustTests": ["syntax::tests::live_highlighting_runs_eligible_files_off_the_calling_thread_and_settles_both", "highlighted_diff_runtime::tests::inline_is_default_and_worker_offload_requires_explicit_request"] },
+    { "lines": [345, 358], "bytes": [10889, 11567], "sourceTest": "maps compact full-source worker ranges back onto a partial patch", "rustTests": ["source_backed_highlight::tests::grafts_validated_source_prefixes_and_remaps_partial_indexes", "compact_highlight::tests::utf16_ranges_decode_as_independent_old_and_new_source_sides"] },
+    { "lines": [359, 397], "bytes": [11567, 12905], "sourceTest": "falls back to plain spans for an out-of-range compact source mapping", "rustTests": ["compact_highlight::tests::malformed_ranges_and_payload_fields_are_rejected"] },
+    { "lines": [398, 431], "bytes": [12905, 14259], "sourceTest": "matches inline context styling for a large patch-only diff", "rustTests": ["syntax::tests::native_highlight_cache_reconstructs_text_from_review_sources"] },
+    { "lines": [432, 452], "bytes": [14259, 15359], "sourceTest": "falls back to patch highlighting when source-backed metadata exceeds the cap", "rustTests": ["diff_rows::tests::oversized_source_plan_falls_back_to_the_visible_patch"] },
+    { "lines": [453, 464], "bytes": [15359, 15782], "sourceTest": "falls back to plain text when the highlight worker fails", "rustTests": ["highlighted_diff_runtime::tests::retryable_and_stale_completions_never_poison_shared_cache", "highlight_worker::tests::posting_failure_rejects_all_work_and_later_backend_recovers"] },
+    { "lines": [465, 495], "bytes": [15782, 17079], "sourceTest": "uses full source to keep partial Elixir hunks inside the correct heredoc state", "rustTests": ["syntax::tests::source_backed_highlight_preserves_independent_context_grammar_states"] },
+    { "lines": [496, 515], "bytes": [17079, 17933], "sourceTest": "falls back to patch-fragment highlighting when authoritative source cannot load", "rustTests": ["source_backed_highlight::tests::rejects_raced_mismatched_or_missing_source_snapshots"] },
+    { "lines": [516, 565], "bytes": [17933, 19779], "sourceTest": "preserves different old and new grammar states across partial diff hunks", "rustTests": ["syntax::tests::source_backed_highlight_preserves_independent_context_grammar_states"] },
+    { "lines": [566, 595], "bytes": [19779, 21085], "sourceTest": "keeps word-diff highlight backgrounds transparent when a theme uses transparent tints", "rustTests": ["diff_rows::tests::transparent_word_emphasis_stays_transparent"] },
+    { "lines": [596, 627], "bytes": [21085, 22272], "sourceTest": "expands highlighted tabs across syntax span boundaries for each configured width", "rustTests": ["diff_rows::tests::highlighted_source_spans_use_syntax_and_plain_fallbacks", "code_columns::tests::expands_tabs_to_configurable_terminal_cell_stops"] },
+    { "lines": [628, 656], "bytes": [22272, 23297], "sourceTest": "builds stacked rows with separate deletion and addition lines", "rustTests": ["diff_rows::tests::stack_rows_separate_changes_carry_moves_and_strip_highlight_newlines"] },
+    { "lines": [657, 692], "bytes": [23297, 24576], "sourceTest": "carries moved-line tags into row palettes", "rustTests": ["diff_rows::tests::stack_rows_separate_changes_carry_moves_and_strip_highlight_newlines", "row_style::tests::rails_palettes_and_gutters_preserve_the_complete_row_contract"] },
+    { "lines": [693, 723], "bytes": [24576, 25552], "sourceTest": "renders planned split rows to copyable visible text", "rustTests": ["planned_row_text::tests::split_rows_are_copyable_and_keep_wide_separator_aligned"] },
+    { "lines": [724, 782], "bytes": [25552, 27330], "sourceTest": "keeps the split separator aligned after wide characters", "rustTests": ["planned_row_text::tests::split_rows_are_copyable_and_keep_wide_separator_aligned"] },
+    { "lines": [783, 816], "bytes": [27330, 28356], "sourceTest": "renders planned stack rows with horizontal copy offset", "rustTests": ["planned_row_text::tests::stack_rows_apply_horizontal_copy_offset"] },
+    { "lines": [817, 860], "bytes": [28356, 29723], "sourceTest": "renders planned rows as code-only copy text when decorations are disabled", "rustTests": ["planned_row_text::tests::code_only_projection_omits_decorations_deduplicates_context_and_filters_sides"] },
+    { "lines": [861, 877], "bytes": [29723, 30420], "sourceTest": "does not produce newline characters in spans for highlighted empty lines", "rustTests": ["diff_rows::tests::stack_rows_separate_changes_carry_moves_and_strip_highlight_newlines"] },
+    { "lines": [878, 898], "bytes": [30420, 31116], "sourceTest": "builds syntax spans for highlighted full-source lines", "rustTests": ["diff_rows::tests::highlighted_source_spans_use_syntax_and_plain_fallbacks", "syntax::tests::highlights_complete_expanded_source_with_crlf_normalization"] },
+    { "lines": [899, 942], "bytes": [31116, 32515], "sourceTest": "applies distinct custom palettes to expanded-source highlighting", "rustTests": ["syntax::tests::syntax_theme_identity_includes_precedence_sensitive_scope_order"] },
+    { "lines": [943, 987], "bytes": [32515, 34229], "sourceTest": "collapsed rows carry line ranges and position on both layouts", "rustTests": ["diff_rows::tests::collapsed_rows_keep_exact_ranges_and_layout_specific_keys"] },
+    { "lines": [988, 1023], "bytes": [34229, 35500], "sourceTest": "between-hunks collapsed row spans the unchanged region between two hunks", "rustTests": ["diff_section_row_plan::tests::composes_exact_split_stack_keys_line_digits_and_hunk_gaps"] },
+    { "lines": [1024, 1088], "bytes": [35500, 38244], "sourceTest": "passes exact Shiki scope colors through in dark and light", "rustTests": ["syntax::tests::native_highlighter_uses_the_selected_pinned_theme_payload"] },
+    { "lines": [1089, 1191], "bytes": [38244, 41948], "sourceTest": "preserves base Shiki colors outside partial custom syntax overrides", "rustTests": ["syntax::tests::syntax_theme_defaults_and_registration_use_native_theme_storage"] },
+    { "lines": [1192, 1245], "bytes": [41948, 43829], "sourceTest": "leaves unrelated tokens unchanged when a raw operator scope is overridden", "rustTests": ["syntax::tests::syntax_theme_defaults_and_registration_use_native_theme_storage"] },
+    { "lines": [1246, 1286], "bytes": [43829, 45416], "sourceTest": "uses Shiki's bundled Catppuccin theme for Catppuccin syntax", "rustTests": ["syntax::tests::all_pinned_shiki_and_pierre_theme_payloads_compile_without_dropped_rules", "theme::tests::catppuccin_rows_remain_semantically_distinct"] }
+  ]
+}

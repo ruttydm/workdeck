@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "capture": {
+    "runtime": "Bun 1.3.5",
+    "method": "executed both pinned trees from disposable git archives",
+    "paths": [
+      "src/ui/lib/viewportAnchor.ts",
+      "src/ui/lib/viewportAnchor.test.ts",
+      "src/ui/lib/viewportSelection.ts",
+      "src/ui/lib/viewportSelection.test.ts"
+    ],
+    "testResult": "4 pass, 0 fail on each pinned tree"
+  },
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "sharedProjection": {
+    "anchor": {
+      "splitTop": 0,
+      "deletionTop": 0,
+      "additionTop": 1,
+      "deletion": {
+        "fileId": "viewport-anchor",
+        "rowKey": "diff-row:viewport-anchor:stack:0:deletion:0",
+        "stableKey": "line:0:old:1",
+        "rowOffsetWithin": 0
+      },
+      "addition": {
+        "fileId": "viewport-anchor",
+        "rowKey": "diff-row:viewport-anchor:stack:0:addition:0",
+        "stableKey": "line:0:new:1",
+        "rowOffsetWithin": 0
+      },
+      "splitAsDeletion": {
+        "fileId": "viewport-anchor",
+        "rowKey": "diff-row:viewport-anchor:split:0:change:0:0",
+        "stableKey": "line:0:old:1",
+        "rowOffsetWithin": 0
+      },
+      "splitAsAddition": {
+        "fileId": "viewport-anchor",
+        "rowKey": "diff-row:viewport-anchor:split:0:change:0:0",
+        "stableKey": "line:0:new:1",
+        "rowOffsetWithin": 0
+      },
+      "splitResolved": 0,
+      "roundTrip": 0
+    },
+    "laterFileTarget": { "fileId": "second", "hunkIndex": 0 },
+    "gap": {
+      "bodyHeight": 15,
+      "hunkBounds": [
+        { "top": 0, "height": 5 },
+        { "top": 6, "height": 8 }
+      ],
+      "center": 5,
+      "scrollTop": 2,
+      "target": { "fileId": "gap", "hunkIndex": 1 }
+    }
+  }
+}

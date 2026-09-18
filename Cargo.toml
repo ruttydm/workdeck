@@ -1,5 +1,21 @@
 [workspace]
-members = ["crates/workdeck-cli"]
+members = [
+    "crates/workdeck-cli",
+    "crates/workdeck-core",
+    "crates/workdeck-diff",
+    "crates/workdeck-extension-api",
+    "crates/workdeck-extension-host",
+    "crates/workdeck-migration",
+    "crates/workdeck-markup",
+    "crates/workdeck-pm",
+    "crates/workdeck-review",
+    "crates/workdeck-session",
+    "crates/workdeck-store",
+    "crates/workdeck-tui",
+    "crates/workdeck-vcs",
+    "examples",
+    "xtask",
+]
 resolver = "2"
 
 [workspace.package]

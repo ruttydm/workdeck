@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "path": "src/ui/AppHost.extension-sidebar.test.tsx",
+    "baseline": {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "blob": "82cc7c45b3376215b5a2746491cc5e9c1d0afcc8",
+      "sha256": "5b67a6cb1b48627c2f3a9cd907b7d27f86f25219e71a40e03dd2e261e1d68503",
+      "bytes": 41551,
+      "lines": 1085
+    },
+    "stable": {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "blob": "1254b4cd576fc43105e05aa11704b70e0b1782b7",
+      "sha256": "4e548bfedb46f93b7517b5cab1808113169af0ab12f071ff4888a6f22c0a4b48",
+      "bytes": 39794,
+      "lines": 1035
+    }
+  },
+  "oracleRuns": {
+    "baseline": {
+      "runtime": "bun 1.3.14",
+      "command": "TMPDIR=$(cd ${TMPDIR:-/tmp} && pwd -P) bun test src/ui/AppHost.extension-sidebar.test.tsx",
+      "passed": 15,
+      "failed": 0,
+      "expectCalls": 34,
+      "elapsedMilliseconds": 4380,
+      "caseMilliseconds": [444.13, 218.5, 343.1, 264.42, 210.26, 243.04, 267.19, 202.48, 207.66, 265.84, 261.29, 209.76, 208.06, 234.17, 546.56]
+    },
+    "stable": {
+      "runtime": "bun 1.3.14",
+      "command": "TMPDIR=$(cd ${TMPDIR:-/tmp} && pwd -P) bun test src/ui/AppHost.extension-sidebar.test.tsx",
+      "passed": 14,
+      "failed": 0,
+      "expectCalls": 33,
+      "elapsedMilliseconds": 4100,
+      "caseMilliseconds": [445.93, 209.61, 326.3, 258.48, 206.14, 265.86, 262.07, 202.59, 203.69, 265.6, 244.14, 208.53, 224.92, 530.13]
+    }
+  },
+  "baselineOnly": [
+    "the files toggle closes a built-in fallback injected after availability failure"
+  ],
+  "testMappings": [
+    { "upstream": "a command key opens an extra sidebar beside the built-in one", "rust": "command_key_opens_an_additive_native_pane_and_its_action_publishes_selection" },
+    { "upstream": "injects the user's resolved command bindings into a sidebar view", "rust": "pane_receives_effective_remapped_keys_and_excludes_a_conflicting_extension_chord" },
+    { "upstream": "a command handler sees the current review selection", "rust": "command_selection_is_coherent_current_and_frozen_at_invocation_time" },
+    { "upstream": "a command handler snapshots complete saved notes from the shared review store", "rust": "command_review_snapshot_contains_saved_note_stable_files_and_anchor" },
+    { "upstream": "a command handler reports no current line when the marker is off", "rust": "disabled_current_line_marker_reaches_commands_as_null" },
+    { "upstream": "files and extension panes toggle independently", "rust": "files_and_additive_extension_panes_toggle_independently" },
+    { "upstream": "the Extensions menu lists a registered command and runs it", "rust": "extensions_menu_lists_and_invokes_an_unbound_native_command" },
+    { "upstream": "a replacesDefault view stands in for the built-in file navigation", "rust": "files_replacement_stands_in_for_the_built_in_navigation" },
+    { "upstream": "one registered pane owns the named files slot", "rust": "first_registered_replacement_owns_the_named_files_slot_across_toggles" },
+    { "upstream": "the View menu reflects the files slot instead of an independent side pane", "rust": "view_menu_checkbox_tracks_the_files_slot_not_an_independent_pane" },
+    { "upstream": "the files command toggles a bottom-edge replacement at medium width", "rust": "files_command_toggles_a_bottom_edge_replacement_at_medium_width" },
+    { "upstream": "closes a crashing extra view and restores the built-in sidebar", "rust": "crashing_replacement_is_quarantined_and_files_fallback_remains_toggleable" },
+    { "upstream": "the files toggle closes a built-in fallback injected after availability failure", "rust": "availability_failure_injects_a_files_fallback_that_the_files_command_closes" },
+    { "upstream": "reevaluates pane availability when filtering changes visible files", "rust": "pane_availability_reacts_to_the_filtered_visible_file_projection" },
+    { "upstream": "the documented scrollbox ref contract follows the selection from a fixture sidebar", "rust": "selected_declarative_list_row_scrolls_into_the_native_pane_viewport" }
+  ],
+  "adaptations": [
+    "Ratatui owns cells and native extensions return declarative lists; a selected list item is scrolled into the allocated pane viewport instead of exposing an OpenTUI ScrollBoxRenderable ref.",
+    "Resolved command bindings cross JSON-RPC as data and use the shared Rust chord matcher; keys rejected by live command conflict resolution are absent.",
+    "The oracle command canonicalizes TMPDIR because macOS exposes the same temporary directory through /var and /private/var, while the stable Hunk Bun loader keys its React shim by path spelling.",
+    "Expected React act diagnostics and the intentional crashing-pane stack are summarized rather than freezing nondeterministic temporary paths or teardown warnings."
+  ]
+}

@@ -15,21 +15,56 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1.0"
+ureq = { version = "3.4", default-features = false, features = ["rustls"] }
+flate2 = "1.1"
+rustix = { version = "1.1", features = ["fs"] }
+sha2 = "0.10"
+tar = "0.4"
+zip = { version = "2.4", default-features = false, features = ["deflate"] }
 arboard = "3.6"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4.5", features = ["derive"] }
-crossterm = "0.28"
+crossterm = { version = "0.28", features = ["use-dev-tty"] }
 fuzzy-matcher = "0.3"
 git2 = "0.21"
 ignore = "0.4"
-ratatui = "0.29"
+indexmap = { version = "2.14", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-syntect = "5.2"
+semver = "1.0"
+shell-words = "1.1"
+tempfile = "3.13"
 thiserror = "2.0"
-toml = "0.8"
+toml = { version = "0.8", features = ["preserve_order"] }
+toml_edit = "0.22"
+workdeck-core = { path = "../workdeck-core" }
+workdeck-diff = { path = "../workdeck-diff" }
+workdeck-extension-api = { path = "../workdeck-extension-api" }
+workdeck-extension-host = { path = "../workdeck-extension-host" }
+workdeck-migration = { path = "../workdeck-migration" }
+workdeck-markup = { path = "../workdeck-markup" }
+workdeck-pm = { path = "../workdeck-pm" }
+workdeck-review = { path = "../workdeck-review" }
+workdeck-session = { path = "../workdeck-session" }
+workdeck-store = { path = "../workdeck-store" }
+workdeck-tui = { path = "../workdeck-tui" }
+workdeck-vcs = { path = "../workdeck-vcs" }
 
 [dev-dependencies]
+base64 = "0.22"
+ureq = { version = "3.4", default-features = false }
+ed25519-dalek = "2.2"
+ratatui = "0.29"
+sha2 = "0.10"
+unicode-width = "0.2"
 assert_cmd = "2.0"
 predicates = "3.1"
-tempfile = "3.13"
+qwertty-term-vt = "0.4.0"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+signal-hook = "0.3"
+
+[target.'cfg(windows)'.dependencies]
+ctrlc = { version = "3.4", features = ["termination"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Console", "Win32_System_Threading", "Win32_Storage_FileSystem"] }

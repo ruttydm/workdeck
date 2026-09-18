@@ -1,0 +1,19 @@
+{
+  "commit": "f4018ebee09c588e9d6d11e721253adf7f3a1ad4",
+  "worktreeCleanAtStartAndCompletion": true,
+  "command": "CARGO_INCREMENTAL=0 cargo test -p workdeck-tui --lib",
+  "exitCode": 0,
+  "passed": 1114,
+  "failed": 0,
+  "ignored": 0,
+  "measured": 0,
+  "filteredOut": 0,
+  "testSeconds": 53.32,
+  "finalOutput": "test watched_input::tests::native_git_driver_refreshes_the_pinned_detached_worktree_fixture ... ok\ntest watched_input::tests::native_git_driver_refreshes_a_tracked_file_inside_a_linked_worktree ... ok\n\ntest result: ok. 1114 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 53.32s\n",
+  "scope": "Complete workdeck-tui library test suite, including the accumulated AppHost interaction translations and native file-watch tests.",
+  "limitations": [
+    "Not a full workspace or all-targets test run.",
+    "No new Hunk source interval is mapped from this aggregate result.",
+    "Does not establish source-wide parity, native platform matrix, benchmark acceptance, upstream catch-up or release gates."
+  ]
+}

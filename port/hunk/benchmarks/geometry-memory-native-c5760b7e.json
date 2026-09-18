@@ -1,0 +1,35 @@
+{
+  "nativeCommit": "c5760b7e2e1112ba0563e0d7851bc9f93f2266b2",
+  "profile": "release",
+  "command": "target/release/xtask benchmark geometry-memory",
+  "method": "Single optimized native default-workload diagnostic after build completion. Other host activity uncontrolled. Current RSS and allocator snapshots, not peak memory or JavaScript heap metrics. No paired acceptance claim.",
+  "result": {
+    "diagnosticOnly": true,
+    "files": 180,
+    "linesPerFile": 120,
+    "width": 240,
+    "bootstrapFixtureMs": 64.202917,
+    "geometryMs": 59.369875,
+    "geometryBodyRows": 10260,
+    "geometryRowBounds": 10260,
+    "lazyBeforeMaterialization": true,
+    "materializePlannedRowsMs": 41.756750000000004,
+    "materializedPlannedRows": 10260,
+    "afterBootstrap": {
+      "rssBytes": 18219008,
+      "mallocInUseBytes": 9072832
+    },
+    "afterGeometry": {
+      "rssBytes": 46809088,
+      "mallocInUseBytes": 36523008
+    },
+    "afterMaterializedPlannedRows": {
+      "rssBytes": 58277888,
+      "mallocInUseBytes": 47936272
+    },
+    "giantFirstCopyPlanMs": 204.39220799999998,
+    "giantMaterializedPlannedRows": 44009,
+    "giantFileLines": 50000,
+    "memorySemantics": "Current process RSS and native malloc-zone usage, not peak RSS, JavaScript heap size, extra memory, or object counts. No forced garbage collection."
+  }
+}

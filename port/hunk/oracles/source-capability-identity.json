@@ -1,0 +1,208 @@
+{
+  "kind": "pinned-source-capability-identity",
+  "runtime": "Bun 1.3.14",
+  "driver": "import {projectReviewDocument} from \"./src/core/review/document.ts\";\nconst inputs=[{name:\"no-fetcher\"},{name:\"unattested\",capability:{}},{name:\"empty-key\",capability:{cacheKey:\"\"}},{name:\"snapshot-one\",capability:{cacheKey:\"snapshot-1\"}},{name:\"snapshot-two\",capability:{cacheKey:\"snapshot-2\"}},{name:\"new-runtime\",capability:{cacheKey:\"snapshot-1\"},runtimeId:\"replacement\"},{name:\"changed-patch\",capability:{cacheKey:\"snapshot-1\"},patch:\"changed\"},{name:\"renamed-path\",capability:{cacheKey:\"snapshot-1\"},path:\"other.ts\"}];\nconst results=[];for(const input of inputs){let reads=0;const file={id:input.runtimeId??\"one\",path:input.path??\"source.ts\",language:\"typescript\",metadata:{type:\"change\",hunks:[],additionLines:[],deletionLines:[],isPartial:true,splitLineCount:0,unifiedLineCount:0},patch:input.patch??\"\",stats:{additions:0,deletions:0},...(input.capability?{sourceFetcher:{...input.capability,async getFullText(){reads++;return \"source text\"}}}:{})};const projected=projectReviewDocument([file],{sourceLabel:\"source-capability\"}).files[0];results.push({input,contentIdentity:projected.contentIdentity,sourceIdentity:projected.sourceIdentity,sourceAttested:projected.sourceAttested,reads})}console.log(JSON.stringify(results));",
+  "scope": "Document projection of source capability identity; projection must not invoke the fetcher. Captured before the native capability metadata integration.",
+  "runs": [
+    {
+      "pin": "baseline",
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "combinedOutput": "[{\"input\":{\"name\":\"no-fetcher\"},\"contentIdentity\":\"3551f3bd6e3f13cbb69c02994386283b\",\"reads\":0},{\"input\":{\"name\":\"unattested\",\"capability\":{}},\"contentIdentity\":\"3551f3bd6e3f13cbb69c02994386283b\",\"sourceIdentity\":\"source:668158b6f90ae5b089c1716298b0e050\",\"sourceAttested\":false,\"reads\":0},{\"input\":{\"name\":\"empty-key\",\"capability\":{\"cacheKey\":\"\"}},\"contentIdentity\":\"3551f3bd6e3f13cbb69c02994386283b\",\"sourceIdentity\":\"source:668158b6f90ae5b089c1716298b0e050\",\"sourceAttested\":true,\"reads\":0},{\"input\":{\"name\":\"snapshot-one\",\"capability\":{\"cacheKey\":\"snapshot-1\"}},\"contentIdentity\":\"3551f3bd6e3f13cbb69c02994386283b\",\"sourceIdentity\":\"source:94bb6177b222394157067debff4f8229\",\"sourceAttested\":true,\"reads\":0},{\"input\":{\"name\":\"snapshot-two\",\"capability\":{\"cacheKey\":\"snapshot-2\"}},\"contentIdentity\":\"3551f3bd6e3f13cbb69c02994386283b\",\"sourceIdentity\":\"source:54b8be20721f95721703dc5cbf4cde32\",\"sourceAttested\":true,\"reads\":0},{\"input\":{\"name\":\"new-runtime\",\"capability\":{\"cacheKey\":\"snapshot-1\"},\"runtimeId\":\"replacement\"},\"contentIdentity\":\"3551f3bd6e3f13cbb69c02994386283b\",\"sourceIdentity\":\"source:94bb6177b222394157067debff4f8229\",\"sourceAttested\":true,\"reads\":0},{\"input\":{\"name\":\"changed-patch\",\"capability\":{\"cacheKey\":\"snapshot-1\"},\"patch\":\"changed\"},\"contentIdentity\":\"debdb0a47f2fd10eb6951730019c6ab6\",\"sourceIdentity\":\"source:a3a2f3b945afe2bbc58f4f4de393d883\",\"sourceAttested\":true,\"reads\":0},{\"input\":{\"name\":\"renamed-path\",\"capability\":{\"cacheKey\":\"snapshot-1\"},\"path\":\"other.ts\"},\"contentIdentity\":\"c4e7809926079ff32abb591db1a2655b\",\"sourceIdentity\":\"source:fc22ca2ba3bbacd984f3a51f0359b2c1\",\"sourceAttested\":true,\"reads\":0}]\n",
+      "cases": [
+        {
+          "input": {
+            "name": "no-fetcher"
+          },
+          "contentIdentity": "3551f3bd6e3f13cbb69c02994386283b",
+          "reads": 0
+        },
+        {
+          "input": {
+            "name": "unattested",
+            "capability": {}
+          },
+          "contentIdentity": "3551f3bd6e3f13cbb69c02994386283b",
+          "sourceIdentity": "source:668158b6f90ae5b089c1716298b0e050",
+          "sourceAttested": false,
+          "reads": 0
+        },
+        {
+          "input": {
+            "name": "empty-key",
+            "capability": {
+              "cacheKey": ""
+            }
+          },
+          "contentIdentity": "3551f3bd6e3f13cbb69c02994386283b",
+          "sourceIdentity": "source:668158b6f90ae5b089c1716298b0e050",
+          "sourceAttested": true,
+          "reads": 0
+        },
+        {
+          "input": {
+            "name": "snapshot-one",
+            "capability": {
+              "cacheKey": "snapshot-1"
+            }
+          },
+          "contentIdentity": "3551f3bd6e3f13cbb69c02994386283b",
+          "sourceIdentity": "source:94bb6177b222394157067debff4f8229",
+          "sourceAttested": true,
+          "reads": 0
+        },
+        {
+          "input": {
+            "name": "snapshot-two",
+            "capability": {
+              "cacheKey": "snapshot-2"
+            }
+          },
+          "contentIdentity": "3551f3bd6e3f13cbb69c02994386283b",
+          "sourceIdentity": "source:54b8be20721f95721703dc5cbf4cde32",
+          "sourceAttested": true,
+          "reads": 0
+        },
+        {
+          "input": {
+            "name": "new-runtime",
+            "capability": {
+              "cacheKey": "snapshot-1"
+            },
+            "runtimeId": "replacement"
+          },
+          "contentIdentity": "3551f3bd6e3f13cbb69c02994386283b",
+          "sourceIdentity": "source:94bb6177b222394157067debff4f8229",
+          "sourceAttested": true,
+          "reads": 0
+        },
+        {
+          "input": {
+            "name": "changed-patch",
+            "capability": {
+              "cacheKey": "snapshot-1"
+            },
+            "patch": "changed"
+          },
+          "contentIdentity": "debdb0a47f2fd10eb6951730019c6ab6",
+          "sourceIdentity": "source:a3a2f3b945afe2bbc58f4f4de393d883",
+          "sourceAttested": true,
+          "reads": 0
+        },
+        {
+          "input": {
+            "name": "renamed-path",
+            "capability": {
+              "cacheKey": "snapshot-1"
+            },
+            "path": "other.ts"
+          },
+          "contentIdentity": "c4e7809926079ff32abb591db1a2655b",
+          "sourceIdentity": "source:fc22ca2ba3bbacd984f3a51f0359b2c1",
+          "sourceAttested": true,
+          "reads": 0
+        }
+      ]
+    },
+    {
+      "pin": "stable",
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "combinedOutput": "[{\"input\":{\"name\":\"no-fetcher\"},\"contentIdentity\":\"3551f3bd6e3f13cbb69c02994386283b\",\"reads\":0},{\"input\":{\"name\":\"unattested\",\"capability\":{}},\"contentIdentity\":\"3551f3bd6e3f13cbb69c02994386283b\",\"sourceIdentity\":\"source:668158b6f90ae5b089c1716298b0e050\",\"sourceAttested\":false,\"reads\":0},{\"input\":{\"name\":\"empty-key\",\"capability\":{\"cacheKey\":\"\"}},\"contentIdentity\":\"3551f3bd6e3f13cbb69c02994386283b\",\"sourceIdentity\":\"source:668158b6f90ae5b089c1716298b0e050\",\"sourceAttested\":true,\"reads\":0},{\"input\":{\"name\":\"snapshot-one\",\"capability\":{\"cacheKey\":\"snapshot-1\"}},\"contentIdentity\":\"3551f3bd6e3f13cbb69c02994386283b\",\"sourceIdentity\":\"source:94bb6177b222394157067debff4f8229\",\"sourceAttested\":true,\"reads\":0},{\"input\":{\"name\":\"snapshot-two\",\"capability\":{\"cacheKey\":\"snapshot-2\"}},\"contentIdentity\":\"3551f3bd6e3f13cbb69c02994386283b\",\"sourceIdentity\":\"source:54b8be20721f95721703dc5cbf4cde32\",\"sourceAttested\":true,\"reads\":0},{\"input\":{\"name\":\"new-runtime\",\"capability\":{\"cacheKey\":\"snapshot-1\"},\"runtimeId\":\"replacement\"},\"contentIdentity\":\"3551f3bd6e3f13cbb69c02994386283b\",\"sourceIdentity\":\"source:94bb6177b222394157067debff4f8229\",\"sourceAttested\":true,\"reads\":0},{\"input\":{\"name\":\"changed-patch\",\"capability\":{\"cacheKey\":\"snapshot-1\"},\"patch\":\"changed\"},\"contentIdentity\":\"debdb0a47f2fd10eb6951730019c6ab6\",\"sourceIdentity\":\"source:a3a2f3b945afe2bbc58f4f4de393d883\",\"sourceAttested\":true,\"reads\":0},{\"input\":{\"name\":\"renamed-path\",\"capability\":{\"cacheKey\":\"snapshot-1\"},\"path\":\"other.ts\"},\"contentIdentity\":\"c4e7809926079ff32abb591db1a2655b\",\"sourceIdentity\":\"source:fc22ca2ba3bbacd984f3a51f0359b2c1\",\"sourceAttested\":true,\"reads\":0}]\n",
+      "cases": [
+        {
+          "input": {
+            "name": "no-fetcher"
+          },
+          "contentIdentity": "3551f3bd6e3f13cbb69c02994386283b",
+          "reads": 0
+        },
+        {
+          "input": {
+            "name": "unattested",
+            "capability": {}
+          },
+          "contentIdentity": "3551f3bd6e3f13cbb69c02994386283b",
+          "sourceIdentity": "source:668158b6f90ae5b089c1716298b0e050",
+          "sourceAttested": false,
+          "reads": 0
+        },
+        {
+          "input": {
+            "name": "empty-key",
+            "capability": {
+              "cacheKey": ""
+            }
+          },
+          "contentIdentity": "3551f3bd6e3f13cbb69c02994386283b",
+          "sourceIdentity": "source:668158b6f90ae5b089c1716298b0e050",
+          "sourceAttested": true,
+          "reads": 0
+        },
+        {
+          "input": {
+            "name": "snapshot-one",
+            "capability": {
+              "cacheKey": "snapshot-1"
+            }
+          },
+          "contentIdentity": "3551f3bd6e3f13cbb69c02994386283b",
+          "sourceIdentity": "source:94bb6177b222394157067debff4f8229",
+          "sourceAttested": true,
+          "reads": 0
+        },
+        {
+          "input": {
+            "name": "snapshot-two",
+            "capability": {
+              "cacheKey": "snapshot-2"
+            }
+          },
+          "contentIdentity": "3551f3bd6e3f13cbb69c02994386283b",
+          "sourceIdentity": "source:54b8be20721f95721703dc5cbf4cde32",
+          "sourceAttested": true,
+          "reads": 0
+        },
+        {
+          "input": {
+            "name": "new-runtime",
+            "capability": {
+              "cacheKey": "snapshot-1"
+            },
+            "runtimeId": "replacement"
+          },
+          "contentIdentity": "3551f3bd6e3f13cbb69c02994386283b",
+          "sourceIdentity": "source:94bb6177b222394157067debff4f8229",
+          "sourceAttested": true,
+          "reads": 0
+        },
+        {
+          "input": {
+            "name": "changed-patch",
+            "capability": {
+              "cacheKey": "snapshot-1"
+            },
+            "patch": "changed"
+          },
+          "contentIdentity": "debdb0a47f2fd10eb6951730019c6ab6",
+          "sourceIdentity": "source:a3a2f3b945afe2bbc58f4f4de393d883",
+          "sourceAttested": true,
+          "reads": 0
+        },
+        {
+          "input": {
+            "name": "renamed-path",
+            "capability": {
+              "cacheKey": "snapshot-1"
+            },
+            "path": "other.ts"
+          },
+          "contentIdentity": "c4e7809926079ff32abb591db1a2655b",
+          "sourceIdentity": "source:fc22ca2ba3bbacd984f3a51f0359b2c1",
+          "sourceAttested": true,
+          "reads": 0
+        }
+      ]
+    }
+  ]
+}

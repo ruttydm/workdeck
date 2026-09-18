@@ -1,0 +1,182 @@
+{
+  "schema_version": 1,
+  "captured_with": "bun 1.3.5 executing the untouched pinned src/extensions/host.test.ts",
+  "baselines": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "source_blob": "b2197b5bf873eb298bbcf35ed472812302592b20",
+      "test_blob": "456bcf230c90c1b9ed87b25c40d619ceaf09859f",
+      "tests": 22,
+      "passed": 22,
+      "failed": 0,
+      "expect_calls": 80
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "source_blob": "b2197b5bf873eb298bbcf35ed472812302592b20",
+      "test_blob": "9eb55bce9507d140d667732e0ed40fa33fbe8392",
+      "tests": 22,
+      "passed": 22,
+      "failed": 0,
+      "expect_calls": 80
+    }
+  ],
+  "native_adaptation": {
+    "entrypoint": "a validated workdeck-extension.toml and compiled executable replace dynamic TypeScript imports",
+    "provisional_load": "prepare_extension_load claims and publishes every compatible namespace before execute_extension_load starts a child",
+    "factory": "the versioned atomic handshake replaces an in-process JavaScript factory and exposes no partial registrations",
+    "dependency_resolution": "Rust dependencies and sibling modules are compiled into or linked with the executable; the child starts in its manifest directory for relative assets",
+    "jsx": "declarative Ratatui ViewNode trees replace TSX and host runtime module injection",
+    "identity": "native manifest IDs retain Workdeck's existing dotted namespaces and Hunk's ASCII letter-or-digit start rule; colons and leading separators remain invalid",
+    "vcs_operations": "VCS registration metadata has no implicit operation map; typed JSON rejects legacy or malformed operation fields",
+    "trust": "repository candidates are withheld by deterministic discovery before staged loading",
+    "events": "startup events are queued only after every accepted native process completes its handshake"
+  },
+  "test_mapping": [
+    {
+      "source_test": "publishes provisional ownership before the first module import settles",
+      "rust_tests": ["extension_loading::tests::publishes_all_provisional_claims_before_starting_a_process"]
+    },
+    {
+      "source_test": "keeps retirement terminal when an asynchronous factory resumes late",
+      "rust_tests": [
+        "extension_loading::tests::retirement_is_terminal_before_a_prepared_load_resumes",
+        "native_loader_awaits_handshake_and_rejects_a_late_success_after_retirement"
+      ]
+    },
+    {
+      "source_test": "collects registrations from a TypeScript extension on disk",
+      "rust_tests": [
+        "registration_and_manifest_capabilities_cover_the_complete_public_surface",
+        "subprocess_protocol_preserves_state_across_every_callback_boundary",
+        "tests::native_vcs_registration_has_no_implicit_operations_and_rejects_legacy_shapes"
+      ]
+    },
+    {
+      "source_test": "replays a factory event after every extension has subscribed",
+      "rust_tests": ["review_app_queues_startup_events_and_commands_without_blocking_input"]
+    },
+    {
+      "source_test": "loads a folder extension whose index imports a sibling module",
+      "rust_tests": [
+        "extension_discovery::tests::native_manifest_is_the_only_entrypoint_authority",
+        "subprocess_protocol_preserves_state_across_every_callback_boundary"
+      ]
+    },
+    {
+      "source_test": "loads a manifest folder extension against its own node_modules",
+      "rust_tests": [
+        "extension_discovery::tests::javascript_sources_and_package_manifests_are_never_discovered",
+        "subprocess_protocol_preserves_state_across_every_callback_boundary"
+      ]
+    },
+    {
+      "source_test": "loads a discovered standalone .tsx entry with JSX in it",
+      "rust_tests": [
+        "native_layout_matches_the_frozen_hunk_tsx_projection",
+        "compiled_protocol_matches_layouts_and_toggles_the_view",
+        "compiled_process_boundary_ignores_ambient_source_runtimes"
+      ]
+    },
+    {
+      "source_test": "awaits an async factory before sealing the API",
+      "rust_tests": [
+        "native_loader_awaits_handshake_and_rejects_a_late_success_after_retirement",
+        "extension_loading::tests::publishes_all_provisional_claims_before_starting_a_process"
+      ]
+    },
+    {
+      "source_test": "isolates a throwing extension without blocking the others",
+      "rust_tests": ["native_loader_isolates_a_failed_process_and_keeps_loading_in_candidate_order"]
+    },
+    {
+      "source_test": "refuses reserved extension ids without touching the rest of the pass",
+      "rust_tests": [
+        "tests::manifest_reserves_product_and_bundled_vcs_namespaces",
+        "extension_loading::tests::malformed_reserved_and_unparseable_ids_are_isolated_before_execution"
+      ]
+    },
+    {
+      "source_test": "refuses ids that would not parse as a namespace",
+      "rust_tests": [
+        "tests::manifest_ids_start_with_a_namespace_character_and_keep_native_dotted_ids",
+        "extension_loading::tests::malformed_reserved_and_unparseable_ids_are_isolated_before_execution"
+      ]
+    },
+    {
+      "source_test": "refuses a manifest folder whose declared id breaks the same rules",
+      "rust_tests": [
+        "tests::manifest_ids_start_with_a_namespace_character_and_keep_native_dotted_ids",
+        "extension_loading::tests::malformed_reserved_and_unparseable_ids_are_isolated_before_execution"
+      ]
+    },
+    {
+      "source_test": "keeps the first extension claiming an id when two sources collide",
+      "rust_tests": [
+        "extension_loading::tests::candidate_ids_are_settled_first_wins_before_any_process_starts",
+        "extension_loading::tests::failed_process_claim_survives_an_incremental_suffix"
+      ]
+    },
+    {
+      "source_test": "rejects registration attempted after the load pass finished",
+      "rust_tests": [
+        "tests::handshake_rejects_duplicate_and_undeclared_registrations",
+        "extension_loading::tests::retirement_is_terminal_before_a_prepared_load_resumes"
+      ]
+    },
+    {
+      "source_test": "defaults a VCS adapter registered without operations to an empty map",
+      "rust_tests": ["tests::native_vcs_registration_has_no_implicit_operations_and_rejects_legacy_shapes"]
+    },
+    {
+      "source_test": "rejects a VCS adapter whose operations are not an object",
+      "rust_tests": ["tests::native_vcs_registration_has_no_implicit_operations_and_rejects_legacy_shapes"]
+    },
+    {
+      "source_test": "delivers each extension its own config table",
+      "rust_tests": [
+        "extension_loading::tests::load_state_owns_configuration_and_reuses_the_requested_notification_hub",
+        "tests::handshake_exposes_configuration_only_when_manifest_requested_it"
+      ]
+    },
+    {
+      "source_test": "routes ctx.notify through the host sink",
+      "rust_tests": [
+        "tests::parses_native_notification_messages_and_defaults_to_info",
+        "subprocess_protocol_preserves_state_across_every_callback_boundary"
+      ]
+    },
+    {
+      "source_test": "gives every load pass a notification hub when none is supplied",
+      "rust_tests": [
+        "extension_loading::tests::load_state_owns_configuration_and_reuses_the_requested_notification_hub",
+        "tests::notification_hub_buffers_until_a_listener_and_flushes_in_order"
+      ]
+    },
+    {
+      "source_test": "refuses a candidate requiring a newer extension API without importing it",
+      "rust_tests": [
+        "extension_loading::tests::incompatible_candidate_does_not_claim_the_later_compatible_namespace",
+        "extension_discovery::tests::manifest_api_version_is_strict_and_the_candidate_keeps_its_source_path"
+      ]
+    },
+    {
+      "source_test": "loads a candidate whose requirement matches the current extension API",
+      "rust_tests": [
+        "extension_loading::tests::publishes_all_provisional_claims_before_starting_a_process",
+        "native_loader_isolates_a_failed_process_and_keeps_loading_in_candidate_order"
+      ]
+    },
+    {
+      "source_test": "lets a later compatible source claim an id refused for its api requirement",
+      "rust_tests": ["extension_loading::tests::incompatible_candidate_does_not_claim_the_later_compatible_namespace"]
+    }
+  ],
+  "rust_commands": [
+    "cargo test -p workdeck-extension-api --lib",
+    "cargo test -p workdeck-extension-host --lib",
+    "cargo test -p workdeck-cli --bin workdeck",
+    "cargo test -p workdeck-examples --test review_triage",
+    "cargo test -p workdeck-examples --test jsx_file_view"
+  ]
+}

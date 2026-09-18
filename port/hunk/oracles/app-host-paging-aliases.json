@@ -1,0 +1,50 @@
+{
+  "sourcePath": "src/ui/AppHost.interactions.test.tsx",
+  "runtime": "Bun 1.3.14 (0d9b296a), disposable oracle only",
+  "command": "GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null bun test <pinned-checkout>/src/ui/AppHost.interactions.test.tsx -t 'new shortcuts d, u, f|G jumps to the bottom'",
+  "runs": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/main/src/ui/AppHost.interactions.test.tsx:\n(pass) App interactions > new shortcuts d, u, f, and Shift+Space are accepted without errors [221.04ms]\n(pass) App interactions > G jumps to the bottom and g jumps back to the top [107.86ms]\n\n 2 pass\n 74 filtered out\n 0 fail\n 7 expect() calls\nRan 2 tests across 1 file. [915.00ms]\n"
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/stable/src/ui/AppHost.interactions.test.tsx:\n(pass) App interactions > new shortcuts d, u, f, and Shift+Space are accepted without errors [216.62ms]\n(pass) App interactions > G jumps to the bottom and g jumps back to the top [72.62ms]\n\n 2 pass\n 72 filtered out\n 0 fail\n 7 expect() calls\nRan 2 tests across 1 file. [709.00ms]\n"
+    }
+  ],
+  "intervals": [
+    {
+      "byteStart": 72872,
+      "byteEnd": 74945,
+      "lineStart": 2449,
+      "lineEnd": 2522,
+      "sha256": "855a17bbedba3633defcb803097efc35c1413f82f59f76a35694fe849038955e"
+    },
+    {
+      "byteStart": 74945,
+      "byteEnd": 76716,
+      "lineStart": 2523,
+      "lineEnd": 2585,
+      "sha256": "c56c6721849e8b33ca5d0a768b45f49dd61c375fb90a185f5671c1d6ac5282c8"
+    }
+  ],
+  "native": {
+    "destination": "crates/workdeck-tui/src/lib.rs",
+    "test": "tests::paging_aliases_and_shifted_g_preserve_source_key_sequences",
+    "command": "CARGO_INCREMENTAL=0 cargo test -p workdeck-tui --lib paging_aliases_and_shifted_g_preserve_source_key_sequences",
+    "exitCode": 0,
+    "passed": 1,
+    "failed": 0,
+    "ignored": 0,
+    "filteredOut": 1114,
+    "seconds": 0.84,
+    "assertions": "220x12 split layout. half.ts contains 50 lines, g.ts contains 120, replacement values offset by 1000. d/u/f/Shift+Space keep code visible; modified lowercase g with SHIFT reveals line120 = 1120 and plain g restores line01 = 1001."
+  },
+  "limitations": [
+    "The alias source test asserts code visibility, not exact half/full viewport distances.",
+    "Native tests use typed Crossterm events; terminal escape-sequence decoding and full cell-buffer parity remain separately validated requirements.",
+    "Only these two bodies are mapped; shared setup helpers and the containing source test file remain incomplete."
+  ]
+}

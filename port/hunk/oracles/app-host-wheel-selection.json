@@ -1,0 +1,32 @@
+{
+  "sourcePath": "src/ui/AppHost.interactions.test.tsx",
+  "sourceTest": "mouse wheel scrolling updates the active file and hunk to the viewport center",
+  "baselineInterval": {
+    "byteStart": 102092,
+    "byteEnd": 103482,
+    "lineStart": 3472,
+    "lineEnd": 3521,
+    "sha256": "bc9024212306ea37810fc51c3e6112dcf97e2047c356302b83c090eed036ed44"
+  },
+  "runs": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/main/src/ui/AppHost.interactions.test.tsx:\nThe current testing environment is not configured to support act(...)\n(pass) App interactions > mouse wheel scrolling updates the active file and hunk to the viewport center [281.63ms]\n\n 1 pass\n 75 filtered out\n 0 fail\n 2 expect() calls\nRan 1 test across 1 file. [865.00ms]\n"
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/stable/src/ui/AppHost.interactions.test.tsx:\n(pass) App interactions > mouse wheel scrolling updates the active file and hunk to the viewport center [248.45ms]\n\n 1 pass\n 73 filtered out\n 0 fail\n 2 expect() calls\nRan 1 test across 1 file. [655.00ms]\n"
+    }
+  ],
+  "native": {
+    "test": "app_host::tests::wheel_scroll_publishes_viewport_center_file_and_hunk",
+    "passed": 0,
+    "failed": 1,
+    "filtered": 1132,
+    "seconds": 0.84,
+    "status": "Initial failure: after 16 wheel events selection remained first.ts hunk0. After wiring viewport-center selection, focused regression passes: 1 passed, 0 failed, 1132 filtered, 0.82 seconds. Full TUI suite: 1133 passed, 0 failures/ignored/filtered, 74.42 seconds. The numeric failed-run fields above preserve the original failure, not the corrected result."
+  },
+  "finding": "Original wheel handler changed scroll only. It now selects the viewport-center file and nearest hunk using rendered geometry, without a reveal request. The test invokes actual snapshot publication after each 220x12 frame. TUI Clippy and formatting pass. See port/hunk/wheel-selection.md for scope and remaining performance verification."
+}

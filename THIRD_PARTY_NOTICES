@@ -1,0 +1,257 @@
+Workdeck third-party notices
+============================
+
+JetBrains Mono website/social-card font
+--------------------------------------
+The six unmodified normal variable WOFF2 subsets in site/static/fonts/ are from
+@fontsource-variable/jetbrains-mono 5.3.0, matching Hunk's pinned website lockfile.
+Copyright 2020 The JetBrains Mono Project Authors.
+Source: https://github.com/JetBrains/JetBrainsMono
+License: SIL Open Font License 1.1 (not MIT).
+The complete supplied copyright notice and license accompany the font at
+site/static/fonts/jetbrains-mono-LICENSE.txt and must remain with redistributed
+copies of the font. No font modifications were made. The accompanying Fontsource
+index stylesheet is retained as jetbrains-mono.css with only asset URLs relocated;
+its six Unicode ranges and font-face declarations are otherwise unchanged.
+
+This distribution is licensed as a whole under the MIT License in LICENSE. Components and
+translated portions listed below retain their own notices. The dependency and source SBOM shipped
+with release archives is the authoritative machine-readable inventory for a particular build.
+
+Hunk
+----
+
+Portions of Workdeck reproduce or translate behavior and documentation from Hunk.
+Source: https://github.com/modem-dev/hunk
+Pinned source: 2c00f4358b89cfc0a6b04459ffc538ba601aa3c2
+Stable fixes: 4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd
+License: MIT
+
+MIT License
+
+Copyright (c) Modem Labs Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+associated documentation files (the "Software"), to deal in the Software without restriction,
+including without limitation the rights to use, copy, modify, merge, publish, distribute,
+sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or
+substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT
+NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT
+OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+Hunk review theme screenshots
+-----------------------------
+
+The website theme preview retains six byte-identical review screenshots from
+the pinned Hunk tree (`website/public/shot-*.webp`). They are served from
+`site/static/shots/` under the Hunk MIT license and are independently listed in
+`site/data/third-party-assets.json`; `cargo xtask verify` checks each source
+blob, SHA-256 digest, and destination before a site or release build.
+
+Changesets release-fragment tooling
+----------------------------------
+
+Native release-fragment status behavior is adapted from Changesets CLI 2.31.0.
+Source: https://github.com/changesets/changesets/tree/@changesets%2Fcli@2.31.0
+No Changesets JavaScript runtime or npm publication workflow is shipped.
+License: MIT
+
+MIT License
+
+Copyright (c) 2019 Ben Conolly
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+associated documentation files (the "Software"), to deal in the Software without restriction,
+including without limitation the rights to use, copy, modify, merge, publish, distribute,
+sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or
+substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING
+BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+webpki-roots trust-anchor data
+------------------------------
+
+Workdeck's native GitHub pull-request extension uses ureq with Rustls. The `webpki-roots` crate
+embeds Mozilla root-certificate data under the Community Data License Agreement Permissive 2.0.
+Source: https://github.com/rustls/webpki-roots
+License: CDLA-Permissive-2.0
+
+Community Data License Agreement - Permissive - Version 2.0
+
+This is the Community Data License Agreement - Permissive, Version 2.0 (the "agreement"). Data
+Provider(s) and Data Recipient(s) agree as follows:
+
+1. Provision of the Data
+
+1.1. A Data Recipient may use, modify, and share the Data made available by Data Provider(s) under
+this agreement if that Data Recipient follows the terms of this agreement.
+
+1.2. This agreement does not impose any restriction on a Data Recipient's use, modification, or
+sharing of any portions of the Data that are in the public domain or that may be used, modified, or
+shared under any other legal exception or limitation.
+
+2. Conditions for Sharing Data
+
+2.1. A Data Recipient may share Data, with or without modifications, so long as the Data Recipient
+makes available the text of this agreement with the shared Data.
+
+3. No Restrictions on Results
+
+3.1. This agreement does not impose any restriction or obligations with respect to the use,
+modification, or sharing of Results.
+
+4. No Warranty; Limitation of Liability
+
+4.1. All Data Recipients receive the Data subject to the following terms:
+
+THE DATA IS PROVIDED ON AN "AS IS" BASIS, WITHOUT REPRESENTATIONS, WARRANTIES OR CONDITIONS OF ANY
+KIND, EITHER EXPRESS OR IMPLIED INCLUDING, WITHOUT LIMITATION, ANY WARRANTIES OR CONDITIONS OF
+TITLE, NON-INFRINGEMENT, MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.
+
+NO DATA PROVIDER SHALL HAVE ANY LIABILITY FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+OR CONSEQUENTIAL DAMAGES (INCLUDING WITHOUT LIMITATION LOST PROFITS), HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+OTHERWISE) ARISING IN ANY WAY OUT OF THE DATA OR RESULTS, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
+DAMAGES.
+
+5. Definitions
+
+5.1. "Data" means the material received by a Data Recipient under this agreement.
+
+5.2. "Data Provider" means any person who is the source of Data provided under this agreement and
+in reliance on a Data Recipient's agreement to its terms.
+
+5.3. "Data Recipient" means any person who receives Data directly or indirectly from a Data
+Provider and agrees to the terms of this agreement.
+
+5.4. "Results" means any outcome obtained by computational analysis of Data, including for example
+machine learning models and models' insights.
+
+Pierre Diffs
+------------
+
+Workdeck's renderer-neutral patch alignment, row geometry, and word-emphasis compatibility work
+is informed by @pierre/diffs, the diff library used by the pinned Hunk implementation.
+Source: https://github.com/pierrecomputer/pierre
+Hunk-pinned package: @pierre/diffs 1.3.5
+Copyright 2025 Pierre Computer Company
+License: Apache License 2.0, https://www.apache.org/licenses/LICENSE-2.0
+
+OpenTUI
+-------
+
+Workdeck's native mouse-wheel acceleration curve translates the `MacOSScrollAccel` algorithm
+from the Hunk-pinned @opentui/core 0.5.6 package. Workdeck does not ship or execute OpenTUI.
+Source: https://github.com/anomalyco/opentui
+Copyright (c) 2025 opentui
+License: MIT
+
+Markdown parsing and oracle
+---------------------------
+
+Workdeck's native rendered-Markdown extension uses pulldown-cmark 0.13.4. Differential fixtures
+for Hunk compatibility were captured from the pinned extension with Marked 17.0.1; Marked is not
+shipped or executed by Workdeck.
+
+pulldown-cmark source: https://github.com/pulldown-cmark/pulldown-cmark
+License: MIT
+
+Marked source: https://github.com/markedjs/marked
+License: MIT
+
+jsdiff
+------
+
+Workdeck's word-emphasis compatibility follows the `diffWordsWithSpace` behavior used by Pierre
+through the Hunk-pinned `diff` 8.0.3 package.
+Source: https://github.com/kpdecker/jsdiff
+License: BSD 3-Clause
+
+Copyright (c) 2009-2015, Kevin Decker <kpdecker@gmail.com>
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification, are permitted
+provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this list of conditions
+   and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright notice, this list of
+   conditions and the following disclaimer in the documentation and/or other materials provided
+   with the distribution.
+3. Neither the name of the copyright holder nor the names of its contributors may be used to
+   endorse or promote products derived from this software without specific prior written
+   permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
+IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER
+IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
+OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+TextMate grammars and themes
+----------------------------
+
+Workdeck uses TextMate-compatible grammars compiled into syntect and embeds the exact 65 Shiki
+theme payloads selected by Hunk plus Pierre's two default themes. Individual grammar and theme
+authors retain their respective copyright and license notices.
+
+Shiki theme source package: tm-themes 1.12.0
+Hunk-pinned semantic oracle: @shikijs/themes 3.23.0
+License: MIT plus each source theme's permissive license
+Complete notices: third_party/themes/tm-themes-LICENSE and
+third_party/themes/tm-themes-NOTICE
+
+Shiki grammar source package: @shikijs/langs 3.23.0
+License: MIT
+The currently imported Elixir compatibility syntax is a native Sublime-syntax translation of the
+Hunk-pinned TextMate grammar. Complete license: third_party/grammars/shikijs-langs-LICENSE
+
+Pierre default theme source package: @pierre/theme 2.0.0
+License: Apache-2.0 with Primer MIT attribution
+Complete notices: third_party/themes/pierre-theme-LICENSE and
+third_party/themes/pierre-theme-NOTICE.md
+
+The release archives retain these complete notice files. The asset manifest records the fixed
+source-archive and generated-file SHA-256 digests. Release SBOM and dependency-license outputs
+enumerate the exact Rust packages used to load and execute the themes and grammars.
+
+Ghostty-derived terminal model
+------------------------------
+
+Workdeck's Rust terminal-media capture tooling uses qwertty-term-vt, a terminal emulation core
+ported from Ghostty. It supplies the VT parser, terminal state machine, page-based scrollback, owned
+styled snapshots, dynamic palette state, Unicode graphemes, wide cells, and cursor state consumed by
+Workdeck's native PNG renderer.
+
+qwertty-term-vt source: https://github.com/joshka/qwertty-term
+License: MIT OR Apache-2.0
+
+Ghostty source: https://github.com/ghostty-org/ghostty
+License: MIT
+
+Rust dependencies
+-----------------
+
+The Rust repository tooling uses ryu-js 1.0.3 for ECMAScript-compatible number
+formatting. Source: https://github.com/boa-dev/ryu-js
+License: Apache-2.0 OR BSL-1.0, as distributed with the dependency.
+
+Rust dependencies retain the licenses declared by their packages. Run `cargo xtask licenses` to
+generate the build-specific dependency-license inventory included in release archives.

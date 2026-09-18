@@ -1,0 +1,97 @@
+{
+  "generator": "Pinned Hunk renderSeriesPage video fragments under Bun 1.3.14",
+  "results": [
+    {
+      "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "cases": [
+        {
+          "video": {
+            "mp4": "https://media.example/video.mp4"
+          },
+          "summary": "Video summary.",
+          "minor": "1.2",
+          "expected": "<video class=\"changelog-video\" controls preload=\"none\">\n    <source src=\"https://media.example/video.mp4\" type=\"video/mp4\" />\n  </video>\n\n<script type=\"application/ld+json\" is:inline>{\"@context\":\"https://schema.org\",\"@type\":\"VideoObject\",\"name\":\"What's new in Hunk 1.2\",\"description\":\"Video summary.\",\"contentUrl\":\"https://media.example/video.mp4\"}</script>"
+        },
+        {
+          "video": {
+            "mp4": "https://media.example/a?x=\"&y=<",
+            "webm": "/video.webm",
+            "poster": "/poster\"&<.png",
+            "duration": "PT1M24S",
+            "title": "A title"
+          },
+          "summary": "Video summary.",
+          "minor": "1.2",
+          "expected": "<video class=\"changelog-video\" controls preload=\"none\" poster=\"/poster&quot;&amp;&lt;.png\">\n    <source src=\"/video.webm\" type=\"video/webm\" />\n    <source src=\"https://media.example/a?x=&quot;&amp;y=&lt;\" type=\"video/mp4\" />\n  </video>\n\n<script type=\"application/ld+json\" is:inline>{\"@context\":\"https://schema.org\",\"@type\":\"VideoObject\",\"name\":\"A title\",\"description\":\"Video summary.\",\"contentUrl\":\"https://media.example/a?x=\\\"&y=\\u003c\",\"thumbnailUrl\":\"https://hunk.dev/poster\\\"&\\u003c.png\",\"duration\":\"PT1M24S\"}</script>"
+        },
+        {
+          "video": {
+            "mp4": "/v.mp4",
+            "title": "</script><script>alert(1)</script> line"
+          },
+          "summary": "Video summary.",
+          "minor": "1.2",
+          "expected": "<video class=\"changelog-video\" controls preload=\"none\">\n    <source src=\"/v.mp4\" type=\"video/mp4\" />\n  </video>\n\n<script type=\"application/ld+json\" is:inline>{\"@context\":\"https://schema.org\",\"@type\":\"VideoObject\",\"name\":\"\\u003c/script>\\u003cscript>alert(1)\\u003c/script>\\u2028line\",\"description\":\"Video summary.\",\"contentUrl\":\"/v.mp4\"}</script>"
+        },
+        {
+          "video": {
+            "mp4": "/v.mp4",
+            "title": "",
+            "webm": "",
+            "poster": "",
+            "duration": ""
+          },
+          "summary": "Video summary.",
+          "minor": "1.2",
+          "expected": "<video class=\"changelog-video\" controls preload=\"none\">\n    <source src=\"/v.mp4\" type=\"video/mp4\" />\n  </video>\n\n<script type=\"application/ld+json\" is:inline>{\"@context\":\"https://schema.org\",\"@type\":\"VideoObject\",\"name\":\"\",\"description\":\"Video summary.\",\"contentUrl\":\"/v.mp4\"}</script>"
+        }
+      ]
+    },
+    {
+      "baseline": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "cases": [
+        {
+          "video": {
+            "mp4": "https://media.example/video.mp4"
+          },
+          "summary": "Video summary.",
+          "minor": "1.2",
+          "expected": "<video class=\"changelog-video\" controls preload=\"none\">\n    <source src=\"https://media.example/video.mp4\" type=\"video/mp4\" />\n  </video>\n\n<script type=\"application/ld+json\" is:inline>{\"@context\":\"https://schema.org\",\"@type\":\"VideoObject\",\"name\":\"What's new in Hunk 1.2\",\"description\":\"Video summary.\",\"contentUrl\":\"https://media.example/video.mp4\"}</script>"
+        },
+        {
+          "video": {
+            "mp4": "https://media.example/a?x=\"&y=<",
+            "webm": "/video.webm",
+            "poster": "/poster\"&<.png",
+            "duration": "PT1M24S",
+            "title": "A title"
+          },
+          "summary": "Video summary.",
+          "minor": "1.2",
+          "expected": "<video class=\"changelog-video\" controls preload=\"none\" poster=\"/poster&quot;&amp;&lt;.png\">\n    <source src=\"/video.webm\" type=\"video/webm\" />\n    <source src=\"https://media.example/a?x=&quot;&amp;y=&lt;\" type=\"video/mp4\" />\n  </video>\n\n<script type=\"application/ld+json\" is:inline>{\"@context\":\"https://schema.org\",\"@type\":\"VideoObject\",\"name\":\"A title\",\"description\":\"Video summary.\",\"contentUrl\":\"https://media.example/a?x=\\\"&y=\\u003c\",\"thumbnailUrl\":\"https://hunk.dev/poster\\\"&\\u003c.png\",\"duration\":\"PT1M24S\"}</script>"
+        },
+        {
+          "video": {
+            "mp4": "/v.mp4",
+            "title": "</script><script>alert(1)</script> line"
+          },
+          "summary": "Video summary.",
+          "minor": "1.2",
+          "expected": "<video class=\"changelog-video\" controls preload=\"none\">\n    <source src=\"/v.mp4\" type=\"video/mp4\" />\n  </video>\n\n<script type=\"application/ld+json\" is:inline>{\"@context\":\"https://schema.org\",\"@type\":\"VideoObject\",\"name\":\"\\u003c/script>\\u003cscript>alert(1)\\u003c/script>\\u2028line\",\"description\":\"Video summary.\",\"contentUrl\":\"/v.mp4\"}</script>"
+        },
+        {
+          "video": {
+            "mp4": "/v.mp4",
+            "title": "",
+            "webm": "",
+            "poster": "",
+            "duration": ""
+          },
+          "summary": "Video summary.",
+          "minor": "1.2",
+          "expected": "<video class=\"changelog-video\" controls preload=\"none\">\n    <source src=\"/v.mp4\" type=\"video/mp4\" />\n  </video>\n\n<script type=\"application/ld+json\" is:inline>{\"@context\":\"https://schema.org\",\"@type\":\"VideoObject\",\"name\":\"\",\"description\":\"Video summary.\",\"contentUrl\":\"/v.mp4\"}</script>"
+        }
+      ]
+    }
+  ]
+}

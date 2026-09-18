@@ -1,0 +1,90 @@
+{
+  "generator": "Pinned Hunk renderFeed under Bun 1.3.14",
+  "results": [
+    {
+      "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "cases": [
+        {
+          "input": "## 1.2.0\n",
+          "dates": {},
+          "summary": "Use < & > and \"quotes\".",
+          "expected": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\" xmlns:atom=\"http://www.w3.org/2005/Atom\">\n  <channel>\n    <title>Hunk releases</title>\n    <link>https://hunk.dev/changelog/</link>\n    <description>Release notes for Hunk, the review-first terminal diff viewer.</description>\n    <language>en</language>\n    <atom:link href=\"https://hunk.dev/changelog/rss.xml\" rel=\"self\" type=\"application/rss+xml\" />\n  </channel>\n</rss>\n"
+        },
+        {
+          "input": "## 1.2.0\n",
+          "dates": {
+            "1.2.0": "2026-08-01"
+          },
+          "summary": "Use < & > and \"quotes\".",
+          "expected": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\" xmlns:atom=\"http://www.w3.org/2005/Atom\">\n  <channel>\n    <title>Hunk releases</title>\n    <link>https://hunk.dev/changelog/</link>\n    <description>Release notes for Hunk, the review-first terminal diff viewer.</description>\n    <language>en</language>\n    <atom:link href=\"https://hunk.dev/changelog/rss.xml\" rel=\"self\" type=\"application/rss+xml\" />\n    <item>\n      <title>Hunk 1.2</title>\n      <link>https://hunk.dev/changelog/1.2/</link>\n      <guid isPermaLink=\"true\">https://hunk.dev/changelog/1.2/</guid>\n      <pubDate>Sat, 01 Aug 2026 00:00:00 GMT</pubDate>\n      <description>Use &lt; &amp; &gt; and &quot;quotes&quot;.</description>\n    </item>\n  </channel>\n</rss>\n"
+        },
+        {
+          "input": "## 1.2.0\n## 1.2.0-beta.1\n",
+          "dates": {},
+          "summary": "Use < & > and \"quotes\".",
+          "expected": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\" xmlns:atom=\"http://www.w3.org/2005/Atom\">\n  <channel>\n    <title>Hunk releases</title>\n    <link>https://hunk.dev/changelog/</link>\n    <description>Release notes for Hunk, the review-first terminal diff viewer.</description>\n    <language>en</language>\n    <atom:link href=\"https://hunk.dev/changelog/rss.xml\" rel=\"self\" type=\"application/rss+xml\" />\n  </channel>\n</rss>\n"
+        },
+        {
+          "input": "## 1.2.0\n## 1.2.0-beta.1\n",
+          "dates": {
+            "1.2.0": "2026-08-01",
+            "1.2.0-beta.1": "2026-08-01"
+          },
+          "summary": "Use < & > and \"quotes\".",
+          "expected": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\" xmlns:atom=\"http://www.w3.org/2005/Atom\">\n  <channel>\n    <title>Hunk releases</title>\n    <link>https://hunk.dev/changelog/</link>\n    <description>Release notes for Hunk, the review-first terminal diff viewer.</description>\n    <language>en</language>\n    <atom:link href=\"https://hunk.dev/changelog/rss.xml\" rel=\"self\" type=\"application/rss+xml\" />\n    <item>\n      <title>Hunk 1.2</title>\n      <link>https://hunk.dev/changelog/1.2/#v1-2-0</link>\n      <guid isPermaLink=\"true\">https://hunk.dev/changelog/1.2/#v1-2-0</guid>\n      <pubDate>Sat, 01 Aug 2026 00:00:00 GMT</pubDate>\n      <description>Use &lt; &amp; &gt; and &quot;quotes&quot;.</description>\n    </item>\n    <item>\n      <title>Hunk 1.2.0-beta.1 (Prerelease)</title>\n      <link>https://hunk.dev/changelog/1.2/#v1-2-0-beta-1</link>\n      <guid isPermaLink=\"true\">https://hunk.dev/changelog/1.2/#v1-2-0-beta-1</guid>\n      <pubDate>Sat, 01 Aug 2026 00:00:00 GMT</pubDate>\n      <description>Use &lt; &amp; &gt; and &quot;quotes&quot;.</description>\n    </item>\n  </channel>\n</rss>\n"
+        },
+        {
+          "input": "## 1.2.1\n## 1.2.0\n## 1.2.0-beta.1\n",
+          "dates": {},
+          "summary": "Use < & > and \"quotes\".",
+          "expected": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\" xmlns:atom=\"http://www.w3.org/2005/Atom\">\n  <channel>\n    <title>Hunk releases</title>\n    <link>https://hunk.dev/changelog/</link>\n    <description>Release notes for Hunk, the review-first terminal diff viewer.</description>\n    <language>en</language>\n    <atom:link href=\"https://hunk.dev/changelog/rss.xml\" rel=\"self\" type=\"application/rss+xml\" />\n  </channel>\n</rss>\n"
+        },
+        {
+          "input": "## 1.2.1\n## 1.2.0\n## 1.2.0-beta.1\n",
+          "dates": {
+            "1.2.1": "2026-08-01",
+            "1.2.0": "2026-08-01",
+            "1.2.0-beta.1": "2026-08-01"
+          },
+          "summary": "Use < & > and \"quotes\".",
+          "expected": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\" xmlns:atom=\"http://www.w3.org/2005/Atom\">\n  <channel>\n    <title>Hunk releases</title>\n    <link>https://hunk.dev/changelog/</link>\n    <description>Release notes for Hunk, the review-first terminal diff viewer.</description>\n    <language>en</language>\n    <atom:link href=\"https://hunk.dev/changelog/rss.xml\" rel=\"self\" type=\"application/rss+xml\" />\n    <item>\n      <title>Hunk 1.2</title>\n      <link>https://hunk.dev/changelog/1.2/</link>\n      <guid isPermaLink=\"true\">https://hunk.dev/changelog/1.2/</guid>\n      <pubDate>Sat, 01 Aug 2026 00:00:00 GMT</pubDate>\n      <description>Use &lt; &amp; &gt; and &quot;quotes&quot;.</description>\n    </item>\n    <item>\n      <title>Hunk 1.2.0-beta.1 (Prerelease)</title>\n      <link>https://hunk.dev/changelog/1.2/#v1-2-0-beta-1</link>\n      <guid isPermaLink=\"true\">https://hunk.dev/changelog/1.2/#v1-2-0-beta-1</guid>\n      <pubDate>Sat, 01 Aug 2026 00:00:00 GMT</pubDate>\n      <description>Use &lt; &amp; &gt; and &quot;quotes&quot;.</description>\n    </item>\n  </channel>\n</rss>\n"
+        },
+        {
+          "input": "## 1.2.1\n## 1.2.1-beta.1\n## 1.2.0\n",
+          "dates": {},
+          "summary": "Use < & > and \"quotes\".",
+          "expected": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\" xmlns:atom=\"http://www.w3.org/2005/Atom\">\n  <channel>\n    <title>Hunk releases</title>\n    <link>https://hunk.dev/changelog/</link>\n    <description>Release notes for Hunk, the review-first terminal diff viewer.</description>\n    <language>en</language>\n    <atom:link href=\"https://hunk.dev/changelog/rss.xml\" rel=\"self\" type=\"application/rss+xml\" />\n  </channel>\n</rss>\n"
+        },
+        {
+          "input": "## 1.2.1\n## 1.2.1-beta.1\n## 1.2.0\n",
+          "dates": {
+            "1.2.1": "2026-08-01",
+            "1.2.1-beta.1": "2026-08-01",
+            "1.2.0": "2026-08-01"
+          },
+          "summary": "Use < & > and \"quotes\".",
+          "expected": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\" xmlns:atom=\"http://www.w3.org/2005/Atom\">\n  <channel>\n    <title>Hunk releases</title>\n    <link>https://hunk.dev/changelog/</link>\n    <description>Release notes for Hunk, the review-first terminal diff viewer.</description>\n    <language>en</language>\n    <atom:link href=\"https://hunk.dev/changelog/rss.xml\" rel=\"self\" type=\"application/rss+xml\" />\n    <item>\n      <title>Hunk 1.2</title>\n      <link>https://hunk.dev/changelog/1.2/#v1-2-1</link>\n      <guid isPermaLink=\"true\">https://hunk.dev/changelog/1.2/#v1-2-1</guid>\n      <pubDate>Sat, 01 Aug 2026 00:00:00 GMT</pubDate>\n      <description>Use &lt; &amp; &gt; and &quot;quotes&quot;.</description>\n    </item>\n    <item>\n      <title>Hunk 1.2.1-beta.1 (Prerelease)</title>\n      <link>https://hunk.dev/changelog/1.2/#v1-2-1-beta-1</link>\n      <guid isPermaLink=\"true\">https://hunk.dev/changelog/1.2/#v1-2-1-beta-1</guid>\n      <pubDate>Sat, 01 Aug 2026 00:00:00 GMT</pubDate>\n      <description>Use &lt; &amp; &gt; and &quot;quotes&quot;.</description>\n    </item>\n  </channel>\n</rss>\n"
+        }
+      ]
+    },
+    {
+      "baseline": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "cases": [
+        {
+          "input": "## 1.2.0\n",
+          "dates": {},
+          "summary": "Use < & > and \"quotes\".",
+          "expected": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\" xmlns:atom=\"http://www.w3.org/2005/Atom\">\n  <channel>\n    <title>Hunk releases</title>\n    <link>https://hunk.dev/changelog/</link>\n    <description>Release notes for Hunk, the review-first terminal diff viewer.</description>\n    <language>en</language>\n    <atom:link href=\"https://hunk.dev/changelog/rss.xml\" rel=\"self\" type=\"application/rss+xml\" />\n  </channel>\n</rss>\n"
+        },
+        {
+          "input": "## 1.2.0\n",
+          "dates": {
+            "1.2.0": "2026-08-01"
+          },
+          "summary": "Use < & > and \"quotes\".",
+          "expected": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\" xmlns:atom=\"http://www.w3.org/2005/Atom\">\n  <channel>\n    <title>Hunk releases</title>\n    <link>https://hunk.dev/changelog/</link>\n    <description>Release notes for Hunk, the review-first terminal diff viewer.</description>\n    <language>en</language>\n    <atom:link href=\"https://hunk.dev/changelog/rss.xml\" rel=\"self\" type=\"application/rss+xml\" />\n    <item>\n      <title>Hunk 1.2</title>\n      <link>https://hunk.dev/changelog/1.2/</link>\n      <guid isPermaLink=\"true\">https://hunk.dev/changelog/1.2/</guid>\n      <pubDate>Sat, 01 Aug 2026 00:00:00 GMT</pubDate>\n      <description>Use &lt; &amp; &gt; and &quot;quotes&quot;.</description>\n    </item>\n  </channel>\n</rss>\n"
+        }
+      ]
+    }
+  ]
+}

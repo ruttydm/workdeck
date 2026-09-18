@@ -1,0 +1,36 @@
+{
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "stablePresence": "identical",
+  "sources": [
+    {
+      "path": "src/ui/lib/extensionSelection.ts",
+      "blob": "307e1981e3dd066a7bb6f52b0a84ecbc8e15ad77"
+    }
+  ],
+  "tests": [
+    {
+      "path": "src/ui/lib/extensionSelection.test.ts",
+      "blob": "2629f4e8129abaaa3fcec51e5ec39963a83cf168",
+      "cases": 8
+    }
+  ],
+  "executedOracle": {
+    "runtime": "bun 1.3.5",
+    "passed": 8,
+    "failed": 0,
+    "expectations": 18
+  },
+  "invariants": [
+    "the selected file resolves only from extension-visible frozen file views",
+    "an absent or filtered-out file produces a completely empty selection",
+    "stale hunk indexes floor and clamp to the actual hunk range",
+    "nonfinite hunk indexes and files without hunks produce no hunk selection",
+    "current line is copied only when its file and hunk match the resolved selection",
+    "returned selection file and current line cannot mutate their source views"
+  ],
+  "nativeProtocolAdaptation": {
+    "immutability": "owned Rust values replace JavaScript Object.freeze and shared object identity",
+    "transport": "the frozen selection is serialized with each native command invocation"
+  }
+}

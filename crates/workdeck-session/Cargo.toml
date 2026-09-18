@@ -1,0 +1,37 @@
+[package]
+name = "workdeck-session"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Authenticated local review-session protocol for Workdeck"
+readme = "README.md"
+publish = false
+
+[dependencies]
+base64 = "0.22"
+chrono = "0.4"
+ed25519-dalek = { version = "2.2", features = ["pkcs8"] }
+getrandom = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+thiserror = "2.0"
+tungstenite = "0.30"
+url = "2.5"
+workdeck-core = { path = "../workdeck-core" }
+workdeck-diff = { path = "../workdeck-diff" }
+workdeck-review = { path = "../workdeck-review" }
+workdeck-vcs = { path = "../workdeck-vcs" }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_Threading",
+] }
+
+[dev-dependencies]
+tempfile = "3.13"

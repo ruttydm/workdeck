@@ -1,0 +1,62 @@
+name: Benchmarks
+
+on:
+  push:
+    branches: ["main"]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "assets/**"
+      - "LICENSE"
+  workflow_dispatch:
+
+concurrency:
+  group: benchmarks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    name: Native benchmark suite
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+      - name: Run native benchmark suite
+        run: |
+          mkdir -p benchmark-results
+          cargo xtask benchmark bootstrap-load | tee benchmark-results/bootstrap-load.txt
+          cargo xtask benchmark highlight-prefetch | tee benchmark-results/highlight-prefetch.txt
+          cargo xtask benchmark large-stream | tee benchmark-results/large-stream.txt
+          cargo xtask benchmark wrapped-cjk | tee benchmark-results/wrapped-cjk.txt
+      - name: Publish benchmark summary
+        if: always()
+        run: |
+          {
+            echo '## Native benchmark results'
+            echo
+            for file in benchmark-results/*.txt; do
+              [ -f "$file" ] || continue
+              echo "### $(basename "$file")"
+              echo '```text'
+              cat "$file"
+              echo '```'
+              echo
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload benchmark artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: benchmark-results/*.txt
+          if-no-files-found: warn

@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "capture": {
+    "runtime": "Bun 1.3.5",
+    "method": "executed both pinned trees from disposable git archives",
+    "paths": ["src/ui/lib/helpContent.ts", "src/ui/lib/helpContent.test.ts"],
+    "testResult": "6 pass, 0 fail, 17 expectations on each pinned tree"
+  },
+  "baseline": {
+    "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+    "sections": ["Navigation", "Mouse", "View", "Review"],
+    "defaultKeys": {
+      "previous / next hunk": "[ / ]",
+      "half page down / up": "d / u",
+      "move line-by-line": "Up / Down",
+      "split / stack / auto": "1 / 2 / 0",
+      "lines / wrap / metadata / menu": "l / w / m / M",
+      "page down": "PageDown / Space / f",
+      "page up": "PageUp / b / Shift+Space",
+      "jump to start": "g / Home",
+      "scroll vertically": "Wheel",
+      "open menus": "F10",
+      "reload the review": "r"
+    },
+    "remapped": {
+      "previous / next hunk": "[ / Ctrl+N",
+      "quit": "Ctrl+X"
+    },
+    "unbound": {
+      "previous / next hunk": "]",
+      "create review note": null
+    }
+  },
+  "stable": {
+    "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+    "testResult": "6 pass, 0 fail, 17 expectations",
+    "difference": "the predecessor does not declare the later edit/reply row"
+  },
+  "normalization": "Only the reserved hunk command namespace is branded workdeck; descriptions, sections, keys, enabled behavior, and row order are unchanged."
+}

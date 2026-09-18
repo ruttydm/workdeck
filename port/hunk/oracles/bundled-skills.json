@@ -1,0 +1,189 @@
+{
+  "schema_version": 1,
+  "captured_from": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "sources": [
+    {
+      "source_path": "skills/hunk-extensions/SKILL.md",
+      "source_blob": "9bb72282d8f847ee1dfcb3397da253554924c0bd",
+      "source_sha256": "eff6980de4bcba24a05c5068b66df1e9639522a2f72662cceca20eb0f9ed9c4a",
+      "source_bytes": 20690,
+      "source_lines": 326,
+      "destination_path": "skills/workdeck-extensions/SKILL.md",
+      "destination_sha256": "ce7167410468ff2eb5cb9fd42d21325f4c3326bccc9b875219fea94c78464c4d",
+      "sections": [
+        {
+          "source_lines": [1, 24],
+          "source_bytes": [0, 1125],
+          "source_semantics": "skill trigger, authoring model, minimal extension, and routing purpose",
+          "destination_headings": ["# Building Workdeck extensions"],
+          "adaptation": "a compiled executable and explicit TOML manifest replace the in-process source-file factory"
+        },
+        {
+          "source_lines": [25, 50],
+          "source_bytes": [1125, 2817],
+          "source_semantics": "authoritative API, guide, examples, architecture, keybinding, and theme references",
+          "destination_headings": ["## Sources of truth — read before writing"],
+          "adaptation": "the versioned Rust API crate, native-boundary documents, and compiled examples are the source of truth"
+        },
+        {
+          "source_lines": [51, 93],
+          "source_bytes": [2817, 5387],
+          "source_semantics": "discovery origins, trust, installation, manifests, IDs, namespaces, and API compatibility",
+          "destination_headings": ["## Where extensions live"],
+          "adaptation": "manifest directories and prebuilt executable installs replace inferred script entries and dependency installation; canonical .workdeck discovery and read-only legacy discovery retain explicit repository trust and configured-path precedence"
+        },
+        {
+          "source_lines": [94, 117],
+          "source_bytes": [5387, 7449],
+          "source_semantics": "complete extension capability and registration routing table",
+          "destination_headings": ["## Pick the touchpoint"],
+          "adaptation": "typed handshake registrations and declarative host actions replace in-process API calls"
+        },
+        {
+          "source_lines": [118, 144],
+          "source_bytes": [7449, 8809],
+          "source_semantics": "generic CLI grammar, raw args, streams, cancellation, exit, and one-time delegation",
+          "destination_headings": ["### Generic CLI handlers"],
+          "adaptation": "bounded JSON-RPC output and lazy stdin notifications preserve the byte-stream contract across a subprocess"
+        },
+        {
+          "source_lines": [145, 188],
+          "source_bytes": [8809, 11674],
+          "source_semantics": "handler-specific immutable context, review state, UI controls, keyboard priority, and changeset ownership",
+          "destination_headings": ["## What handlers receive"],
+          "adaptation": "owned Serde request snapshots and response actions replace callback-bearing objects and object freezing"
+        },
+        {
+          "source_lines": [189, 264],
+          "source_bytes": [11674, 16903],
+          "source_semantics": "activation, layout validation, state, snapshots, reload authority, transforms, chords, modes, configuration, writes, notes, containment, output, and errors",
+          "destination_headings": ["## Rules that bite"],
+          "adaptation": "Ratatui-owned declarative rendering and subprocess authority epochs preserve behavior without a component runtime"
+        },
+        {
+          "source_lines": [265, 291],
+          "source_bytes": [16903, 18593],
+          "source_semantics": "static checks, unit tests, PTY integration, interactive testing, and extension isolation",
+          "destination_headings": ["## Verifying"],
+          "adaptation": "Cargo, compiled protocol tests, native example staging, and Ratatui cell goldens replace script typechecking and source-runtime tests"
+        },
+        {
+          "source_lines": [292, 308],
+          "source_bytes": [18593, 19590],
+          "source_semantics": "discovery, identity, trust, pane, file-view, and command failure diagnosis",
+          "destination_headings": ["## If it does not load"],
+          "adaptation": "manifest, process, protocol, deadline, capability, and quarantine diagnostics replace source import failures"
+        },
+        {
+          "source_lines": [309, 326],
+          "source_bytes": [19590, 20690],
+          "source_semantics": "bundled extension dogfooding, public type ownership, documentation, examples, tests, and architecture changes",
+          "destination_headings": ["## Changing Workdeck itself"],
+          "adaptation": "the API, host, and TUI crates retain explicit ownership and require end-to-end native evidence for every new surface"
+        }
+      ],
+      "evidence": [
+        "crates/workdeck-extension-api/src/lib.rs",
+        "crates/workdeck-extension-api/src/authoring.rs",
+        "crates/workdeck-extension-host/src/lib.rs",
+        "crates/workdeck-extension-host/src/extension_discovery.rs",
+        "crates/workdeck-cli/tests/pm_config_cutover.rs",
+        "docs/project-management-compatibility.md",
+        "docs/native-extension-runtime-boundary.md",
+        "docs/native-extension-events-and-pane-actions.md",
+        "docs/native-interactive-file-views.md",
+        "docs/native-extension-vcs-adapters.md",
+        "examples/extensions/cli-tools/workdeck-extension.toml",
+        "examples/extensions/github-pr/extension.rs",
+        "examples/extensions/review-triage/extension.rs",
+        "examples/extensions/inline-edit/extension.rs",
+        "examples/extensions/native-vcs/extension.rs"
+      ]
+    },
+    {
+      "source_path": "skills/hunk-release/SKILL.md",
+      "source_blob": "ae2c299726bd1f88a52a573872b77e74bd09c474",
+      "source_sha256": "a89cf85c06415a6a04be815ea1e25fbf5b2f44192732e89e781e3d5f355adcc0",
+      "source_bytes": 12537,
+      "source_lines": 262,
+      "destination_path": "skills/workdeck-release/SKILL.md",
+      "destination_sha256": "0e145204262da049a140958183c013473a558d3ee7e5f3fd9244cd59a6585b92",
+      "sections": [
+        {
+          "source_lines": [1, 17],
+          "source_bytes": [0, 806],
+          "source_semantics": "skill trigger, release deliverables, safety, immutable versions, benchmarks, and partial-publication recovery",
+          "destination_headings": ["# Workdeck release workflow", "## Safety"],
+          "adaptation": "five single-executable native archives, checksums, notices, SBOMs, signatures, and provenance replace runtime-specific package publication"
+        },
+        {
+          "source_lines": [18, 27],
+          "source_bytes": [806, 1264],
+          "source_semantics": "version, tag, branch, previous tag, stable/prerelease/backport channel, and branch-diff scope",
+          "destination_headings": ["## 1. Confirm the release"],
+          "adaptation": "GitHub and native installer/update pointers replace package-registry distribution tags"
+        },
+        {
+          "source_lines": [28, 103],
+          "source_bytes": [1264, 4936],
+          "source_semantics": "clean preparation, generated version/changelog/site metadata, benchmark comparison, packaging checks, virtualized/native install evidence, and reviewed source identity",
+          "destination_headings": ["## 2. Prepare"],
+          "adaptation": "Cargo, xtask, Zola, native target jobs, and strict semantic-port audit replace runtime package scripts and generated package metadata"
+        },
+        {
+          "source_lines": [104, 149],
+          "source_bytes": [4936, 6260],
+          "source_semantics": "remote-tip equality, clean tag creation, explicit confirmation, workflow lookup by tag commit, and propagated failure",
+          "destination_headings": ["## 3. Tag and publish"],
+          "adaptation": "the native release workflow builds five archives and publishes one GitHub release from the exact reviewed tag"
+        },
+        {
+          "source_lines": [150, 179],
+          "source_bytes": [6260, 7941],
+          "source_semantics": "public artifact/channel verification and post-tag release-page regeneration",
+          "destination_headings": ["## 4. Verify publication"],
+          "adaptation": "downloaded archives, checksums, signatures, attestations, SBOMs, smoke tests, and Zola outputs replace registry package inspection"
+        },
+        {
+          "source_lines": [180, 247],
+          "source_bytes": [7941, 11737],
+          "source_semantics": "detached-tag video workflow, editorial release notes, install instructions, compatibility, contributors, complete pull-request inventory, approval, public edit, and playback verification",
+          "destination_headings": ["## 5. Add the release video and final notes", "## <release name or product theme>", "### <user-facing theme>", "### Compatibility notes", "### Community contributors"],
+          "adaptation": "the Rust PTY/WebDriver/FFmpeg media skill and only actually published Workdeck install channels replace the source product's media and install commands"
+        },
+        {
+          "source_lines": [248, 257],
+          "source_bytes": [11737, 12228],
+          "source_semantics": "stable-only downstream distribution propagation and fresh-registry verification",
+          "destination_headings": ["## 6. Distribution channels"],
+          "adaptation": "Cargo source, Homebrew, Nix, curl, PowerShell, and direct GitHub installs are verified independently and prereleases do not advance stable defaults"
+        },
+        {
+          "source_lines": [258, 262],
+          "source_bytes": [12228, 12537],
+          "source_semantics": "pre-tag repair, immutable partial-publication recovery, and media-note failure isolation",
+          "destination_headings": ["## Failure invariants"],
+          "adaptation": "the version and tag remain immutable after any public native artifact; recovery reconciles all five archives and every downstream channel"
+        }
+      ],
+      "evidence": [
+        ".github/workflows/release.yml",
+        "xtask/src/main.rs",
+        "skills/workdeck-launch-video/SKILL.md",
+        "docs/terminal-media.md",
+        "crates/workdeck-cli/src/update.rs",
+        "Formula/workdeck.rb",
+        "flake.nix",
+        "nix/package.nix",
+        "site/config.toml",
+        "LICENSE",
+        "THIRD_PARTY_NOTICES",
+        "deny.toml"
+      ]
+    }
+  ],
+  "executable_evidence": [
+    "cargo xtask skill check",
+    "cargo test -p xtask skill::tests::bundled_static_skills_match_the_complete_source_mapping"
+  ]
+}

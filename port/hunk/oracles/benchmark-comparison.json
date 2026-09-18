@@ -1,0 +1,789 @@
+{
+  "baselines": [
+    "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+    "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"
+  ],
+  "runtime": "Bun 1.3.14, disposable pinned checkouts",
+  "source_test_runs": {"baseline":{"passed":9,"failed":0,"expect_calls":18},"stable":{"passed":9,"failed":0,"expect_calls":18}},
+  "remaining_source_test_cases": [],
+  "translated_tests": [
+    {"source":"selects the latest lower stable release benchmark","native":"benchmark::tests::selects_latest_lower_stable_release_and_skips_prereleases_and_unrelated_names"},
+    {"source":"requires both relative and absolute timing thresholds","native":"benchmark::tests::material_regression_requires_both_thresholds_and_positive_growth"},
+    {"source":"keeps an explicit output path when --version appears later","native":"benchmark::tests::explicit_release_output_survives_a_later_version_option"},
+    {"source":"fails material comparable regressions","native":"benchmark::tests::frozen_dual_pin_comparisons_preserve_all_statuses_and_duplicate_resolution","case":"fail"},
+    {"source":"passes explicitly accepted material regressions","native":"benchmark::tests::frozen_dual_pin_comparisons_preserve_all_statuses_and_duplicate_resolution","case":"accepted"},
+    {"source":"passes comparable changes inside the material threshold","native":"benchmark::tests::frozen_dual_pin_comparisons_preserve_all_statuses_and_duplicate_resolution","case":"pass"},
+    {"source":"treats new comparable metrics as informational until a baseline exists","native":"benchmark::tests::frozen_dual_pin_comparisons_preserve_all_statuses_and_duplicate_resolution","case":"missing-base"},
+    {"source":"fails when a previously comparable metric disappears","native":"benchmark::tests::frozen_dual_pin_comparisons_preserve_all_statuses_and_duplicate_resolution","case":"missing-head"},
+    {"source":"shows absolute threshold units","native":"benchmark::tests::frozen_dual_pin_markdown_and_decimal_rounding_match_exactly"}
+  ],
+  "release_run_arguments_native_test": "explicit_release_output_survives_a_later_version_option",
+  "port_status": "All nine source test cases have native coverage; runtime source files remain unmapped pending full model, exported-helper parity, and runner integration.",
+  "previous_release_native_test": "selects_latest_lower_stable_release_and_skips_prereleases_and_unrelated_names",
+  "markdown_evidence": "port/hunk/oracles/benchmark-markdown.json",
+  "normalization": "generatedAt frozen; no measured performance claims",
+  "cases": [
+    {
+      "name": "fail",
+      "base": {
+        "version": 1,
+        "generatedAt": "frozen",
+        "gitSha": "abc1234",
+        "samplesPerBenchmark": 1,
+        "results": [
+          {
+            "name": "fixture/render_ms",
+            "source": "fixture",
+            "samples": [
+              100
+            ],
+            "median": 100,
+            "p75": 100,
+            "p95": 100,
+            "min": 100,
+            "max": 100,
+            "unit": "ms",
+            "comparable": true,
+            "threshold": {
+              "maxRegressionRatio": 1.15,
+              "minAbsoluteRegression": 5
+            }
+          }
+        ]
+      },
+      "head": {
+        "version": 1,
+        "generatedAt": "frozen",
+        "gitSha": "abc1234",
+        "samplesPerBenchmark": 1,
+        "results": [
+          {
+            "name": "fixture/render_ms",
+            "source": "fixture",
+            "samples": [
+              120
+            ],
+            "median": 120,
+            "p75": 120,
+            "p95": 120,
+            "min": 120,
+            "max": 120,
+            "unit": "ms",
+            "comparable": true,
+            "threshold": {
+              "maxRegressionRatio": 1.15,
+              "minAbsoluteRegression": 5
+            }
+          }
+        ]
+      },
+      "expected": {
+        "version": 1,
+        "generatedAt": "frozen",
+        "baseSha": "abc1234",
+        "headSha": "abc1234",
+        "failed": true,
+        "rows": [
+          {
+            "name": "fixture/render_ms",
+            "unit": "ms",
+            "baseMedian": 100,
+            "headMedian": 120,
+            "absoluteDelta": 20,
+            "relativeDelta": 0.19999999999999996,
+            "threshold": {
+              "maxRegressionRatio": 1.15,
+              "minAbsoluteRegression": 5
+            },
+            "status": "fail",
+            "source": "fixture"
+          }
+        ]
+      }
+    },
+    {
+      "name": "pass",
+      "base": {
+        "version": 1,
+        "generatedAt": "frozen",
+        "gitSha": "abc1234",
+        "samplesPerBenchmark": 1,
+        "results": [
+          {
+            "name": "fixture/render_ms",
+            "source": "fixture",
+            "samples": [
+              100
+            ],
+            "median": 100,
+            "p75": 100,
+            "p95": 100,
+            "min": 100,
+            "max": 100,
+            "unit": "ms",
+            "comparable": true,
+            "threshold": {
+              "maxRegressionRatio": 1.15,
+              "minAbsoluteRegression": 5
+            }
+          }
+        ]
+      },
+      "head": {
+        "version": 1,
+        "generatedAt": "frozen",
+        "gitSha": "abc1234",
+        "samplesPerBenchmark": 1,
+        "results": [
+          {
+            "name": "fixture/render_ms",
+            "source": "fixture",
+            "samples": [
+              110
+            ],
+            "median": 110,
+            "p75": 110,
+            "p95": 110,
+            "min": 110,
+            "max": 110,
+            "unit": "ms",
+            "comparable": true,
+            "threshold": {
+              "maxRegressionRatio": 1.15,
+              "minAbsoluteRegression": 5
+            }
+          }
+        ]
+      },
+      "expected": {
+        "version": 1,
+        "generatedAt": "frozen",
+        "baseSha": "abc1234",
+        "headSha": "abc1234",
+        "failed": false,
+        "rows": [
+          {
+            "name": "fixture/render_ms",
+            "unit": "ms",
+            "baseMedian": 100,
+            "headMedian": 110,
+            "absoluteDelta": 10,
+            "relativeDelta": 0.10000000000000009,
+            "threshold": {
+              "maxRegressionRatio": 1.15,
+              "minAbsoluteRegression": 5
+            },
+            "status": "pass",
+            "source": "fixture"
+          }
+        ]
+      }
+    },
+    {
+      "name": "accepted",
+      "base": {
+        "version": 1,
+        "generatedAt": "frozen",
+        "gitSha": "abc1234",
+        "samplesPerBenchmark": 1,
+        "results": [
+          {
+            "name": "fixture/render_ms",
+            "source": "fixture",
+            "samples": [
+              100
+            ],
+            "median": 100,
+            "p75": 100,
+            "p95": 100,
+            "min": 100,
+            "max": 100,
+            "unit": "ms",
+            "comparable": true,
+            "threshold": {
+              "maxRegressionRatio": 1.15,
+              "minAbsoluteRegression": 5
+            }
+          }
+        ]
+      },
+      "head": {
+        "version": 1,
+        "generatedAt": "frozen",
+        "gitSha": "abc1234",
+        "samplesPerBenchmark": 1,
+        "results": [
+          {
+            "name": "fixture/render_ms",
+            "source": "fixture",
+            "samples": [
+              120
+            ],
+            "median": 120,
+            "p75": 120,
+            "p95": 120,
+            "min": 120,
+            "max": 120,
+            "unit": "ms",
+            "comparable": true,
+            "threshold": {
+              "maxRegressionRatio": 1.15,
+              "minAbsoluteRegression": 5
+            }
+          }
+        ],
+        "acceptedRegressions": [
+          {
+            "name": "fixture/render_ms",
+            "reason": "historical source fixture"
+          }
+        ]
+      },
+      "expected": {
+        "version": 1,
+        "generatedAt": "frozen",
+        "baseSha": "abc1234",
+        "headSha": "abc1234",
+        "failed": false,
+        "rows": [
+          {
+            "name": "fixture/render_ms",
+            "unit": "ms",
+            "baseMedian": 100,
+            "headMedian": 120,
+            "absoluteDelta": 20,
+            "relativeDelta": 0.19999999999999996,
+            "threshold": {
+              "maxRegressionRatio": 1.15,
+              "minAbsoluteRegression": 5
+            },
+            "status": "accepted",
+            "source": "fixture"
+          }
+        ]
+      }
+    },
+    {
+      "name": "missing-base",
+      "base": {
+        "version": 1,
+        "generatedAt": "frozen",
+        "gitSha": "abc1234",
+        "samplesPerBenchmark": 1,
+        "results": []
+      },
+      "head": {
+        "version": 1,
+        "generatedAt": "frozen",
+        "gitSha": "abc1234",
+        "samplesPerBenchmark": 1,
+        "results": [
+          {
+            "name": "fixture/render_ms",
+            "source": "fixture",
+            "samples": [
+              100
+            ],
+            "median": 100,
+            "p75": 100,
+            "p95": 100,
+            "min": 100,
+            "max": 100,
+            "unit": "ms",
+            "comparable": true,
+            "threshold": {
+              "maxRegressionRatio": 1.15,
+              "minAbsoluteRegression": 5
+            }
+          }
+        ]
+      },
+      "expected": {
+        "version": 1,
+        "generatedAt": "frozen",
+        "baseSha": "abc1234",
+        "headSha": "abc1234",
+        "failed": false,
+        "rows": [
+          {
+            "name": "fixture/render_ms",
+            "unit": "ms",
+            "baseMedian": 0,
+            "headMedian": 100,
+            "absoluteDelta": 100,
+            "relativeDelta": null,
+            "threshold": {
+              "maxRegressionRatio": 1.15,
+              "minAbsoluteRegression": 5
+            },
+            "status": "missing-base",
+            "source": "fixture"
+          }
+        ]
+      }
+    },
+    {
+      "name": "missing-head",
+      "base": {
+        "version": 1,
+        "generatedAt": "frozen",
+        "gitSha": "abc1234",
+        "samplesPerBenchmark": 1,
+        "results": [
+          {
+            "name": "fixture/render_ms",
+            "source": "fixture",
+            "samples": [
+              100
+            ],
+            "median": 100,
+            "p75": 100,
+            "p95": 100,
+            "min": 100,
+            "max": 100,
+            "unit": "ms",
+            "comparable": true,
+            "threshold": {
+              "maxRegressionRatio": 1.15,
+              "minAbsoluteRegression": 5
+            }
+          }
+        ]
+      },
+      "head": {
+        "version": 1,
+        "generatedAt": "frozen",
+        "gitSha": "abc1234",
+        "samplesPerBenchmark": 1,
+        "results": []
+      },
+      "expected": {
+        "version": 1,
+        "generatedAt": "frozen",
+        "baseSha": "abc1234",
+        "headSha": "abc1234",
+        "failed": true,
+        "rows": [
+          {
+            "name": "fixture/render_ms",
+            "unit": "ms",
+            "baseMedian": 100,
+            "headMedian": 0,
+            "absoluteDelta": -100,
+            "relativeDelta": -1,
+            "threshold": {
+              "maxRegressionRatio": 1.15,
+              "minAbsoluteRegression": 5
+            },
+            "status": "missing-head",
+            "source": "fixture"
+          }
+        ]
+      }
+    },
+    {
+      "name": "zero",
+      "base": {
+        "version": 1,
+        "generatedAt": "frozen",
+        "gitSha": "abc1234",
+        "samplesPerBenchmark": 1,
+        "results": [
+          {
+            "name": "fixture/render_ms",
+            "source": "fixture",
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "p75": 0,
+            "p95": 0,
+            "min": 0,
+            "max": 0,
+            "unit": "ms",
+            "comparable": true,
+            "threshold": {
+              "maxRegressionRatio": 1.15,
+              "minAbsoluteRegression": 5
+            }
+          }
+        ]
+      },
+      "head": {
+        "version": 1,
+        "generatedAt": "frozen",
+        "gitSha": "abc1234",
+        "samplesPerBenchmark": 1,
+        "results": [
+          {
+            "name": "fixture/render_ms",
+            "source": "fixture",
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "p75": 0,
+            "p95": 0,
+            "min": 0,
+            "max": 0,
+            "unit": "ms",
+            "comparable": true,
+            "threshold": {
+              "maxRegressionRatio": 1.15,
+              "minAbsoluteRegression": 5
+            }
+          }
+        ]
+      },
+      "expected": {
+        "version": 1,
+        "generatedAt": "frozen",
+        "baseSha": "abc1234",
+        "headSha": "abc1234",
+        "failed": false,
+        "rows": [
+          {
+            "name": "fixture/render_ms",
+            "unit": "ms",
+            "baseMedian": 0,
+            "headMedian": 0,
+            "absoluteDelta": 0,
+            "relativeDelta": 0,
+            "threshold": {
+              "maxRegressionRatio": 1.15,
+              "minAbsoluteRegression": 5
+            },
+            "status": "pass",
+            "source": "fixture"
+          }
+        ]
+      }
+    },
+    {
+      "name": "from-zero",
+      "base": {
+        "version": 1,
+        "generatedAt": "frozen",
+        "gitSha": "abc1234",
+        "samplesPerBenchmark": 1,
+        "results": [
+          {
+            "name": "fixture/render_ms",
+            "source": "fixture",
+            "samples": [
+              0
+            ],
+            "median": 0,
+            "p75": 0,
+            "p95": 0,
+            "min": 0,
+            "max": 0,
+            "unit": "ms",
+            "comparable": true,
+            "threshold": {
+              "maxRegressionRatio": 1.15,
+              "minAbsoluteRegression": 5
+            }
+          }
+        ]
+      },
+      "head": {
+        "version": 1,
+        "generatedAt": "frozen",
+        "gitSha": "abc1234",
+        "samplesPerBenchmark": 1,
+        "results": [
+          {
+            "name": "fixture/render_ms",
+            "source": "fixture",
+            "samples": [
+              10
+            ],
+            "median": 10,
+            "p75": 10,
+            "p95": 10,
+            "min": 10,
+            "max": 10,
+            "unit": "ms",
+            "comparable": true,
+            "threshold": {
+              "maxRegressionRatio": 1.15,
+              "minAbsoluteRegression": 5
+            }
+          }
+        ]
+      },
+      "expected": {
+        "version": 1,
+        "generatedAt": "frozen",
+        "baseSha": "abc1234",
+        "headSha": "abc1234",
+        "failed": true,
+        "rows": [
+          {
+            "name": "fixture/render_ms",
+            "unit": "ms",
+            "baseMedian": 0,
+            "headMedian": 10,
+            "absoluteDelta": 10,
+            "relativeDelta": null,
+            "threshold": {
+              "maxRegressionRatio": 1.15,
+              "minAbsoluteRegression": 5
+            },
+            "status": "fail",
+            "source": "fixture"
+          }
+        ]
+      }
+    },
+    {
+      "name": "informational",
+      "base": {
+        "version": 1,
+        "generatedAt": "frozen",
+        "gitSha": "abc1234",
+        "samplesPerBenchmark": 1,
+        "results": [
+          {
+            "name": "fixture/render_ms",
+            "source": "fixture",
+            "samples": [
+              100
+            ],
+            "median": 100,
+            "p75": 100,
+            "p95": 100,
+            "min": 100,
+            "max": 100,
+            "unit": "ms",
+            "comparable": true,
+            "threshold": {
+              "maxRegressionRatio": 1.15,
+              "minAbsoluteRegression": 5
+            }
+          }
+        ]
+      },
+      "head": {
+        "version": 1,
+        "generatedAt": "frozen",
+        "gitSha": "abc1234",
+        "samplesPerBenchmark": 1,
+        "results": [
+          {
+            "name": "fixture/render_ms",
+            "source": "fixture",
+            "samples": [
+              120
+            ],
+            "median": 120,
+            "p75": 120,
+            "p95": 120,
+            "min": 120,
+            "max": 120,
+            "unit": "ms",
+            "comparable": false,
+            "threshold": {
+              "maxRegressionRatio": 1.15,
+              "minAbsoluteRegression": 5
+            }
+          }
+        ]
+      },
+      "expected": {
+        "version": 1,
+        "generatedAt": "frozen",
+        "baseSha": "abc1234",
+        "headSha": "abc1234",
+        "failed": false,
+        "rows": [
+          {
+            "name": "fixture/render_ms",
+            "unit": "ms",
+            "baseMedian": 100,
+            "headMedian": 120,
+            "absoluteDelta": 20,
+            "relativeDelta": 0.19999999999999996,
+            "threshold": {
+              "maxRegressionRatio": 1.15,
+              "minAbsoluteRegression": 5
+            },
+            "status": "informational",
+            "source": "fixture"
+          }
+        ]
+      }
+    },
+    {
+      "name": "base-threshold",
+      "base": {
+        "version": 1,
+        "generatedAt": "frozen",
+        "gitSha": "abc1234",
+        "samplesPerBenchmark": 1,
+        "results": [
+          {
+            "name": "fixture/render_ms",
+            "source": "fixture",
+            "samples": [
+              100
+            ],
+            "median": 100,
+            "p75": 100,
+            "p95": 100,
+            "min": 100,
+            "max": 100,
+            "unit": "ms",
+            "comparable": true,
+            "threshold": {
+              "maxRegressionRatio": 1.15,
+              "minAbsoluteRegression": 5
+            }
+          }
+        ]
+      },
+      "head": {
+        "version": 1,
+        "generatedAt": "frozen",
+        "gitSha": "abc1234",
+        "samplesPerBenchmark": 1,
+        "results": [
+          {
+            "name": "fixture/render_ms",
+            "source": "fixture",
+            "samples": [
+              120
+            ],
+            "median": 120,
+            "p75": 120,
+            "p95": 120,
+            "min": 120,
+            "max": 120,
+            "unit": "ms",
+            "comparable": true
+          }
+        ]
+      },
+      "expected": {
+        "version": 1,
+        "generatedAt": "frozen",
+        "baseSha": "abc1234",
+        "headSha": "abc1234",
+        "failed": true,
+        "rows": [
+          {
+            "name": "fixture/render_ms",
+            "unit": "ms",
+            "baseMedian": 100,
+            "headMedian": 120,
+            "absoluteDelta": 20,
+            "relativeDelta": 0.19999999999999996,
+            "threshold": {
+              "maxRegressionRatio": 1.15,
+              "minAbsoluteRegression": 5
+            },
+            "status": "fail",
+            "source": "fixture"
+          }
+        ]
+      }
+    },
+    {
+      "name": "duplicates",
+      "base": {
+        "version": 1,
+        "generatedAt": "frozen",
+        "gitSha": "abc1234",
+        "samplesPerBenchmark": 1,
+        "results": [
+          {
+            "name": "fixture/render_ms",
+            "source": "fixture",
+            "samples": [
+              50
+            ],
+            "median": 50,
+            "p75": 50,
+            "p95": 50,
+            "min": 50,
+            "max": 50,
+            "unit": "ms",
+            "comparable": true,
+            "threshold": {
+              "maxRegressionRatio": 1.15,
+              "minAbsoluteRegression": 5
+            }
+          },
+          {
+            "name": "fixture/render_ms",
+            "source": "fixture",
+            "samples": [
+              100
+            ],
+            "median": 100,
+            "p75": 100,
+            "p95": 100,
+            "min": 100,
+            "max": 100,
+            "unit": "ms",
+            "comparable": true,
+            "threshold": {
+              "maxRegressionRatio": 1.15,
+              "minAbsoluteRegression": 5
+            }
+          }
+        ]
+      },
+      "head": {
+        "version": 1,
+        "generatedAt": "frozen",
+        "gitSha": "abc1234",
+        "samplesPerBenchmark": 1,
+        "results": [
+          {
+            "name": "fixture/render_ms",
+            "source": "fixture",
+            "samples": [
+              120
+            ],
+            "median": 120,
+            "p75": 120,
+            "p95": 120,
+            "min": 120,
+            "max": 120,
+            "unit": "ms",
+            "comparable": true,
+            "threshold": {
+              "maxRegressionRatio": 1.15,
+              "minAbsoluteRegression": 5
+            }
+          }
+        ]
+      },
+      "expected": {
+        "version": 1,
+        "generatedAt": "frozen",
+        "baseSha": "abc1234",
+        "headSha": "abc1234",
+        "failed": true,
+        "rows": [
+          {
+            "name": "fixture/render_ms",
+            "unit": "ms",
+            "baseMedian": 100,
+            "headMedian": 120,
+            "absoluteDelta": 20,
+            "relativeDelta": 0.19999999999999996,
+            "threshold": {
+              "maxRegressionRatio": 1.15,
+              "minAbsoluteRegression": 5
+            },
+            "status": "fail",
+            "source": "fixture"
+          }
+        ]
+      }
+    }
+  ]
+}

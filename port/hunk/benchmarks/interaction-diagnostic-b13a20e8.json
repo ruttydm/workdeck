@@ -1,0 +1,236 @@
+{
+  "nativeCommit": "b13a20e8b8ca82ceb9f0d547b489fe00b97bbf38",
+  "profile": "release",
+  "command": "target/release/xtask benchmark interaction-diagnostic",
+  "method": "Three fresh sequential native processes after the optimized runner build completed. Other host activity uncontrolled. Nearest-rank median of process medians. Native diagnostic only, not a paired acceptance run or a peak-memory measurement.",
+  "aggregate": {
+    "firstFrameMs": 6.562042,
+    "navigationMedianMs": 25.163042,
+    "scrollMedianMs": 3.179958,
+    "scrollRenderMedianMs": 3.157333
+  },
+  "runs": [
+    {
+      "diagnosticOnly": true,
+      "firstFrameMs": 6.861708,
+      "navigationPressMs": [
+        26.023874999999997,
+        25.163042,
+        25.397416999999997,
+        25.024042,
+        25.128042,
+        25.289666
+      ],
+      "scrollTickMs": [
+        3.281625,
+        3.2547919999999997,
+        3.224125,
+        3.8465000000000003,
+        3.177667,
+        3.132541,
+        3.143958,
+        3.129334
+      ],
+      "navigationDispatchMs": [
+        21.614083,
+        20.655959000000003,
+        20.821708,
+        20.63,
+        20.622083999999997,
+        20.810125
+      ],
+      "navigationRenderMs": [
+        4.409084,
+        4.506041,
+        4.574209,
+        4.393333999999999,
+        4.505249999999999,
+        4.476583
+      ],
+      "scrollDispatchMs": [
+        0.049416999999999996,
+        0.026250000000000002,
+        0.023833999999999998,
+        0.021625000000000002,
+        0.022542,
+        0.022208000000000002,
+        0.021958,
+        0.021334
+      ],
+      "scrollRenderMs": [
+        3.231625,
+        3.2280830000000003,
+        3.199791,
+        3.8244160000000003,
+        3.154791,
+        3.109917,
+        3.1215,
+        3.1076659999999996
+      ],
+      "stageSemantics": "Dispatch includes input handling and its geometry/events; render includes the complete frame pass. Total includes both stages and the scheduler yield. Two additional clock reads per interaction instrument the boundaries.",
+      "afterFirstFrame": {
+        "rssBytes": 163151872,
+        "mallocInUseBytes": 52378688
+      },
+      "afterNavigation": {
+        "rssBytes": 166871040,
+        "mallocInUseBytes": 53644160
+      },
+      "files": 180,
+      "linesPerFile": 120,
+      "viewport": {
+        "width": 240,
+        "height": 28
+      },
+      "memorySemantics": "Current RSS and native malloc-zone usage, not peak RSS or JavaScript heapUsed"
+    },
+    {
+      "diagnosticOnly": true,
+      "firstFrameMs": 6.562042,
+      "navigationPressMs": [
+        26.449792,
+        25.399916,
+        24.996208,
+        25.516125000000002,
+        25.894709,
+        25.202208
+      ],
+      "scrollTickMs": [
+        3.367042,
+        3.303416,
+        3.265917,
+        3.820375,
+        3.1468339999999997,
+        3.1320419999999998,
+        3.179958,
+        3.14325
+      ],
+      "navigationDispatchMs": [
+        21.983042,
+        20.981083,
+        20.446375,
+        20.907417000000002,
+        21.290667,
+        20.685166000000002
+      ],
+      "navigationRenderMs": [
+        4.466042,
+        4.418292,
+        4.5485,
+        4.608208,
+        4.603542,
+        4.51625
+      ],
+      "scrollDispatchMs": [
+        0.035667000000000004,
+        0.02375,
+        0.023167,
+        0.022,
+        0.022917,
+        0.021834000000000003,
+        0.02225,
+        0.022
+      ],
+      "scrollRenderMs": [
+        3.330458,
+        3.279166,
+        3.242042,
+        3.795208,
+        3.123375,
+        3.1097910000000004,
+        3.157333,
+        3.120667
+      ],
+      "stageSemantics": "Dispatch includes input handling and its geometry/events; render includes the complete frame pass. Total includes both stages and the scheduler yield. Two additional clock reads per interaction instrument the boundaries.",
+      "afterFirstFrame": {
+        "rssBytes": 164790272,
+        "mallocInUseBytes": 52393072
+      },
+      "afterNavigation": {
+        "rssBytes": 167542784,
+        "mallocInUseBytes": 53615952
+      },
+      "files": 180,
+      "linesPerFile": 120,
+      "viewport": {
+        "width": 240,
+        "height": 28
+      },
+      "memorySemantics": "Current RSS and native malloc-zone usage, not peak RSS or JavaScript heapUsed"
+    },
+    {
+      "diagnosticOnly": true,
+      "firstFrameMs": 6.540125,
+      "navigationPressMs": [
+        26.448709,
+        25.364542,
+        25.639833,
+        24.883792,
+        25.107459,
+        25.102541
+      ],
+      "scrollTickMs": [
+        3.246791,
+        3.2915829999999997,
+        3.2690420000000002,
+        3.8111249999999997,
+        3.195459,
+        3.2282919999999997,
+        3.221,
+        3.235084
+      ],
+      "navigationDispatchMs": [
+        21.893917,
+        20.798958,
+        21.10275,
+        20.460124999999998,
+        20.5655,
+        20.744416
+      ],
+      "navigationRenderMs": [
+        4.554167,
+        4.565042,
+        4.533791,
+        4.423042000000001,
+        4.541334,
+        4.356750000000001
+      ],
+      "scrollDispatchMs": [
+        0.037708,
+        0.023333,
+        0.023167,
+        0.021542000000000002,
+        0.022875,
+        0.022167,
+        0.025958000000000002,
+        0.023459
+      ],
+      "scrollRenderMs": [
+        3.2083749999999998,
+        3.2679169999999997,
+        3.243041,
+        3.789125,
+        3.172209,
+        3.2055830000000003,
+        3.194625,
+        3.21125
+      ],
+      "stageSemantics": "Dispatch includes input handling and its geometry/events; render includes the complete frame pass. Total includes both stages and the scheduler yield. Two additional clock reads per interaction instrument the boundaries.",
+      "afterFirstFrame": {
+        "rssBytes": 161595392,
+        "mallocInUseBytes": 52404848
+      },
+      "afterNavigation": {
+        "rssBytes": 163135488,
+        "mallocInUseBytes": 53587584
+      },
+      "files": 180,
+      "linesPerFile": 120,
+      "viewport": {
+        "width": 240,
+        "height": 28
+      },
+      "memorySemantics": "Current RSS and native malloc-zone usage, not peak RSS or JavaScript heapUsed"
+    }
+  ]
+}

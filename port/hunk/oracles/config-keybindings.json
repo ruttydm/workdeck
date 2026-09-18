@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "capture": {
+    "runtime": "Bun 1.3.5",
+    "method": "executed the named config test directly in each disposable pinned source archive",
+    "test": "extension configuration > reads [keybindings] from the user layer only",
+    "baselineResult": "1 pass, 0 fail, 2 expectations",
+    "stableResult": "1 pass, 0 fail, 2 expectations",
+    "fullConfigSourceIdentical": false
+  },
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "workdeckBrandingNormalization": "hunk command IDs and config directory renamed to workdeck",
+  "projection": {
+    "authority": "global user config only; repository keybindings are ignored",
+    "acceptedValues": ["string", "string array", "false"],
+    "ordering": "TOML declaration order",
+    "unsupportedValues": "ignored and reported on the runtime notice surface",
+    "unknownCommands": "retained for keymap resolution after extensions load"
+  },
+  "coverageNote": "Only the exact keybinding type, resolution field, parser/notice, and named test intervals are mapped; every other byte in both large config files remains explicitly unmapped."
+}

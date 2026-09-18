@@ -1,0 +1,39 @@
+# Compatibility subset derived from the @shikijs/langs 3.23.0 Elixir TextMate grammar.
+# Copyright (c) 2021 Pine Wu and 2023 Anthony Fu. Licensed under MIT; see
+# third_party/grammars/shikijs-langs-LICENSE.
+%YAML 1.2
+---
+name: Elixir
+file_extensions:
+  - ex
+  - exs
+first_line_match: '^#!/.*\belixir'
+scope: source.elixir
+contexts:
+  main:
+    - match: '^\s*@(module|type)?doc\s+"""'
+      scope: comment.block.documentation.heredoc.elixir
+      push: documentation-heredoc
+    - match: '\b(defmodule|defprotocol|defimpl|defp?|defmacro|defmacrop|defguard|defguardp|do|end|case|if|unless|cond|with|for|fn|try|receive|after|rescue|catch|else|raise|import|require|alias|use)\b'
+      scope: keyword.control.elixir
+    - match: '#.*$'
+      scope: comment.line.number-sign.elixir
+    - match: ':[A-Za-z_]\w*[!?]?'
+      scope: constant.other.symbol.elixir
+    - match: '\b(nil|true|false)\b'
+      scope: constant.language.elixir
+    - match: '"'
+      scope: punctuation.definition.string.begin.elixir
+      push: double-quoted-string
+  documentation-heredoc:
+    - meta_scope: comment.block.documentation.heredoc.elixir
+    - match: '^\s*"""'
+      scope: comment.block.documentation.heredoc.elixir
+      pop: true
+  double-quoted-string:
+    - meta_scope: string.quoted.double.elixir
+    - match: '\\.'
+      scope: constant.character.escaped.elixir
+    - match: '"'
+      scope: punctuation.definition.string.end.elixir
+      pop: true

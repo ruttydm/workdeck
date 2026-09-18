@@ -1,0 +1,33 @@
+{
+  "sourcePath": "src/ui/AppHost.interactions.test.tsx",
+  "sourceTest": "draft note wraps long CJK input instead of scrolling it out of view",
+  "baselineInterval": {
+    "byteStart": 90177,
+    "byteEnd": 91167,
+    "lineStart": 3043,
+    "lineEnd": 3076,
+    "sha256": "4a1dc274b1a1ca4e558986f7317374f2be6a4217c5faff4ff94e18e08e076705"
+  },
+  "runs": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/main/src/ui/AppHost.interactions.test.tsx:\nThe current testing environment is not configured to support act(...)\n(pass) App interactions > draft note wraps long CJK input instead of scrolling it out of view [219.63ms]\n\n 1 pass\n 75 filtered out\n 0 fail\n 3 expect() calls\nRan 1 test across 1 file. [778.00ms]\n"
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/stable/src/ui/AppHost.interactions.test.tsx:\nThe current testing environment is not configured to support act(...)\n(pass) App interactions > draft note wraps long CJK input instead of scrolling it out of view [192.94ms]\n\n 1 pass\n 73 filtered out\n 0 fail\n 3 expect() calls\nRan 1 test across 1 file. [597.00ms]\n"
+    }
+  ],
+  "native": {
+    "test": "tests::draft_note_wraps_chunked_cjk_input_without_losing_either_end",
+    "passed": 1,
+    "failed": 0,
+    "filtered": 1124,
+    "seconds": 0.82
+  },
+  "captureCorrection": "The original rendered_review_frame concatenated every TestBackend cell, including covered continuation cells. Ratatui 0.29 Buffer::diff skips cells occupied by preceding multi-width glyphs. Capture now advances by symbol display width, preserving visible text and terminal geometry; no production renderer change.",
+  "workspaceValidation": "CARGO_INCREMENTAL=0 cargo test -p workdeck-tui --lib: 1125 passed, 0 failed, 0 ignored, 0 filtered, 51.28 seconds. TUI all-target Clippy with warnings denied passed. This is TUI-only validation, not the full workspace release gate.",
+  "scope": "160x40, same CJK/ASCII body in chunks of 12 characters. Checks draft heading, first ten and last four characters plus exact stored body. Not full-cell differential parity."
+}

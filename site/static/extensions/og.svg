@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">Workdeck extensions</title>
+  <desc id="desc">Trusted native extensions for the Workdeck review workbench</desc>
+  <rect width="1200" height="630" fill="#101318"/>
+  <rect x="70" y="70" width="1060" height="490" rx="24" fill="#18202d" stroke="#63d5c9" stroke-width="3"/>
+  <text x="120" y="255" fill="#f4f7fb" font-family="monospace" font-size="76" font-weight="700">extensions</text>
+  <text x="124" y="335" fill="#99a8bd" font-family="monospace" font-size="29">Native JSON-RPC panes, commands, and VCS adapters.</text>
+  <text x="124" y="490" fill="#63d5c9" font-family="monospace" font-size="24">workdeck.dev</text>
+</svg>

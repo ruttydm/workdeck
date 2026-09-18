@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "runtime": "Bun 1.3.14",
+  "captured_at": "2026-09-07",
+  "source": {
+    "path": "test/pty/lifecycle.test.ts",
+    "baseline": {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "blob": "3eefeff8dae5435c72f50fcd3a9e4de5d7eb64b9",
+      "sha256": "63c292ab1769e431d12a2f57807cf9bd122951aa3b1c4ea0c0e0e6a950d88463",
+      "bytes": 10364,
+      "lines": 334
+    },
+    "stable": {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "present": false
+    }
+  },
+  "oracle_runs": {
+    "baseline": {
+      "command": "bun test test/pty/lifecycle.test.ts",
+      "passed": 5,
+      "failed": 0,
+      "expect_calls": 9
+    },
+    "stable": {
+      "status": "not-applicable-source-file-absent"
+    }
+  },
+  "translation_status": "translated-test",
+  "native_evidence": "crates/workdeck-cli/tests/terminal_lifecycle.rs",
+  "verified": [
+    "PTY master closure returns exit code zero without a terminating signal",
+    "macOS controlling terminal revocation returns exit code zero",
+    "SIGHUP, SIGQUIT and SIGPIPE return exit code zero within two seconds with pipes and session brokering enabled",
+    "Additional SIGHUP, SIGQUIT and SIGPIPE coverage uses PTY streams",
+    "Redirected arrow-key and quit input passes through the native Crossterm parser",
+    "Initial viewing does not create .agents repository state"
+  ],
+  "test_mapping": [
+    { "source_test": "exits cleanly on SIGHUP", "test": "exits_cleanly_on_sighup_with_pipes_and_broker" },
+    { "source_test": "exits cleanly on SIGQUIT", "test": "exits_cleanly_on_sigquit_with_pipes_and_broker" },
+    { "source_test": "exits cleanly on SIGPIPE", "test": "exits_cleanly_on_sigpipe_with_pipes_and_broker" },
+    { "source_test": "exits when the host closes the PTY master", "test": "exits_cleanly_when_host_closes_pty_master" },
+    { "source_test": "exits when macOS revokes the controlling terminal", "test": "exits_cleanly_when_controlling_terminal_is_revoked" }
+  ],
+  "harness_adaptations": [
+    "Rust owns and reaps a separately spawned daemon on an isolated loopback port instead of discovering and signaling daemon PIDs.",
+    "The macOS child uses setsid and TIOCSCTTY instead of a shell supervisor; its exact process exit status is collected directly.",
+    "Terminal lifecycle tests do not claim broader cell-buffer visual parity."
+  ]
+}

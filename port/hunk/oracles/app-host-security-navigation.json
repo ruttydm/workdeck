@@ -1,0 +1,33 @@
+{
+  "sourcePath": "src/ui/AppHost.interactions.test.tsx",
+  "sourceTests": [
+    "dynamic review output does not pass terminal controls from paths, notes, or diff content",
+    "rapid hunk navigation and wheel scrolling do not recurse through viewport updates"
+  ],
+  "runs": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/main/src/ui/AppHost.interactions.test.tsx:\nThe current testing environment is not configured to support act(...)\n(pass) App interactions > dynamic review output does not pass terminal controls from paths, notes, or diff content [147.93ms]\n(pass) App interactions > rapid hunk navigation and wheel scrolling do not recurse through viewport updates [408.05ms]\n\n 2 pass\n 74 filtered out\n 0 fail\n 11 expect() calls\nRan 2 tests across 1 file. [1138.00ms]\n"
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/stable/src/ui/AppHost.interactions.test.tsx:\n(pass) App interactions > dynamic review output does not pass terminal controls from paths, notes, or diff content [148.81ms]\n(pass) App interactions > rapid hunk navigation and wheel scrolling do not recurse through viewport updates [416.19ms]\n\n 2 pass\n 72 filtered out\n 0 fail\n 11 expect() calls\nRan 2 tests across 1 file. [1138.00ms]\n"
+    }
+  ],
+  "native": {
+    "status": "passed",
+    "tests": ["pinned_dynamic_review_output_rejects_terminal_controls", "pinned_rapid_navigation_and_wheel_rendering_settles"],
+    "initialFailure": "The security test detected raw OSC, CSI, DCS and other control bytes in the agent file summary. The rapid-navigation test passed.",
+    "fix": "Sanitize agent file summary text at rendering, retaining stored summary bytes. Existing filename and annotation sanitization remains unchanged.",
+    "validation": "cargo test -p workdeck-tui --lib -- --quiet: 1171 passed, zero failures, 9.95 seconds",
+    "navigationAdaptation": "Run the exact two batches of six next-hunk keys and two batches of four wheel events at 220x12 with ten 90-line files and three hunks each. Preserve the source annotation ranges, including their out-of-source values. Verify selection actually changes and successive render_reconciled calls leave cell buffers, scroll and selection stable. Rust has no React error channel; finite synchronous rendering and stable subsequent frames test the native viewport feedback boundary."
+  },
+  "revalidation": {
+    "main": {"passed": 2, "failed": 0, "assertions": 11, "milliseconds": 998},
+    "stable": {"passed": 2, "failed": 0, "assertions": 11, "milliseconds": 806}
+  },
+  "sourceInterval": {"byteStart": 17792, "byteEnd": 20987, "lineStart": 592, "lineEnd": 694},
+  "scope": "Maps only the two complete test bodies. The preceding 17792 bytes of helpers, imports and suite setup remain unmapped; neither all App interactions nor full renderer parity is claimed."
+}

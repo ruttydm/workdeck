@@ -1,0 +1,209 @@
+{
+  "generator": "Pinned Hunk summary helpers under Bun 1.3.14",
+  "results": [
+    {
+      "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "cases": [
+        {
+          "input": "",
+          "split": {},
+          "plain": "",
+          "summaries": [
+            "Older lead",
+            "Older lead",
+            "Editorial **unchanged**"
+          ]
+        },
+        {
+          "input": "Lead **bold** [link](url).\n\n- one\n- two",
+          "split": {
+            "lead": "Lead **bold** [link](url).",
+            "body": "- one\n- two"
+          },
+          "plain": "Lead bold link. - one - two",
+          "summaries": [
+            "Lead bold link.",
+            "Lead bold link.",
+            "Editorial **unchanged**"
+          ]
+        },
+        {
+          "input": "- bullets only",
+          "split": {
+            "body": "- bullets only"
+          },
+          "plain": "- bullets only",
+          "summaries": [
+            "Older lead",
+            "Older lead",
+            "Editorial **unchanged**"
+          ]
+        },
+        {
+          "input": "\n\n- body",
+          "split": {
+            "body": "- body"
+          },
+          "plain": "- body",
+          "summaries": [
+            "Older lead",
+            "Older lead",
+            "Editorial **unchanged**"
+          ]
+        },
+        {
+          "input": "﻿Lead﻿\n\n- body",
+          "split": {
+            "lead": "Lead",
+            "body": "- body"
+          },
+          "plain": "Lead - body",
+          "summaries": [
+            "Lead",
+            "Lead",
+            "Editorial **unchanged**"
+          ]
+        },
+        {
+          "input": "Lead",
+          "split": {
+            "lead": "Lead"
+          },
+          "plain": "Lead",
+          "summaries": [
+            "Lead",
+            "Lead",
+            "Editorial **unchanged**"
+          ]
+        },
+        {
+          "input": "Lead\nwrapped\n\nsecond paragraph",
+          "split": {
+            "lead": "Lead\nwrapped",
+            "body": "second paragraph"
+          },
+          "plain": "Lead wrapped second paragraph",
+          "summaries": [
+            "Lead wrapped",
+            "Lead wrapped",
+            "Editorial **unchanged**"
+          ]
+        },
+        {
+          "input": "---\ntext",
+          "split": {
+            "body": "---\ntext"
+          },
+          "plain": "--- text",
+          "summaries": [
+            "Older lead",
+            "Older lead",
+            "Editorial **unchanged**"
+          ]
+        }
+      ]
+    },
+    {
+      "baseline": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "cases": [
+        {
+          "input": "",
+          "split": {},
+          "plain": "",
+          "summaries": [
+            "Older lead",
+            "Older lead",
+            "Editorial **unchanged**"
+          ]
+        },
+        {
+          "input": "Lead **bold** [link](url).\n\n- one\n- two",
+          "split": {
+            "lead": "Lead **bold** [link](url).",
+            "body": "- one\n- two"
+          },
+          "plain": "Lead bold link. - one - two",
+          "summaries": [
+            "Lead bold link.",
+            "Lead bold link.",
+            "Editorial **unchanged**"
+          ]
+        },
+        {
+          "input": "- bullets only",
+          "split": {
+            "body": "- bullets only"
+          },
+          "plain": "- bullets only",
+          "summaries": [
+            "Older lead",
+            "Older lead",
+            "Editorial **unchanged**"
+          ]
+        },
+        {
+          "input": "\n\n- body",
+          "split": {
+            "body": "- body"
+          },
+          "plain": "- body",
+          "summaries": [
+            "Older lead",
+            "Older lead",
+            "Editorial **unchanged**"
+          ]
+        },
+        {
+          "input": "﻿Lead﻿\n\n- body",
+          "split": {
+            "lead": "Lead",
+            "body": "- body"
+          },
+          "plain": "Lead - body",
+          "summaries": [
+            "Lead",
+            "Lead",
+            "Editorial **unchanged**"
+          ]
+        },
+        {
+          "input": "Lead",
+          "split": {
+            "lead": "Lead"
+          },
+          "plain": "Lead",
+          "summaries": [
+            "Lead",
+            "Lead",
+            "Editorial **unchanged**"
+          ]
+        },
+        {
+          "input": "Lead\nwrapped\n\nsecond paragraph",
+          "split": {
+            "lead": "Lead\nwrapped",
+            "body": "second paragraph"
+          },
+          "plain": "Lead wrapped second paragraph",
+          "summaries": [
+            "Lead wrapped",
+            "Lead wrapped",
+            "Editorial **unchanged**"
+          ]
+        },
+        {
+          "input": "---\ntext",
+          "split": {
+            "body": "---\ntext"
+          },
+          "plain": "--- text",
+          "summaries": [
+            "Older lead",
+            "Older lead",
+            "Editorial **unchanged**"
+          ]
+        }
+      ]
+    }
+  ]
+}

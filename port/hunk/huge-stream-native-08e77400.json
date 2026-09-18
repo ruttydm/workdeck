@@ -1,0 +1,29 @@
+{
+  "commit": "08e77400d835a65a09912423f5310b532f823c13",
+  "worktree": "clean",
+  "command": "CARGO_INCREMENTAL=0 cargo xtask benchmark huge-stream-diagnostic",
+  "host": "Darwin arm64",
+  "profile": "dev (unoptimized + debuginfo)",
+  "exitCode": 0,
+  "limitations": [
+    "Single native run, not a paired release-profile Hunk comparison.",
+    "Peak covers process lifetime including fixture construction.",
+    "Allocator in-use bytes are not resident memory or JavaScript heap usage."
+  ],
+  "report": {
+    "diagnosticOnly": true,
+    "files": 1001,
+    "firstFrameMs": 1133.003,
+    "scrollTickMs": [119.560708, 133.031917, 110.332167, 110.069666, 109.526709, 109.927583],
+    "navigationPressMs": [683.945041, 707.424583, 710.5643339999999, 703.868708],
+    "afterFirstFrame": {"rssBytes": 1386594304, "mallocInUseBytes": 558123552},
+    "afterNavigation": {"rssBytes": 1393541120, "mallocInUseBytes": 559370512},
+    "sequence": "one renderer: first frame, two settle frames, six scroll ticks, four navigation presses",
+    "memorySemantics": "Current native RSS and available malloc usage; not peak RSS or JavaScript heapUsed",
+    "peakProcessRssBytes": 1393901568,
+    "peakMemorySemantics": "Process lifetime peak resident/working-set bytes, including fixture construction; not JavaScript heapUsed",
+    "fixtureBuildMs": 13339.636041,
+    "linesPerFile": 300,
+    "giantFileLines": 50000
+  }
+}

@@ -1,37 +1,161 @@
+mod extension_cli_commands;
+mod extension_manage;
+mod pm_carryover;
+mod pm_catalog;
+mod pm_checks;
+mod pm_ci;
+mod pm_ci_auth;
+mod pm_ci_checks;
+mod pm_ci_coverage;
+mod pm_ci_import;
+mod pm_ci_red_green;
+mod pm_ci_retained_review;
+mod pm_ci_review;
+mod pm_claims;
+mod pm_cli;
+mod pm_context;
+mod pm_continuity;
+mod pm_diagnostics;
+mod pm_doctor;
+mod pm_evidence;
+mod pm_feature;
+mod pm_gate;
+mod pm_graph;
+mod pm_history;
+mod pm_hooks;
+mod pm_index;
+mod pm_migration;
+mod pm_organization;
+mod pm_proposals;
+mod pm_protocol;
+mod pm_protocol_install;
+mod pm_read;
+mod pm_reference;
+mod pm_registry;
+mod pm_sources;
+mod pm_time;
+mod pm_transfer;
+mod pm_views;
+mod pm_wiki;
+mod process_signals;
+
 use anyhow::{Context, Result, bail};
 use chrono::Utc;
-use clap::{Parser, Subcommand};
+#[cfg(test)]
+use clap::CommandFactory;
+use clap::{Args as ClapArgs, Parser, Subcommand, ValueEnum};
 use serde_json::{Value, json};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::OsString;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Read};
+use std::io::{IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use workdeck_cli::app::App;
+use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use workdeck_cli::config::Config;
 use workdeck_cli::git;
 use workdeck_cli::payload::{
     changes_grouped_by_status, file_preview_payload, search_target_group, search_target_payload,
     status_payload,
 };
-use workdeck_cli::store::{
-    AgentSession, AgentTouchedFile, Cycle, Issue, IssueStatus, IssueUpdate, Label, Priority,
-    Project, ReferenceData, StoreEvent, WorkdeckStore,
+use workdeck_cli::store::{AgentSession, IssueStatus, Priority, ReferenceData, WorkdeckStore};
+#[cfg(test)]
+use workdeck_core::ChangesetSource;
+use workdeck_core::{
+    AgentContext, AppBootstrap, Changeset, CliInput, CommonOptions, DiffToolCommandInput,
+    FileCommandInput, HighlightTone, InputCursorLine, InputLayoutMode, NamedCustomThemeConfig,
+    NavigationDirection, PatchCommandInput, RegisteredCustomTheme, ReloadContext, RevealMode,
+    ReviewNoteSource, ReviewSide, SelfUpdateCommandInput, SessionCommandInput,
+    SessionCommandOutput, SessionCommentApplyItemInput, SessionCommentListType,
+    SessionSelectorInput, SidebarVisibility, StartupNotice, TerminalThemeMode, UserKeyBindingEntry,
+    VcsDiffCommandInput, VcsRangeEndpoints, VcsShowCommandInput, VcsStashShowCommandInput,
+    WorkdeckExtensionUserError, WorkdeckUserError, collect_session_custom_themes,
+    format_cli_error_from_environment, resolve_app_state_path,
 };
+use workdeck_diff::{
+    LanguageMatcher, LanguageRegistration, LanguageRegistry, sanitize_terminal_line,
+};
+use workdeck_extension_api::{
+    CliCommandResult, ExtensionManifest, ExtensionNotificationHub, FileLanguageGlobTarget,
+    FileLanguageMatcher, Registration,
+};
+use workdeck_extension_host::{
+    EXTENSION_SHUTDOWN_TIMEOUT, ExtensionCliStdin, ExtensionLoadResult,
+    LoadStartupExtensionsOptions, LoadedExtension, TrustDecision, TrustStore,
+    create_empty_extension_load_result, create_extension_apply_notices,
+    create_extension_load_notices, discover_manifests_with_config, load_startup_extensions,
+    resolve_loaded_extension_registrations, resolved_native_vcs_adapters,
+    uses_transient_view_preferences,
+};
+use workdeck_review::{
+    CommentTargetInput, LayoutMode, build_live_comment, find_diff_file_by_path,
+    resolve_comment_target,
+};
+use workdeck_session::{
+    SelectableSession, SessionAction, SessionClient, SessionDescriptor, SessionSelector,
+    decode_snapshot, default_discovery_directory, normalize_session_selector,
+    repo_selector_distance, run_session_command,
+};
+use workdeck_tui::{
+    CursorLineMode, ExtensionTrustHandler, ExtensionTrustHostError, ExtensionTrustWriteError,
+    ReviewOptions, ThemeProbeInput,
+};
+use workdeck_vcs::{
+    AnyProvider, NativeWatchRuntime, ProviderPreference, VcsAdapter, VcsCatalog, VcsCatalogError,
+    VcsReviewInput, WatchSignatureContext, bundled_vcs_catalog, compute_watch_signature,
+    detect_vcs, extend_vcs_catalog, find_project_root_candidate,
+    find_project_root_candidate_with_catalog, get_default_vcs_adapter, get_vcs_adapter,
+    load_difftool_comparison, load_file_comparison, parse_patch_input,
+};
+
+use crate::extension_cli_commands::{
+    ExtensionCliInterruptAction, ExtensionCliSignalLease, RegisteredExtensionCliCommand,
+    create_extension_cli_collision_issues, describe_extension_cli_commands,
+    find_extension_cli_command, resolve_extension_cli_commands,
+};
+use crate::extension_manage::{ExtensionManager, parse_extension_install_source};
+use crate::process_signals::register_process_signal_callback;
 
 #[derive(Debug, Parser)]
 #[command(name = "workdeck")]
 #[command(about = "Terminal-native sidecar for agentic coding")]
 #[command(version)]
+#[command(
+    after_help = "Common review options:\n  --mode <auto|split|stack>               layout mode\n  --watch                                 auto-reload when the current diff input changes\n  --agent-context <path>                  JSON sidecar with agent rationale\n  --pager                                 use pager-style chrome\n  --line-numbers / --no-line-numbers      show or hide line numbers\n  -x, --tab-width <columns>                tab stop width: 1-16 (default: 4)\n  --file-gap <rows>                       file separator rows, including the ─ rule: 0-8 (default: 1)\n  --hunk-gap <rows>                       blank rows before each later hunk: 0-8 (default: 0)\n  --wrap / --no-wrap                      wrap or truncate long diff lines\n  --hunk-headers / --no-hunk-headers      show or hide hunk metadata rows\n  --sidebar / --no-sidebar                show or hide the files pane\n  --agent-notes / --no-agent-notes        show or hide agent notes\n  --transparent-bg / --no-transparent-bg  choose transparent or themed surfaces\n  --theme <theme>                         named theme override\n  --extension <path>                      load a native extension manifest or directory (repeatable)\n  --no-extensions                         disable user extensions for this run\n\nGit diff options:\n  --staged, --cached                      review staged changes\n  --exclude-untracked                     hide untracked files in working tree reviews\n\nNotes:\n  Run `workdeck <command> --help` for command-specific syntax and options.\n  \"target\" is a provider-neutral set of changes, such as a Git ref or Jujutsu revset."
+)]
 struct Args {
     #[arg(long, value_name = "PATH", default_value = ".")]
     cwd: PathBuf,
 
-    #[arg(long, help = "Initialize .agents/workdeck without opening the TUI")]
+    #[arg(long, help = "Initialize .workdeck without opening the TUI")]
     init: bool,
 
     #[arg(long, help = "Print a JSON status snapshot without opening the TUI")]
     status_json: bool,
+
+    #[arg(long, global = true, value_name = "PATH")]
+    extension: Vec<PathBuf>,
+
+    #[arg(long, global = true, overrides_with = "no_extensions")]
+    extensions: bool,
+
+    #[arg(long = "no-extensions", global = true, overrides_with = "extensions")]
+    no_extensions: bool,
+
+    #[arg(
+        long,
+        global = true,
+        help = "Enable experimental review features (currently STML)"
+    )]
+    experimental: bool,
+
+    #[arg(
+        long,
+        global = true,
+        help = "Use experimental fast syntax highlighting"
+    )]
+    fast: bool,
 
     #[command(subcommand)]
     command: Option<Command>,
@@ -39,6 +163,304 @@ struct Args {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    #[command(
+        about = "Explicitly refresh disposable planning indexes or inspect cached source-bound queries"
+    )]
+    Index {
+        #[command(flatten)]
+        options: pm_claims::Options,
+        #[command(flatten)]
+        source: pm_index::Source,
+        #[command(subcommand)]
+        command: pm_index::IndexCommand,
+    },
+    #[command(about = "Inspect and explicitly register local repository checkout mappings")]
+    Repository {
+        #[command(flatten)]
+        options: pm_claims::Options,
+        #[command(subcommand)]
+        command: pm_registry::RegistryCommand,
+    },
+    #[command(about = "Inspect planning source identities and explicitly fetch or sync")]
+    Source {
+        #[command(flatten)]
+        options: pm_claims::Options,
+        #[command(subcommand)]
+        command: pm_sources::SourceCommand,
+    },
+    #[command(about = "Acquire and maintain cooperative work claims with exact ownership tokens")]
+    Claim {
+        #[command(flatten)]
+        options: pm_claims::Options,
+        #[command(subcommand)]
+        command: pm_claims::ClaimCommand,
+    },
+    #[command(about = "Preview and explicitly manage the local planning validation hook")]
+    Hooks {
+        #[command(flatten)]
+        options: pm_hooks::HookOptions,
+        #[command(subcommand)]
+        command: pm_hooks::HookCommand,
+    },
+    #[command(
+        name = "command",
+        about = "Discover repository recipes and explicitly run reviewed local plans"
+    )]
+    Recipe {
+        #[command(flatten)]
+        options: Box<pm_checks::Options>,
+        #[command(subcommand)]
+        command: pm_checks::NamedCommand,
+    },
+    #[command(about = "Plan local verification and inspect source-bound results")]
+    Check {
+        #[command(flatten)]
+        options: Box<pm_checks::Options>,
+        #[command(subcommand)]
+        command: pm_checks::CheckCommand,
+    },
+    #[command(about = "Author native capabilities and inspect their work coverage")]
+    Feature {
+        #[command(flatten)]
+        options: pm_cli::NativeOptions,
+        #[command(subcommand)]
+        command: pm_feature::FeatureCommand,
+    },
+    #[command(about = "Author gates, resolve criteria and assess exact subjects")]
+    Gate {
+        #[command(flatten)]
+        options: pm_cli::NativeOptions,
+        #[command(subcommand)]
+        command: pm_gate::GateCommand,
+    },
+    #[command(about = "Declare immutable evidence references with explicit provenance")]
+    Evidence {
+        #[command(flatten)]
+        options: pm_cli::NativeOptions,
+        #[command(subcommand)]
+        command: pm_evidence::EvidenceCommand,
+    },
+    #[command(about = "Manage repository user, agent and service identities")]
+    User {
+        #[command(flatten)]
+        options: pm_organization::Options,
+        #[command(subcommand)]
+        command: pm_organization::UserCommand,
+    },
+    #[command(about = "Manage custom-field policy and inspect estimates and compliance")]
+    Organization {
+        #[command(flatten)]
+        options: pm_organization::Options,
+        #[command(subcommand)]
+        command: pm_organization::OrganizationCommand,
+    },
+    #[command(about = "Author and evaluate versioned issue views")]
+    View {
+        #[command(flatten)]
+        options: pm_views::ViewOptions,
+        #[command(subcommand)]
+        command: pm_views::ViewCommand,
+    },
+    #[command(about = "Record and report issue time with explicit amendment history")]
+    Time {
+        #[command(flatten)]
+        options: pm_time::TimeOptions,
+        #[command(subcommand)]
+        command: pm_time::TimeCommand,
+    },
+    #[command(about = "Author plain Markdown in the repository wiki")]
+    Wiki {
+        #[command(flatten)]
+        options: pm_wiki::WikiOptions,
+        #[command(subcommand)]
+        command: pm_wiki::WikiCommand,
+    },
+    #[command(about = "Inspect the generated project-management protocol")]
+    Protocol {
+        #[command(flatten)]
+        options: pm_protocol::ProtocolOptions,
+        #[command(subcommand)]
+        command: pm_protocol::ProtocolCommand,
+    },
+    #[command(about = "Record source-bound questions and explicit answers or supersession")]
+    Question {
+        #[command(flatten)]
+        options: Box<pm_continuity::ContinuityOptions>,
+        #[command(subcommand)]
+        command: pm_continuity::QuestionCommand,
+    },
+    #[command(about = "Create and inspect immutable source-bound task continuity declarations")]
+    Handoff {
+        #[command(flatten)]
+        options: Box<pm_continuity::ContinuityOptions>,
+        #[command(subcommand)]
+        command: pm_continuity::HandoffCommand,
+    },
+    #[command(about = "Obtain bounded source-bound task context without conversation history")]
+    Context {
+        #[command(flatten)]
+        options: Box<pm_context::ContextOptions>,
+    },
+    #[command(about = "Explain suggested actions and their current source preconditions")]
+    Next {
+        #[command(flatten)]
+        options: Box<pm_context::NextOptions>,
+    },
+    #[command(about = "Discover supported commands, schemas, and planning source availability")]
+    Capabilities {
+        #[arg(long)]
+        json: bool,
+        #[arg(long)]
+        no_input: bool,
+        #[command(flatten)]
+        output: pm_context::OutputOptions,
+    },
+    #[command(about = "Inspect generated project-management data schemas")]
+    Schema {
+        name: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Inspect and recover interrupted planning operations")]
+    Operation {
+        #[arg(
+            long,
+            global = true,
+            value_name = "WORKDECK_ROOT",
+            help = "Explicit planning source directory"
+        )]
+        source: Option<PathBuf>,
+        #[arg(long, global = true)]
+        json: bool,
+        #[command(subcommand)]
+        command: pm_cli::OperationCommand,
+    },
+    #[command(about = "Initialize repository project management in .workdeck")]
+    Init {
+        #[arg(long, default_value = "WD")]
+        prefix: String,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(
+        about = "review diffs or compare two concrete files",
+        after_help = "Two positional arguments always name revision endpoints, even when matching files exist on disk.\nUse `--files <left> <right>` for concrete-file comparison."
+    )]
+    Diff {
+        #[arg(value_name = "REVISION", num_args = 0..=2)]
+        revisions: Vec<String>,
+        #[arg(long, value_name = "PATH", num_args = 1..)]
+        files: Vec<PathBuf>,
+        #[arg(long, alias = "cached", help = "Review staged changes")]
+        staged: bool,
+        #[arg(
+            long,
+            overrides_with = "include_untracked",
+            help = "Hide untracked files"
+        )]
+        exclude_untracked: bool,
+        #[arg(
+            long,
+            alias = "no-exclude-untracked",
+            overrides_with = "exclude_untracked",
+            help = "Include untracked files"
+        )]
+        include_untracked: bool,
+        #[arg(last = true, value_name = "PATHSPEC")]
+        pathspec: Vec<String>,
+        #[command(flatten)]
+        review: ReviewCliOptions,
+    },
+    #[command(about = "review the last commit or a given ref")]
+    Show {
+        target: Option<String>,
+        #[arg(last = true, value_name = "PATHSPEC")]
+        pathspec: Vec<String>,
+        #[command(flatten)]
+        review: ReviewCliOptions,
+    },
+    #[command(about = "Review Git stash entries")]
+    Stash {
+        #[command(subcommand)]
+        command: Option<StashCommand>,
+    },
+    #[command(about = "review a patch file, or read a patch from stdin")]
+    Patch {
+        file: Option<PathBuf>,
+        #[command(flatten)]
+        review: ReviewCliOptions,
+    },
+    #[command(about = "review Git difftool file pairs")]
+    Difftool {
+        left: PathBuf,
+        right: PathBuf,
+        path: Option<PathBuf>,
+        #[command(flatten)]
+        review: ReviewCliOptions,
+    },
+    #[command(about = "general Git pager wrapper with diff detection")]
+    Pager {
+        #[command(flatten)]
+        review: ReviewCliOptions,
+    },
+    #[command(alias = "mcp", about = "Run the local Workdeck session daemon")]
+    Daemon {
+        #[command(subcommand)]
+        command: Option<DaemonCommand>,
+    },
+    #[command(about = "Inspect and control live Workdeck review sessions")]
+    Session {
+        #[command(subcommand)]
+        command: Option<LiveSessionCommand>,
+    },
+    #[command(alias = "ext", about = "Manage native Workdeck extensions")]
+    Extension {
+        #[command(subcommand)]
+        command: Option<ExtensionCommand>,
+    },
+    #[command(about = "Migrate data from another review tool")]
+    Migrate {
+        #[command(subcommand)]
+        command: MigrateCommand,
+    },
+    #[command(about = "Render or inspect terminal-safe Workdeck markup")]
+    Markup {
+        #[command(subcommand)]
+        command: Option<MarkupCommand>,
+    },
+    #[command(about = "Materialize bundled Workdeck agent skills")]
+    Skill {
+        #[command(subcommand)]
+        command: Option<SkillCommand>,
+    },
+    #[command(about = "Install a signed release into a new directory")]
+    Install {
+        #[arg(value_name = "VERSION")]
+        version: Option<String>,
+        #[arg(long, value_name = "DIRECTORY")]
+        destination: Option<PathBuf>,
+        #[arg(
+            short = 'f',
+            long,
+            help = "Allow competing installations; never overwrite the destination"
+        )]
+        force: bool,
+        #[arg(long, help = "Leave shell PATH configuration unchanged")]
+        no_modify_path: bool,
+    },
+    #[command(about = "Update Workdeck through the channel that installed it")]
+    Update {
+        #[arg(value_name = "VERSION", help = "Install an exact release version")]
+        version: Option<String>,
+        #[arg(
+            long,
+            value_name = "METHOD",
+            help = "Override detection: cargo, brew, nix, curl, powershell, or direct"
+        )]
+        method: Option<String>,
+        #[arg(long, help = "Report versions without installing")]
+        check: bool,
+    },
     #[command(about = "Print a Git status snapshot")]
     Status {
         #[arg(long, help = "Print status as JSON")]
@@ -76,15 +498,21 @@ enum Command {
         #[command(subcommand)]
         command: EventsCommand,
     },
-    #[command(about = "Import Workdeck export JSON")]
+    #[command(
+        about = "Import a Workdeck snapshot",
+        after_help = "Ordinary import merges into initialized planning: native snapshots require matching authority; legacy JSON/JSONL converts with preserved provenance. Use --restore to restore a native repository identity and missing original receipts without overwriting conflicting authority. Preview with --dry-run; resume a pending restore with --restore --resume --request-id ID."
+    )]
     Import {
-        path: PathBuf,
+        #[command(flatten)]
+        options: pm_transfer::ImportOptions,
+        #[arg(required_unless_present = "resume")]
+        path: Option<PathBuf>,
         #[arg(long, conflicts_with = "replace", help = "Merge imported data")]
         merge: bool,
         #[arg(
             long,
             conflicts_with = "merge",
-            help = "Replace local Workdeck data before import"
+            help = "Native: replace eligible matching records, retain unrelated records; legacy: replace legacy data"
         )]
         replace: bool,
         #[arg(long, help = "Validate without writing")]
@@ -92,8 +520,17 @@ enum Command {
         #[arg(long, help = "Print import result as JSON")]
         json: bool,
     },
+    #[command(about = "Validate immutable planning revisions for CI")]
+    Ci {
+        #[command(flatten)]
+        options: pm_ci::CiOptions,
+        #[command(subcommand)]
+        command: pm_ci::CiCommand,
+    },
     #[command(about = "Validate repo, config, and local Workdeck data")]
     Doctor {
+        #[command(flatten)]
+        options: pm_doctor::DoctorOptions,
         #[arg(long, help = "Print doctor results as JSON")]
         json: bool,
     },
@@ -106,29 +543,4654 @@ enum Command {
     },
     #[command(about = "Manage local Workdeck issues")]
     Issue {
+        #[command(flatten)]
+        options: pm_cli::IssueOptions,
         #[command(subcommand)]
         command: IssueCommand,
     },
     #[command(about = "Manage local agent sessions")]
     Agent {
+        #[command(flatten)]
+        options: pm_history::HistoryOptions,
         #[command(subcommand)]
         command: AgentCommand,
     },
+    #[command(about = "Manage native initiatives spanning projects")]
+    Initiative {
+        #[command(flatten)]
+        options: pm_cli::IssueOptions,
+        #[command(subcommand)]
+        command: pm_reference::HierarchyCommand,
+    },
+    #[command(about = "Manage native project milestones")]
+    Milestone {
+        #[command(flatten)]
+        options: pm_cli::IssueOptions,
+        #[command(subcommand)]
+        command: pm_reference::HierarchyCommand,
+    },
+    #[command(about = "Manage native delivery targets")]
+    Target {
+        #[command(flatten)]
+        options: pm_cli::IssueOptions,
+        #[command(subcommand)]
+        command: pm_reference::HierarchyCommand,
+    },
     #[command(about = "Manage local Workdeck projects")]
     Project {
+        #[command(flatten)]
+        options: pm_cli::IssueOptions,
         #[command(subcommand)]
         command: ProjectCommand,
     },
     #[command(about = "Manage local Workdeck cycles")]
     Cycle {
+        #[command(flatten)]
+        options: pm_cli::IssueOptions,
         #[command(subcommand)]
         command: CycleCommand,
     },
     #[command(about = "Manage local Workdeck labels")]
     Label {
+        #[command(flatten)]
+        options: pm_cli::IssueOptions,
         #[command(subcommand)]
         command: LabelCommand,
     },
+    #[command(external_subcommand)]
+    External(Vec<String>),
+}
+
+#[derive(Debug, Subcommand)]
+enum LiveSessionCommand {
+    #[command(about = "list live Workdeck sessions")]
+    List {
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "show one live Workdeck session")]
+    Get {
+        id: Option<String>,
+        #[arg(long)]
+        repo: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "show the selected file and hunk in one live Workdeck session")]
+    Context {
+        id: Option<String>,
+        #[arg(long)]
+        repo: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "export the live review model")]
+    Review {
+        id: Option<String>,
+        #[arg(long)]
+        repo: Option<PathBuf>,
+        #[arg(long)]
+        include_patch: bool,
+        #[arg(long)]
+        include_source: bool,
+        #[arg(long)]
+        include_notes: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(
+        about = "replace the contents of one live Workdeck session from a review command",
+        after_help = "Examples:\n  workdeck session reload --repo . -- diff\n  workdeck session reload --repo . -- show HEAD~1 -- README.md"
+    )]
+    Reload {
+        id: Option<String>,
+        #[arg(long)]
+        repo: Option<PathBuf>,
+        #[arg(long)]
+        session_path: Option<PathBuf>,
+        #[arg(long)]
+        source: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+        #[arg(
+            last = true,
+            required = true,
+            num_args = 1..,
+            allow_hyphen_values = true,
+            value_name = "COMMAND"
+        )]
+        next_command: Vec<String>,
+    },
+    #[command(about = "move a live Workdeck session to one diff hunk, line, or comment")]
+    Navigate {
+        id: Option<String>,
+        #[arg(long)]
+        repo: Option<PathBuf>,
+        #[arg(long)]
+        file: Option<PathBuf>,
+        #[arg(long, value_parser = parse_positive_safe_integer)]
+        hunk: Option<u64>,
+        #[arg(
+            long,
+            conflicts_with_all = ["hunk", "new_line"],
+            value_parser = parse_positive_safe_integer
+        )]
+        old_line: Option<u64>,
+        #[arg(
+            long,
+            conflicts_with_all = ["hunk", "old_line"],
+            value_parser = parse_positive_safe_integer
+        )]
+        new_line: Option<u64>,
+        #[arg(long)]
+        comment: Option<String>,
+        #[arg(long, conflicts_with = "prev_comment")]
+        next_comment: bool,
+        #[arg(long, conflicts_with = "next_comment")]
+        prev_comment: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Manage live inline review comments")]
+    Comment {
+        #[command(subcommand)]
+        command: Option<LiveCommentCommand>,
+    },
+    #[command(about = "Manage live diff-line attention highlights")]
+    Highlight {
+        #[command(subcommand)]
+        command: Option<LiveHighlightCommand>,
+    },
+    #[command(about = "Ask a live review to quit")]
+    Quit {
+        id: Option<String>,
+        #[arg(long)]
+        repo: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum LiveCommentCommand {
+    #[command(about = "attach one live inline review note")]
+    Add {
+        id: Option<String>,
+        #[arg(long)]
+        repo: Option<PathBuf>,
+        #[arg(long)]
+        file: PathBuf,
+        #[arg(
+            long,
+            conflicts_with_all = ["new_line", "hunk_index"],
+            value_parser = parse_positive_safe_integer
+        )]
+        old_line: Option<u64>,
+        #[arg(
+            long,
+            conflicts_with_all = ["old_line", "hunk_index"],
+            value_parser = parse_positive_safe_integer
+        )]
+        new_line: Option<u64>,
+        #[arg(long, conflicts_with_all = ["old_line", "new_line"])]
+        hunk_index: Option<usize>,
+        #[arg(long)]
+        summary: String,
+        #[arg(long)]
+        rationale: Option<String>,
+        #[arg(long, value_name = "STML")]
+        markup: Option<String>,
+        #[arg(long)]
+        author: Option<String>,
+        #[arg(long)]
+        focus: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(
+        about = "apply many live inline review notes from stdin JSON",
+        after_help = "Stdin JSON shape:\n  {\"comments\":[{\"filePath\":\"README.md\",\"newLine\":103,\"summary\":\"Tighten this wording\"}]}"
+    )]
+    Apply {
+        id: Option<String>,
+        #[arg(long)]
+        repo: Option<PathBuf>,
+        #[arg(long)]
+        stdin: bool,
+        #[arg(long)]
+        focus: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "list live inline review notes")]
+    List {
+        id: Option<String>,
+        #[arg(long)]
+        repo: Option<PathBuf>,
+        #[arg(long)]
+        file: Option<PathBuf>,
+        #[arg(long = "type", value_enum)]
+        list_type: Option<LiveCommentListTypeArg>,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(name = "rm", alias = "remove", about = "remove one inline review note")]
+    Remove {
+        #[arg(value_name = "TARGET", num_args = 1..=2)]
+        targets: Vec<String>,
+        #[arg(long)]
+        repo: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "clear inline review notes")]
+    Clear {
+        id: Option<String>,
+        #[arg(long)]
+        repo: Option<PathBuf>,
+        #[arg(long)]
+        file: Option<PathBuf>,
+        #[arg(long)]
+        include_user: bool,
+        #[arg(long)]
+        all: bool,
+        #[arg(long)]
+        yes: bool,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum LiveCommentListTypeArg {
+    Live,
+    All,
+    Ai,
+    Agent,
+    User,
+}
+
+#[derive(Debug, Subcommand)]
+enum LiveHighlightCommand {
+    #[command(about = "paint one attention mark inside a diff line")]
+    Add {
+        id: Option<String>,
+        #[arg(long)]
+        repo: Option<PathBuf>,
+        #[arg(long)]
+        file: PathBuf,
+        #[arg(
+            long,
+            conflicts_with = "new_line",
+            value_parser = parse_positive_safe_integer
+        )]
+        old_line: Option<u64>,
+        #[arg(
+            long,
+            conflicts_with = "old_line",
+            value_parser = parse_positive_safe_integer
+        )]
+        new_line: Option<u64>,
+        #[arg(long, value_parser = parse_non_negative_safe_integer)]
+        start: u64,
+        #[arg(long, value_parser = parse_positive_safe_integer)]
+        end: u64,
+        #[arg(long, value_enum)]
+        tone: Option<LiveHighlightToneArg>,
+        #[arg(long)]
+        focus: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "clear agent attention marks from live diff lines")]
+    Clear {
+        id: Option<String>,
+        #[arg(long)]
+        repo: Option<PathBuf>,
+        #[arg(long)]
+        file: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum LiveHighlightToneArg {
+    Match,
+    Current,
+    Info,
+    Warning,
+    Error,
+    Dim,
+}
+
+#[derive(Debug, Subcommand)]
+enum ExtensionCommand {
+    #[command(about = "Install a shared native extension from a Git repository")]
+    Install {
+        source: String,
+        #[arg(long, help = "Skip the native-code trust confirmation")]
+        yes: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "List discovered and managed native extensions")]
+    List {
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Re-clone managed native extensions from their recorded sources")]
+    Update {
+        name: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(alias = "uninstall", about = "Remove one managed native extension")]
+    Remove {
+        name: String,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Validate one native extension manifest")]
+    Validate {
+        path: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Grant or deny repository-native extension trust")]
+    Trust {
+        #[arg(long, default_value = ".")]
+        repo: PathBuf,
+        #[arg(long, conflicts_with = "deny")]
+        allow: bool,
+        #[arg(long, conflicts_with = "allow")]
+        deny: bool,
+        #[arg(long, help = "Confirm the trust decision")]
+        yes: bool,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum MigrateCommand {
+    #[command(about = "Preview, apply, or resume migration of prototype planning files")]
+    Legacy {
+        #[command(flatten)]
+        options: pm_migration::Options,
+    },
+    #[command(about = "Plan or apply one-time Hunk configuration migration")]
+    Hunk {
+        #[arg(long, conflicts_with = "apply")]
+        dry_run: bool,
+        #[arg(long, conflicts_with = "dry_run")]
+        apply: bool,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Clone, Copy, Default, ValueEnum)]
+enum MarkupColor {
+    #[default]
+    Auto,
+    Always,
+    Never,
+}
+
+#[derive(Debug, Subcommand)]
+enum MarkupCommand {
+    #[command(about = "Render STML from a file or standard input")]
+    Render {
+        #[arg(default_value = "-")]
+        file: PathBuf,
+        #[arg(long, default_value_t = workdeck_markup::DEFAULT_WIDTH)]
+        width: usize,
+        #[arg(long, value_enum, default_value = "auto")]
+        color: MarkupColor,
+        #[arg(long)]
+        theme: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Print the STML authoring guide")]
+    Guide,
+}
+
+#[derive(Debug, Subcommand)]
+enum SkillCommand {
+    #[command(about = "Install a bundled skill locally and print its path")]
+    Path {
+        #[arg(default_value = "workdeck-review")]
+        name: String,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum DaemonCommand {
+    #[command(about = "Run the local session daemon and WebSocket broker")]
+    Serve,
+    #[command(about = "Report the daemon's build, uptime, and attached windows")]
+    Status {
+        #[arg(long, help = "Print the status as JSON")]
+        json: bool,
+    },
+    #[command(about = "Replace the daemon with one from this Workdeck build")]
+    Restart {
+        #[arg(
+            long,
+            help = "Skip the confirmation prompts (required when stdin is not a terminal)"
+        )]
+        yes: bool,
+        #[arg(long, help = "Print the result as JSON")]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum StashCommand {
+    #[command(about = "review a stash entry as a full Workdeck changeset")]
+    Show {
+        reference: Option<String>,
+        #[command(flatten)]
+        review: ReviewCliOptions,
+    },
+}
+
+#[derive(Debug, Clone, Copy, Default, ValueEnum)]
+enum ReviewLayoutArg {
+    #[default]
+    Auto,
+    Split,
+    Stack,
+}
+
+#[derive(Debug, Clone, Copy, Default, ValueEnum)]
+enum CursorLineArg {
+    #[default]
+    Row,
+    Number,
+    Off,
+}
+
+#[derive(Debug, Clone, Default, ClapArgs)]
+struct ReviewCliOptions {
+    #[arg(skip)]
+    workbench: Option<workdeck_tui::workbench::WorkbenchOptions>,
+    #[arg(skip)]
+    config_command_section: Option<&'static str>,
+    #[arg(skip)]
+    experimental: bool,
+    #[arg(skip)]
+    fast: bool,
+    #[arg(long, value_name = "ID")]
+    vcs: Option<String>,
+    #[arg(long, value_enum)]
+    mode: Option<ReviewLayoutArg>,
+    #[arg(
+        long,
+        overrides_with = "no_watch",
+        help = "Reload when the review input changes"
+    )]
+    watch: bool,
+    #[arg(long = "no-watch", overrides_with = "watch")]
+    no_watch: bool,
+    #[arg(long, help = "Use pager-style chrome")]
+    pager: bool,
+    #[arg(long, overrides_with = "no_line_numbers")]
+    line_numbers: bool,
+    #[arg(long = "no-line-numbers", overrides_with = "line_numbers")]
+    no_line_numbers: bool,
+    #[arg(short = 'x', long, value_parser = clap::value_parser!(u16).range(1..=16))]
+    tab_width: Option<u16>,
+    #[arg(long, value_enum)]
+    cursor_line: Option<CursorLineArg>,
+    #[arg(long, overrides_with = "no_wrap")]
+    wrap: bool,
+    #[arg(long = "no-wrap", overrides_with = "wrap")]
+    no_wrap: bool,
+    #[arg(long, overrides_with = "no_hunk_headers")]
+    hunk_headers: bool,
+    #[arg(long = "no-hunk-headers", overrides_with = "hunk_headers")]
+    no_hunk_headers: bool,
+    #[arg(long, overrides_with = "no_sidebar")]
+    sidebar: bool,
+    #[arg(long = "no-sidebar", overrides_with = "sidebar")]
+    no_sidebar: bool,
+    #[arg(skip)]
+    sidebar_visibility: SidebarVisibility,
+    #[arg(long, overrides_with = "no_agent_notes")]
+    agent_notes: bool,
+    #[arg(long = "no-agent-notes", overrides_with = "agent_notes")]
+    no_agent_notes: bool,
+    #[arg(long, value_parser = clap::value_parser!(u16).range(0..=8))]
+    file_gap: Option<u16>,
+    #[arg(long, value_parser = clap::value_parser!(u16).range(0..=8))]
+    hunk_gap: Option<u16>,
+    #[arg(long = "transparent-bg", overrides_with = "opaque_background")]
+    transparent_background: bool,
+    #[arg(
+        long = "opaque-bg",
+        alias = "no-transparent-bg",
+        overrides_with = "transparent_background"
+    )]
+    opaque_background: bool,
+    #[arg(long, value_name = "PATH")]
+    agent_context: Option<PathBuf>,
+    #[arg(long, value_name = "THEME")]
+    theme: Option<String>,
+    #[arg(skip)]
+    initial_theme_mode: Option<TerminalThemeMode>,
+    #[arg(skip)]
+    extension: Vec<PathBuf>,
+    #[arg(skip)]
+    extensions: bool,
+    #[arg(skip)]
+    no_extensions: bool,
+    #[arg(skip)]
+    color_moved: Option<bool>,
+    #[arg(skip)]
+    show_menu_bar: bool,
+    #[arg(skip)]
+    copy_decorations: bool,
+    #[arg(skip)]
+    keybindings: Vec<UserKeyBindingEntry>,
+    #[arg(skip)]
+    keybinding_notices: Vec<String>,
+    #[arg(skip)]
+    startup_notices: Vec<StartupNotice>,
+    #[arg(skip)]
+    extension_config: BTreeMap<String, Value>,
+    #[arg(skip)]
+    user_extension_paths: Vec<PathBuf>,
+    #[arg(skip)]
+    repo_extension_paths: Vec<PathBuf>,
+    #[arg(skip)]
+    custom_themes: Vec<NamedCustomThemeConfig>,
+    #[arg(skip)]
+    view_preferences_config_path: Option<PathBuf>,
+    #[arg(skip)]
+    view_preferences_write_policy: workdeck_core::ViewPreferenceWritePolicy,
+    #[arg(skip)]
+    prompt_save_view_preferences: Option<bool>,
+    #[arg(skip)]
+    config_exclude_untracked: bool,
+}
+
+impl ReviewCliOptions {
+    fn from_config(config: &Config) -> Self {
+        Self {
+            workbench: None,
+            config_command_section: None,
+            experimental: false,
+            fast: false,
+            vcs: config.explicit_vcs_id.clone(),
+            mode: Some(match config.review.mode.as_str() {
+                "split" => ReviewLayoutArg::Split,
+                "stack" => ReviewLayoutArg::Stack,
+                _ => ReviewLayoutArg::Auto,
+            }),
+            watch: config.review.watch,
+            no_watch: !config.review.watch,
+            pager: false,
+            line_numbers: config.review.line_numbers,
+            no_line_numbers: !config.review.line_numbers,
+            tab_width: Some(config.review.tab_width),
+            cursor_line: Some(match config.review.cursor_line.as_str() {
+                "number" => CursorLineArg::Number,
+                "off" => CursorLineArg::Off,
+                _ => CursorLineArg::Row,
+            }),
+            wrap: config.review.wrap_lines,
+            no_wrap: !config.review.wrap_lines,
+            hunk_headers: config.review.hunk_headers,
+            no_hunk_headers: !config.review.hunk_headers,
+            sidebar: false,
+            no_sidebar: false,
+            sidebar_visibility: match config.review.sidebar {
+                workdeck_cli::config::ReviewSidebar::Auto => SidebarVisibility::Auto,
+                workdeck_cli::config::ReviewSidebar::Show => SidebarVisibility::Visible,
+                workdeck_cli::config::ReviewSidebar::Hide => SidebarVisibility::Hidden,
+            },
+            agent_notes: config.review.agent_notes,
+            no_agent_notes: !config.review.agent_notes,
+            file_gap: Some(config.review.file_gap),
+            hunk_gap: Some(config.review.hunk_gap),
+            transparent_background: config.review.transparent_background,
+            opaque_background: !config.review.transparent_background,
+            agent_context: None,
+            theme: (config.ui.theme != "auto").then(|| config.ui.theme.clone()),
+            initial_theme_mode: None,
+            extension: Vec::new(),
+            extensions: false,
+            no_extensions: !config.resolved_extensions.enabled,
+            color_moved: config.review.color_moved,
+            show_menu_bar: config.review.menu_bar,
+            copy_decorations: config.review.copy_decorations,
+            keybindings: config.keybindings.clone(),
+            keybinding_notices: config.keybinding_notices.clone(),
+            startup_notices: config.startup_notices.clone(),
+            extension_config: config.extension_configs().clone(),
+            user_extension_paths: config.resolved_extensions.paths.clone(),
+            repo_extension_paths: config.resolved_extensions.repo_paths.clone(),
+            custom_themes: config.custom_themes.clone(),
+            view_preferences_config_path: config.view_preferences_config_path.clone(),
+            view_preferences_write_policy: config.view_preferences_write_policy,
+            prompt_save_view_preferences: Some(config.prompt_save_view_preferences),
+            config_exclude_untracked: config.review.exclude_untracked,
+        }
+    }
+
+    fn apply_config_defaults(&mut self, config: &Config) {
+        let configured = Self::from_config(config);
+        if self.vcs.is_none() {
+            self.vcs = configured.vcs;
+        }
+        self.mode = self.mode.or(configured.mode);
+        self.tab_width = self.tab_width.or(configured.tab_width);
+        self.cursor_line = self.cursor_line.or(configured.cursor_line);
+        self.file_gap = self.file_gap.or(configured.file_gap);
+        self.hunk_gap = self.hunk_gap.or(configured.hunk_gap);
+        if !self.watch && !self.no_watch {
+            self.watch = configured.watch;
+            self.no_watch = configured.no_watch;
+        }
+        if !self.line_numbers && !self.no_line_numbers {
+            self.line_numbers = configured.line_numbers;
+            self.no_line_numbers = configured.no_line_numbers;
+        }
+        if !self.wrap && !self.no_wrap {
+            self.wrap = configured.wrap;
+            self.no_wrap = configured.no_wrap;
+        }
+        if !self.hunk_headers && !self.no_hunk_headers {
+            self.hunk_headers = configured.hunk_headers;
+            self.no_hunk_headers = configured.no_hunk_headers;
+        }
+        if !self.sidebar && !self.no_sidebar {
+            self.sidebar_visibility = configured.sidebar_visibility;
+        }
+        if !self.agent_notes && !self.no_agent_notes {
+            self.agent_notes = configured.agent_notes;
+            self.no_agent_notes = configured.no_agent_notes;
+        }
+        if !self.transparent_background && !self.opaque_background {
+            self.transparent_background = configured.transparent_background;
+            self.opaque_background = configured.opaque_background;
+        }
+        if self.theme.is_none() {
+            self.theme = configured.theme;
+        }
+        self.color_moved = self.color_moved.or(configured.color_moved);
+        self.show_menu_bar = configured.show_menu_bar;
+        self.copy_decorations = configured.copy_decorations;
+        self.keybindings = configured.keybindings;
+        self.keybinding_notices = configured.keybinding_notices;
+        self.startup_notices = configured.startup_notices;
+        self.extension_config = configured.extension_config;
+        self.user_extension_paths = configured.user_extension_paths;
+        self.repo_extension_paths = configured.repo_extension_paths;
+        self.custom_themes = configured.custom_themes;
+        self.view_preferences_config_path = configured.view_preferences_config_path;
+        self.view_preferences_write_policy = configured.view_preferences_write_policy;
+        self.prompt_save_view_preferences = configured.prompt_save_view_preferences;
+        self.config_exclude_untracked = configured.config_exclude_untracked;
+        self.no_extensions |= configured.no_extensions;
+    }
+
+    fn preference(&self) -> ProviderPreference {
+        match self.vcs.as_deref() {
+            Some("git") => ProviderPreference::Git,
+            Some("jj") => ProviderPreference::Jujutsu,
+            Some("sl") => ProviderPreference::Sapling,
+            _ => ProviderPreference::Auto,
+        }
+    }
+
+    fn configured_vcs_id(&self) -> Option<&str> {
+        self.vcs.as_deref().filter(|id| *id != "auto")
+    }
+
+    fn tui_options(&self) -> ReviewOptions {
+        let theme = workdeck_tui::resolve_theme(self.theme.as_deref(), None, &[]);
+        let theme = if self.transparent_background && !self.opaque_background {
+            workdeck_tui::with_transparent_surfaces(&theme)
+        } else {
+            theme
+        };
+        ReviewOptions {
+            workbench: self.workbench.clone(),
+            repository_panels: None,
+            source_presentation: workdeck_tui::ReviewSourcePresentation::default(),
+            source_capabilities: None,
+            layout: match self.mode.unwrap_or(ReviewLayoutArg::Auto) {
+                ReviewLayoutArg::Auto => LayoutMode::Auto,
+                ReviewLayoutArg::Split => LayoutMode::Split,
+                ReviewLayoutArg::Stack => LayoutMode::Stack,
+            },
+            sidebar_visibility: self.resolved_sidebar(),
+            sidebar: self.resolved_sidebar() != SidebarVisibility::Hidden,
+            line_numbers: self.line_numbers || !self.no_line_numbers,
+            tab_width: self.tab_width.unwrap_or(4),
+            cursor_line: match self.cursor_line.unwrap_or(CursorLineArg::Row) {
+                CursorLineArg::Row => CursorLineMode::Row,
+                CursorLineArg::Number => CursorLineMode::Number,
+                CursorLineArg::Off => CursorLineMode::Off,
+            },
+            hunk_headers: self.hunk_headers || !self.no_hunk_headers,
+            wrap_lines: if self.no_wrap { false } else { self.wrap },
+            horizontal_offset: 0,
+            line_number_digits: None,
+            highlight: true,
+            file_gap: self.file_gap.unwrap_or(1),
+            hunk_gap: self.hunk_gap.unwrap_or(0),
+            transparent_background: self.transparent_background && !self.opaque_background,
+            pager: self.pager,
+            watch: self.watch && !self.no_watch,
+            agent_notes: self.agent_notes && !self.no_agent_notes,
+            experimental: self.experimental,
+            show_menu_bar: self.show_menu_bar,
+            copy_decorations: self.copy_decorations,
+            view_preferences_config_path: self.view_preferences_config_path.clone(),
+            view_preferences_write_policy: self.view_preferences_write_policy,
+            prompt_save_view_preferences: self.prompt_save_view_preferences.unwrap_or(true),
+            transient_view_preferences: false,
+            view_preferences_home_directory: std::env::var_os("HOME").map(PathBuf::from),
+            theme,
+            custom_themes: Vec::new(),
+            repo: None,
+            command_cwd: None,
+            review_input: None,
+            keybindings: self.keybindings.clone(),
+            keybinding_notices: self.keybinding_notices.clone(),
+            startup_notices: Vec::new(),
+            startup_notice_lookup: None,
+            extension_panes: Vec::new(),
+            extension_notifications: None,
+            pending_extension_trust_repo_root: None,
+            pending_extension_trust_directory: None,
+            extension_trust_handler: None,
+            external_quit_signal: None,
+            foreground_run_signal: None,
+        }
+    }
+
+    fn common_options(&self) -> CommonOptions {
+        CommonOptions {
+            mode: Some(match self.mode.unwrap_or(ReviewLayoutArg::Auto) {
+                ReviewLayoutArg::Auto => InputLayoutMode::Auto,
+                ReviewLayoutArg::Split => InputLayoutMode::Split,
+                ReviewLayoutArg::Stack => InputLayoutMode::Stack,
+            }),
+            cursor_line: Some(match self.cursor_line.unwrap_or(CursorLineArg::Row) {
+                CursorLineArg::Row => InputCursorLine::Row,
+                CursorLineArg::Number => InputCursorLine::Number,
+                CursorLineArg::Off => InputCursorLine::Off,
+            }),
+            vcs: self
+                .vcs
+                .as_deref()
+                .filter(|id| *id != "auto")
+                .map(str::to_owned),
+            theme: self.theme.clone(),
+            agent_context: self
+                .agent_context
+                .as_ref()
+                .map(|path| path.to_string_lossy().into_owned()),
+            pager: Some(self.pager),
+            watch: Some(self.watch && !self.no_watch),
+            experimental: self.experimental.then_some(true),
+            fast: self.fast.then_some(true),
+            exclude_untracked: None,
+            line_numbers: Some(self.line_numbers || !self.no_line_numbers),
+            tab_width: Some(self.tab_width.unwrap_or(4)),
+            file_gap: Some(self.file_gap.unwrap_or(1)),
+            hunk_gap: Some(self.hunk_gap.unwrap_or(0)),
+            wrap_lines: Some(if self.no_wrap { false } else { self.wrap }),
+            hunk_headers: Some(self.hunk_headers || !self.no_hunk_headers),
+            sidebar: Some(self.resolved_sidebar()),
+            agent_notes: Some(self.agent_notes && !self.no_agent_notes),
+            menu_bar: Some(self.show_menu_bar),
+            copy_decorations: Some(self.copy_decorations),
+            prompt_save_view_preferences: Some(self.prompt_save_view_preferences.unwrap_or(true)),
+            transparent_background: Some(self.transparent_background && !self.opaque_background),
+            color_moved: self.color_moved,
+            extensions: Some(!self.no_extensions),
+            extension_paths: self
+                .extension
+                .iter()
+                .map(|path| path.to_string_lossy().into_owned())
+                .collect(),
+        }
+    }
+
+    fn parsed_common_options(&self) -> CommonOptions {
+        CommonOptions {
+            mode: self.mode.map(|mode| match mode {
+                ReviewLayoutArg::Auto => InputLayoutMode::Auto,
+                ReviewLayoutArg::Split => InputLayoutMode::Split,
+                ReviewLayoutArg::Stack => InputLayoutMode::Stack,
+            }),
+            cursor_line: self.cursor_line.map(|cursor| match cursor {
+                CursorLineArg::Row => InputCursorLine::Row,
+                CursorLineArg::Number => InputCursorLine::Number,
+                CursorLineArg::Off => InputCursorLine::Off,
+            }),
+            vcs: self
+                .vcs
+                .as_deref()
+                .filter(|id| *id != "auto")
+                .map(str::to_owned),
+            theme: self.theme.clone(),
+            agent_context: self
+                .agent_context
+                .as_ref()
+                .map(|path| path.to_string_lossy().into_owned()),
+            pager: self.pager.then_some(true),
+            watch: self
+                .watch
+                .then_some(true)
+                .or_else(|| self.no_watch.then_some(false)),
+            experimental: self.experimental.then_some(true),
+            fast: self.fast.then_some(true),
+            line_numbers: self
+                .line_numbers
+                .then_some(true)
+                .or_else(|| self.no_line_numbers.then_some(false)),
+            tab_width: self.tab_width,
+            file_gap: self.file_gap,
+            hunk_gap: self.hunk_gap,
+            wrap_lines: self
+                .wrap
+                .then_some(true)
+                .or_else(|| self.no_wrap.then_some(false)),
+            hunk_headers: self
+                .hunk_headers
+                .then_some(true)
+                .or_else(|| self.no_hunk_headers.then_some(false)),
+            sidebar: self
+                .sidebar
+                .then_some(SidebarVisibility::Visible)
+                .or_else(|| self.no_sidebar.then_some(SidebarVisibility::Hidden)),
+            agent_notes: self
+                .agent_notes
+                .then_some(true)
+                .or_else(|| self.no_agent_notes.then_some(false)),
+            transparent_background: self
+                .transparent_background
+                .then_some(true)
+                .or_else(|| self.opaque_background.then_some(false)),
+            extensions: self
+                .extensions
+                .then_some(true)
+                .or_else(|| self.no_extensions.then_some(false)),
+            extension_paths: self
+                .extension
+                .iter()
+                .map(|path| path.to_string_lossy().into_owned())
+                .collect(),
+            ..CommonOptions::default()
+        }
+    }
+
+    fn resolved_sidebar(&self) -> SidebarVisibility {
+        if self.sidebar {
+            SidebarVisibility::Visible
+        } else if self.no_sidebar {
+            SidebarVisibility::Hidden
+        } else {
+            self.sidebar_visibility
+        }
+    }
+}
+
+#[cfg(test)]
+mod review_cli_option_tests {
+    use super::*;
+
+    #[derive(Debug)]
+    struct FakeStartupThemeInput {
+        raw: bool,
+        chunks: std::collections::VecDeque<Vec<u8>>,
+        raw_transitions: Vec<bool>,
+    }
+
+    impl FakeStartupThemeInput {
+        fn with_response(response: &str) -> Self {
+            Self {
+                raw: false,
+                chunks: std::collections::VecDeque::from([response.as_bytes().to_vec()]),
+                raw_transitions: Vec::new(),
+            }
+        }
+    }
+
+    impl ThemeProbeInput for FakeStartupThemeInput {
+        fn is_raw(&self) -> Option<bool> {
+            Some(self.raw)
+        }
+
+        fn set_raw_mode(&mut self, raw: bool) -> std::io::Result<()> {
+            self.raw = raw;
+            self.raw_transitions.push(raw);
+            Ok(())
+        }
+
+        fn read_chunk(&mut self, _timeout: Duration) -> std::io::Result<Option<Vec<u8>>> {
+            Ok(self.chunks.pop_front())
+        }
+    }
+
+    #[test]
+    fn all_app_startups_with_piped_stdin_open_the_controlling_terminal() {
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/startup-theme.json"
+        ))
+        .unwrap();
+        let expected = &oracle["expected"]["piped_app"];
+        let diff =
+            Args::try_parse_from(["workdeck", "diff", "--theme", "github-dark-default"]).unwrap();
+        assert_eq!(expected["stdin_is_tty"], false);
+        assert_eq!(expected["stdout_is_tty"], true);
+        assert_eq!(expected["opens_controlling_terminal"], true);
+        assert!(should_open_controlling_terminal(
+            diff.command.as_ref(),
+            "",
+            false,
+            true,
+        ));
+        assert!(!should_open_controlling_terminal(
+            diff.command.as_ref(),
+            "",
+            true,
+            true,
+        ));
+        assert!(!should_open_controlling_terminal(
+            diff.command.as_ref(),
+            "",
+            false,
+            false,
+        ));
+
+        let pager = Args::try_parse_from(["workdeck", "pager"]).unwrap();
+        assert!(should_open_controlling_terminal(
+            pager.command.as_ref(),
+            "--- a/a\n+++ b/a\n",
+            false,
+            true,
+        ));
+        assert!(!should_open_controlling_terminal(
+            pager.command.as_ref(),
+            "plain pager text\n",
+            false,
+            true,
+        ));
+        let captured_environment = BTreeMap::from([
+            ("TERM".into(), "dumb".into()),
+            ("LAZYGIT_NEW_DIR_FILE".into(), "/tmp/lazygit-dir".into()),
+        ]);
+        assert!(!should_open_controlling_terminal_in_environment(
+            pager.command.as_ref(),
+            "--- a/a\n+++ b/a\n",
+            false,
+            true,
+            &captured_environment,
+        ));
+        assert!(should_open_controlling_terminal(None, "", false, true,));
+    }
+
+    #[test]
+    fn unreloadable_watch_inputs_are_rejected_before_terminal_or_extension_startup() {
+        for argv in [
+            vec!["workdeck", "patch", "-", "--watch"],
+            vec!["workdeck", "patch", "--watch"],
+            vec!["workdeck", "pager", "--watch"],
+            vec!["workdeck", "diff", "--watch", "--agent-context", "-"],
+        ] {
+            let parsed = Args::try_parse_from(argv).unwrap();
+            let error = validate_review_watch_input(parsed.command.as_ref().unwrap()).unwrap_err();
+            assert!(error.to_string().contains("Workdeck can reopen"));
+        }
+
+        for argv in [
+            vec!["workdeck", "patch", "review.patch", "--watch"],
+            vec!["workdeck", "diff", "--watch"],
+            vec!["workdeck", "patch", "-", "--no-watch"],
+        ] {
+            let parsed = Args::try_parse_from(argv).unwrap();
+            validate_review_watch_input(parsed.command.as_ref().unwrap()).unwrap();
+        }
+
+        let parsed = Args::try_parse_from(["workdeck", "patch", "-", "--watch"]).unwrap();
+        let mut prepared = PreparedPipedInput {
+            text: "diff --git a/a b/a\n".into(),
+            terminal: None,
+        };
+        assert!(validate_review_watch_input(parsed.command.as_ref().unwrap()).is_err());
+        assert!(prepared.terminal.is_none());
+        // Startup invokes terminal attachment only after the validation above succeeds.
+        assert!(should_open_controlling_terminal(
+            parsed.command.as_ref(),
+            &prepared.text,
+            false,
+            true,
+        ));
+        assert!(prepared.terminal.take().is_none());
+    }
+
+    #[test]
+    fn daemon_commands_are_classified_before_repository_startup() {
+        let overview = Args::try_parse_from([
+            "workdeck",
+            "--cwd",
+            "/definitely/missing/workdeck/daemon-root",
+            "daemon",
+        ])
+        .unwrap();
+        assert!(matches!(
+            overview.command,
+            Some(Command::Daemon { command: None })
+        ));
+        assert!(overview.command.as_ref().unwrap().is_global_command());
+
+        let serve = Args::try_parse_from(["workdeck", "daemon", "serve"]).unwrap();
+        assert!(matches!(
+            serve.command,
+            Some(Command::Daemon {
+                command: Some(DaemonCommand::Serve)
+            })
+        ));
+        assert!(serve.command.as_ref().unwrap().is_global_command());
+        let session = Args::try_parse_from([
+            "workdeck",
+            "--cwd",
+            "/definitely/missing/workdeck/session-root",
+            "session",
+            "list",
+        ])
+        .unwrap();
+        assert!(matches!(session.command, Some(Command::Session { .. })));
+        assert!(session.command.as_ref().unwrap().is_global_command());
+        assert!(DAEMON_OVERVIEW.contains("Usage: workdeck daemon <subcommand>"));
+        assert!(DAEMON_OVERVIEW.contains("workdeck daemon serve"));
+        assert!(DAEMON_OVERVIEW.contains("workdeck daemon status [--json]"));
+        assert!(DAEMON_OVERVIEW.contains("workdeck daemon restart [--yes]"));
+        assert!(DAEMON_OVERVIEW.contains("WORKDECK_MCP_PORT"));
+    }
+
+    #[test]
+    fn daemon_control_subcommands_parse_their_flags() {
+        let status = Args::try_parse_from(["workdeck", "daemon", "status"]).unwrap();
+        assert!(matches!(
+            status.command,
+            Some(Command::Daemon {
+                command: Some(DaemonCommand::Status { json: false })
+            })
+        ));
+        let status_json = Args::try_parse_from(["workdeck", "daemon", "status", "--json"]).unwrap();
+        assert!(matches!(
+            status_json.command,
+            Some(Command::Daemon {
+                command: Some(DaemonCommand::Status { json: true })
+            })
+        ));
+        let restart =
+            Args::try_parse_from(["workdeck", "daemon", "restart", "--yes", "--json"]).unwrap();
+        assert!(matches!(
+            restart.command,
+            Some(Command::Daemon {
+                command: Some(DaemonCommand::Restart {
+                    yes: true,
+                    json: true
+                })
+            })
+        ));
+        assert!(restart.command.as_ref().unwrap().is_global_command());
+        // The flags stay per-subcommand: `--yes` belongs to restart alone.
+        assert!(
+            Args::try_parse_from(["workdeck", "daemon", "status", "--yes"]).is_err(),
+            "`--yes` is a `daemon restart` flag only"
+        );
+        assert!(Args::try_parse_from(["workdeck", "daemon", "restart", "--bogus"]).is_err());
+    }
+
+    #[test]
+    fn daemon_control_runs_without_a_repository() {
+        // The daemon control commands must not require a Git checkout; they act on the
+        // process table and the daemon origin alone.
+        for argv in [
+            vec!["workdeck", "daemon", "status"],
+            vec!["workdeck", "daemon", "restart", "--yes"],
+        ] {
+            let parsed = Args::try_parse_from(argv).unwrap();
+            assert!(parsed.command.as_ref().unwrap().is_global_command());
+        }
+    }
+
+    #[test]
+    fn frozen_hunk_startup_headless_oracle_maps_both_pins() {
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/startup-headless.json"
+        ))
+        .unwrap();
+        let baselines = oracle["baselines"].as_array().unwrap();
+        assert_eq!(baselines.len(), 2);
+        assert_eq!(
+            baselines[0]["mapped_source_interval"],
+            serde_json::json!({
+                "byte_start": 11416,
+                "byte_end": 12850,
+                "line_start": 306,
+                "line_end": 366,
+            })
+        );
+        assert_eq!(
+            baselines[0]["mapped_test_interval"],
+            serde_json::json!({
+                "byte_start": 6379,
+                "byte_end": 7912,
+                "line_start": 188,
+                "line_end": 239,
+            })
+        );
+        assert_eq!(baselines[0]["mapped_tests"], 3);
+        assert_eq!(baselines[1]["mapped_tests_present"], 3);
+        assert_eq!(oracle["test_mapping"].as_array().unwrap().len(), 3);
+        assert_eq!(
+            oracle["expected"]["headless_before_repository_discovery"],
+            serde_json::json!([
+                "help",
+                "daemon-serve",
+                "session-command",
+                "markup-render",
+                "markup-guide",
+                "extension-manage",
+                "self-update",
+            ])
+        );
+        assert_eq!(oracle["expected"]["daemon_executable"], "workdeck");
+        assert_eq!(
+            oracle["expected"]["daemon_arguments"],
+            serde_json::json!(["daemon", "serve"])
+        );
+        assert_eq!(
+            oracle["expected"]["command_signal_ownership_revocable"],
+            true
+        );
+    }
+
+    #[test]
+    fn auto_theme_is_probed_before_startup_and_concrete_themes_are_not() {
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/startup-theme.json"
+        ))
+        .unwrap();
+        let expected = &oracle["expected"]["auto_theme"];
+        let mut input = FakeStartupThemeInput::with_response("\x1b]11;rgb:1111/2222/3333\x1b\\");
+        let mut output = Vec::new();
+        let detected = probe_initial_theme_mode(
+            None,
+            true,
+            Some(&mut input),
+            &mut output,
+            Duration::from_millis(20),
+        )
+        .unwrap();
+        assert_eq!(detected, Some(TerminalThemeMode::Dark));
+        assert_eq!(expected["detected_mode"], "dark");
+        assert_eq!(
+            output,
+            expected["osc_11_query"].as_str().unwrap().as_bytes()
+        );
+        assert_eq!(input.raw_transitions, [true, false]);
+
+        let mut concrete = FakeStartupThemeInput::with_response("\x1b]11;#ffffff\x07");
+        let mut concrete_output = Vec::new();
+        assert_eq!(
+            probe_initial_theme_mode(
+                Some("github-dark-default"),
+                true,
+                Some(&mut concrete),
+                &mut concrete_output,
+                Duration::from_millis(20),
+            )
+            .unwrap(),
+            None
+        );
+        assert!(concrete_output.is_empty());
+        assert!(concrete.raw_transitions.is_empty());
+
+        let mut non_terminal = FakeStartupThemeInput::with_response("\x1b]11;#ffffff\x07");
+        assert_eq!(
+            probe_initial_theme_mode(
+                Some("auto"),
+                false,
+                Some(&mut non_terminal),
+                &mut Vec::new(),
+                Duration::from_millis(20),
+            )
+            .unwrap(),
+            None
+        );
+        assert_eq!(
+            probe_initial_theme_mode::<FakeStartupThemeInput, Vec<u8>>(
+                Some("auto"),
+                true,
+                None,
+                &mut Vec::new(),
+                Duration::from_millis(20),
+            )
+            .unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn extensions_load_before_changesets_and_disabled_startup_executes_none() {
+        struct RetirementProbe(std::rc::Rc<std::cell::Cell<u8>>);
+
+        impl Drop for RetirementProbe {
+            fn drop(&mut self) {
+                self.0.set(self.0.get() + 1);
+            }
+        }
+
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/startup-extensions.json"
+        ))
+        .unwrap();
+        let order = std::cell::RefCell::new(Vec::new());
+        let (extensions, changeset) = load_extensions_before_changeset(
+            || {
+                order.borrow_mut().push("extensions");
+                Ok("prepared")
+            },
+            || {
+                order.borrow_mut().push("changeset");
+                Ok("loaded")
+            },
+        )
+        .unwrap();
+        assert_eq!(extensions, "prepared");
+        assert_eq!(changeset, "loaded");
+        assert_eq!(
+            serde_json::to_value(order.into_inner()).unwrap(),
+            oracle["expected"]["startup_order"]
+        );
+
+        let changeset_requested = std::cell::Cell::new(false);
+        let extension_error = load_extensions_before_changeset(
+            || Err::<(), _>(anyhow::anyhow!("extension startup failed")),
+            || {
+                changeset_requested.set(true);
+                Ok(())
+            },
+        )
+        .unwrap_err();
+        assert_eq!(extension_error.to_string(), "extension startup failed");
+        assert!(!changeset_requested.get());
+
+        let retired = std::rc::Rc::new(std::cell::Cell::new(0));
+        let changeset_error = load_extensions_before_changeset(
+            || Ok(RetirementProbe(retired.clone())),
+            || Err::<(), _>(anyhow::anyhow!("changeset failed")),
+        )
+        .err()
+        .unwrap();
+        assert_eq!(changeset_error.to_string(), "changeset failed");
+        assert_eq!(retired.get(), 1);
+
+        let directory = tempfile::tempdir().unwrap();
+        let mut review = ReviewCliOptions {
+            no_extensions: true,
+            extension: vec![directory.path().join("must-not-run")],
+            startup_notices: vec![StartupNotice::new("config", "config")],
+            ..ReviewCliOptions::default()
+        };
+        let raw_review = review.clone();
+        let prepared = load_review_extensions_with_notifications(
+            directory.path(),
+            &mut review,
+            &raw_review,
+            ExtensionNotificationHub::new(),
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(prepared.extensions.is_empty());
+        assert!(prepared.application_notices.is_empty());
+        assert!(prepared.load_notices.is_empty());
+        assert_eq!(prepared.configured_notices, review.startup_notices);
+        assert_eq!(
+            !review.no_extensions,
+            oracle["expected"]["disabled_extension_request"]
+                .as_bool()
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn distinct_provisional_guards_close_each_owned_load_exactly_once() {
+        let first = create_empty_extension_load_result("/repo", ExtensionNotificationHub::new());
+        let first_control = first.control.clone();
+        let second =
+            create_empty_extension_load_result("/recognized", ExtensionNotificationHub::new());
+        let second_control = second.control.clone();
+        {
+            let _first = ProvisionalReviewExtensionLoad::new(first);
+            let _second = ProvisionalReviewExtensionLoad::new(second);
+        }
+        assert_eq!(
+            first_control.phase(),
+            workdeck_extension_host::ExtensionEventBusPhase::Closed
+        );
+        assert_eq!(
+            second_control.phase(),
+            workdeck_extension_host::ExtensionEventBusPhase::Closed
+        );
+    }
+
+    #[cfg(unix)]
+    fn install_external_vcs_test_extension(root: &Path, repo: &Path) -> (PathBuf, PathBuf) {
+        use std::os::unix::fs::PermissionsExt;
+
+        let extension = root.join("custom-vcs");
+        std::fs::create_dir_all(&extension).unwrap();
+        let factory_log = extension.join("factory.log");
+        let executable = extension.join("custom-vcs.sh");
+        let quoted_repo = serde_json::to_string(&repo.to_string_lossy()).unwrap();
+        let quoted_log = serde_json::to_string(&factory_log.to_string_lossy()).unwrap();
+        let script = format!(
+            concat!(
+                "#!/bin/sh\n",
+                "factory_log={quoted_log}\n",
+                "printf 'factory\\n' >> \"$factory_log\"\n",
+                "while IFS= read -r line; do\n",
+                "  request_id=$(printf '%s\\n' \"$line\" | sed -E 's/.*\"id\":([0-9]+).*/\\1/')\n",
+                "  case \"$line\" in\n",
+                "    *workdeck/handshake*) result='{{\"extension_api_version\":1,\"extension_version\":\"1.0.0\",\"registrations\":[{{\"kind\":\"vcs-adapter\",\"id\":\"custom\",\"name\":\"Custom VCS\",\"operations\":{{\"working-tree-diff\":{{\"watchSignature\":false,\"watchPlan\":false}}}},\"detectionPriority\":50}},{{\"kind\":\"cli-command\",\"name\":\"tools\",\"summary\":\"Tools\"}},{{\"kind\":\"changeset-transform\",\"id\":\"rewrite-title\"}},{{\"kind\":\"file-language\",\"matcher\":{{\"kind\":\"filename\",\"value\":\"ReplacementWorkdeckfile\"}},\"language\":\"ruby\"}},{{\"kind\":\"event-subscription\",\"names\":[\"shutdown\"]}}]}}' ;;\n",
+                "    *workdeck/vcs/detect*) result='{{\"id\":\"custom\",\"repoRoot\":{quoted_repo}}}' ;;\n",
+                "    *workdeck/vcs/load*) result='{{\"repoRoot\":{quoted_repo},\"sourceLabel\":{quoted_repo},\"title\":\"Custom working copy\",\"patchText\":\"\",\"readFileSource\":false}}' ;;\n",
+                "    *workdeck/cli/invoke*) result='{{\"result\":{{\"kind\":\"exit\",\"code\":6}},\"stdin_read_started\":false,\"stdin_consumed\":false}}' ;;\n",
+                "    *workdeck/changeset/transform*) result='{{\"changeset\":{{\"id\":\"changeset:test\",\"sourceLabel\":\"test\",\"title\":\"after\",\"files\":[]}}}}' ;;\n",
+                "    *workdeck/shutdown*) printf 'shutdown\\n' >> \"$factory_log\"; exit 0 ;;\n",
+                "    *) continue ;;\n",
+                "  esac\n",
+                "  printf '{{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":%s}}\\n' \"$request_id\" \"$result\"\n",
+                "done\n",
+            ),
+            quoted_log = quoted_log,
+            quoted_repo = quoted_repo,
+        );
+        std::fs::write(&executable, script).unwrap();
+        let mut permissions = std::fs::metadata(&executable).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&executable, permissions).unwrap();
+        let manifest = extension.join("workdeck-extension.toml");
+        std::fs::write(
+            &manifest,
+            concat!(
+                "id = 'custom-vcs'\n",
+                "name = 'Custom VCS'\n",
+                "version = '1.0.0'\n",
+                "api_version = 1\n",
+                "executable = 'custom-vcs.sh'\n",
+                "capabilities = ['vcs-adapters', 'cli-commands', 'changeset-transforms', 'file-languages', 'events']\n",
+            ),
+        )
+        .unwrap();
+        (manifest, factory_log)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn external_vcs_reresolves_repo_config_without_restarting_the_factory() {
+        let directory = tempfile::tempdir().unwrap();
+        let repo = directory.path().join("repo");
+        let nested = repo.join("src/nested");
+        std::fs::create_dir_all(repo.join(".custom")).unwrap();
+        std::fs::create_dir_all(&nested).unwrap();
+        let repo = repo.canonicalize().unwrap();
+        let nested = nested.canonicalize().unwrap();
+        let (manifest, factory_log) = install_external_vcs_test_extension(directory.path(), &repo);
+        let repo_config = directory.path().join("resolved-repo-config.toml");
+        std::fs::write(
+            &repo_config,
+            "[review]\nmode = 'stack'\nexclude_untracked = true\n",
+        )
+        .unwrap();
+
+        let raw_review = ReviewCliOptions {
+            extension: vec![manifest],
+            ..ReviewCliOptions::default()
+        };
+        let mut review = raw_review.clone();
+        review.apply_config_defaults(&Config::default());
+        review.initial_theme_mode = Some(TerminalThemeMode::Light);
+        let resolved_roots = std::cell::RefCell::new(vec![None]);
+        let mut prepared = load_review_extensions_with_config_loader(
+            &nested,
+            &mut review,
+            &raw_review,
+            ExtensionNotificationHub::new(),
+            None,
+            None,
+            |root| {
+                resolved_roots.borrow_mut().push(Some(root.to_owned()));
+                Config::load_from_paths(&repo_config, None)
+            },
+        )
+        .unwrap();
+
+        assert_eq!(resolved_roots.into_inner(), [None, Some(repo.clone())]);
+        assert!(matches!(review.mode, Some(ReviewLayoutArg::Stack)));
+        assert!(review.config_exclude_untracked);
+        assert_eq!(review.initial_theme_mode, Some(TerminalThemeMode::Light));
+        assert_eq!(std::fs::read_to_string(&factory_log).unwrap(), "factory\n");
+
+        let catalog = compose_review_vcs_catalog(&prepared.extensions);
+        let selection = select_review_vcs_adapter(&nested, None, &catalog).unwrap();
+        assert_eq!(selection.adapter.id, "custom");
+        let input = VcsReviewInput::Diff(VcsDiffCommandInput {
+            range: None,
+            range_endpoints: None,
+            staged: false,
+            pathspecs: Vec::new(),
+            options: review.common_options(),
+        });
+        let loaded =
+            load_selected_vcs_changeset(&nested, &selection.adapter, &catalog, &input).unwrap();
+        assert_eq!(loaded.repo_root, repo);
+        assert_eq!(loaded.changeset.title, "Custom working copy");
+
+        for extension in &mut prepared.extensions {
+            extension.retire();
+        }
+        assert_eq!(
+            std::fs::read_to_string(factory_log).unwrap(),
+            "factory\nshutdown\n"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn delegated_extension_cli_load_is_reused_by_both_review_bootstrap_passes() {
+        let directory = tempfile::tempdir().unwrap();
+        let repo = directory.path().join("repo");
+        let nested = repo.join("src/nested");
+        std::fs::create_dir_all(repo.join(".custom")).unwrap();
+        std::fs::create_dir_all(&nested).unwrap();
+        let repo = repo.canonicalize().unwrap();
+        let nested = nested.canonicalize().unwrap();
+        let (manifest, factory_log) = install_external_vcs_test_extension(directory.path(), &repo);
+        let raw_review = ReviewCliOptions {
+            extension: vec![manifest],
+            ..ReviewCliOptions::default()
+        };
+        let mut review = raw_review.clone();
+        review.apply_config_defaults(&Config::default());
+        let notifications = ExtensionNotificationHub::new();
+
+        let previous =
+            load_review_extension_pass(&nested, &review, notifications.clone(), None, None, true)
+                .unwrap();
+        assert_eq!(std::fs::read_to_string(&factory_log).unwrap(), "factory\n");
+        let mut prepared = load_review_extensions_with_config_loader(
+            &nested,
+            &mut review,
+            &raw_review,
+            notifications,
+            Some(previous),
+            None,
+            |_| Ok(Config::default()),
+        )
+        .unwrap();
+
+        assert_eq!(std::fs::read_to_string(&factory_log).unwrap(), "factory\n");
+        let catalog = compose_review_vcs_catalog(&prepared.extensions);
+        assert_eq!(
+            select_review_vcs_adapter(&nested, None, &catalog)
+                .unwrap()
+                .adapter
+                .id,
+            "custom"
+        );
+        for extension in &mut prepared.extensions {
+            extension.retire();
+        }
+        assert_eq!(
+            std::fs::read_to_string(factory_log).unwrap(),
+            "factory\nshutdown\n"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn extension_cli_bootstrap_refines_root_reuses_prefix_and_defers_event_bus() {
+        let directory = tempfile::tempdir().unwrap();
+        let repo = directory.path().join("repo");
+        let nested = repo.join("src/nested");
+        std::fs::create_dir_all(repo.join(".custom")).unwrap();
+        std::fs::create_dir_all(&nested).unwrap();
+        let repo = repo.canonicalize().unwrap();
+        let nested = nested.canonicalize().unwrap();
+        let (manifest, factory_log) = install_external_vcs_test_extension(directory.path(), &repo);
+
+        let mut bootstrap = load_cli_extensions(&nested, &[manifest], false).unwrap();
+        assert_eq!(std::fs::read_to_string(&factory_log).unwrap(), "factory\n");
+        assert_eq!(
+            find_project_root_candidate_with_catalog(&nested, Some(&bootstrap.discovery_catalog)),
+            Some(repo)
+        );
+        let registered = registered_extension_cli_commands(&bootstrap.load().extensions);
+        let commands = resolve_extension_cli_commands(&registered);
+        assert_eq!(
+            find_extension_cli_command("tools", &commands).map(|owner| owner.extension_id.as_str()),
+            Some("custom-vcs")
+        );
+        assert!(commands.collisions.is_empty());
+        assert!(bootstrap.load().issues.is_empty());
+        assert_eq!(
+            bootstrap.load().control.phase(),
+            workdeck_extension_host::ExtensionEventBusPhase::Loading
+        );
+        assert!(bootstrap.load().bind_event_bus());
+        assert_eq!(
+            bootstrap.load().control.phase(),
+            workdeck_extension_host::ExtensionEventBusPhase::Ready
+        );
+
+        bootstrap.load_mut().retire();
+        assert_eq!(
+            std::fs::read_to_string(factory_log).unwrap(),
+            "factory\nshutdown\n"
+        );
+    }
+
+    #[test]
+    fn extension_cli_bootstrap_reports_command_collision_without_load_failure() {
+        let load = create_empty_extension_load_result("/repo", ExtensionNotificationHub::new());
+        let registered = [
+            RegisteredExtensionCliCommand {
+                extension_index: 0,
+                extension_id: "first".into(),
+                source_path: PathBuf::from("/first.rs"),
+                origin: "config".into(),
+                command: workdeck_extension_api::CliCommandRegistration {
+                    name: "tools".into(),
+                    summary: "first".into(),
+                    usage: None,
+                },
+            },
+            RegisteredExtensionCliCommand {
+                extension_index: 1,
+                extension_id: "second".into(),
+                source_path: PathBuf::from("/second.rs"),
+                origin: "config".into(),
+                command: workdeck_extension_api::CliCommandRegistration {
+                    name: "tools".into(),
+                    summary: "second".into(),
+                    usage: None,
+                },
+            },
+        ];
+
+        let commands = resolve_extension_cli_commands(&registered);
+        let collision_issues =
+            create_extension_cli_collision_issues(&registered, &commands.collisions);
+        assert_eq!(
+            find_extension_cli_command("tools", &commands).map(|owner| owner.extension_id.as_str()),
+            Some("first")
+        );
+        assert_eq!(collision_issues[0].extension_id, "second");
+        assert!(load.issues.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn extension_cli_exit_retires_the_preloaded_registry_before_returning() {
+        let directory = tempfile::tempdir().unwrap();
+        let repo = directory.path().join("repo");
+        std::fs::create_dir_all(repo.join(".custom")).unwrap();
+        let repo = repo.canonicalize().unwrap();
+        let (manifest, factory_log) = install_external_vcs_test_extension(directory.path(), &repo);
+
+        let error =
+            handle_extension_cli_command(&repo, &[manifest], false, "tools", &["status".into()])
+                .unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<CommandExit>().map(|exit| exit.0),
+            Some(6)
+        );
+        assert_eq!(
+            std::fs::read_to_string(factory_log).unwrap(),
+            "factory\nshutdown\n"
+        );
+    }
+
+    #[test]
+    fn disabled_extension_cli_command_is_rejected_before_config_or_discovery() {
+        let error = handle_extension_cli_command(
+            Path::new("/definitely/missing/workdeck/startup-root"),
+            &[],
+            true,
+            "tools",
+            &[],
+        )
+        .unwrap_err();
+        assert_eq!(error.to_string(), "Unknown command: tools");
+    }
+
+    #[test]
+    fn unknown_extension_cli_command_lists_loaded_command_usage() {
+        let registered = [RegisteredExtensionCliCommand {
+            extension_index: 0,
+            extension_id: "tools".into(),
+            source_path: PathBuf::from("/tools.rs"),
+            origin: "flag".into(),
+            command: workdeck_extension_api::CliCommandRegistration {
+                name: "tools".into(),
+                summary: "Demonstrate workflows".into(),
+                usage: Some("<status|review>".into()),
+            },
+        }];
+        let resolved = resolve_extension_cli_commands(&registered);
+        let load = create_empty_extension_load_result("/repo", ExtensionNotificationHub::new());
+
+        assert_eq!(
+            unknown_extension_cli_command_message("toolz", &resolved, &load),
+            concat!(
+                "Unknown command: toolz\n",
+                "Extension commands available here:\n",
+                "workdeck tools <status|review> — Demonstrate workflows"
+            )
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn dropping_startup_owned_extensions_retires_before_a_headless_handoff() {
+        let directory = tempfile::tempdir().unwrap();
+        let repo = directory.path().join("repo");
+        std::fs::create_dir_all(repo.join(".custom")).unwrap();
+        let repo = repo.canonicalize().unwrap();
+        let (manifest, factory_log) = install_external_vcs_test_extension(directory.path(), &repo);
+
+        let bootstrap = load_cli_extensions(&repo, &[manifest], false).unwrap();
+        assert_eq!(std::fs::read_to_string(&factory_log).unwrap(), "factory\n");
+        drop(bootstrap);
+        assert_eq!(
+            std::fs::read_to_string(factory_log).unwrap(),
+            "factory\nshutdown\n"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn configured_session_bootstrap_applies_extensions_and_all_session_fields_before_handoff() {
+        let directory = tempfile::tempdir().unwrap();
+        let repo = directory.path().join("repo");
+        let nested = repo.join("src/nested");
+        std::fs::create_dir_all(repo.join(".custom")).unwrap();
+        std::fs::create_dir_all(&nested).unwrap();
+        let repo = repo.canonicalize().unwrap();
+        let nested = nested.canonicalize().unwrap();
+        let (manifest, factory_log) = install_external_vcs_test_extension(directory.path(), &repo);
+        let raw_review = ReviewCliOptions {
+            extension: vec![manifest],
+            ..ReviewCliOptions::default()
+        };
+        let mut review = raw_review.clone();
+        review.apply_config_defaults(&Config::default());
+        let mut prepared =
+            prepare_review_extensions(&nested, &mut review, &raw_review, None, None).unwrap();
+        prepared.vcs_catalog = Some(compose_review_vcs_catalog(&prepared.extensions));
+        review.initial_theme_mode = Some(TerminalThemeMode::Dark);
+        review.keybindings = vec![UserKeyBindingEntry::new(
+            "workdeck.review.nextHunk",
+            workdeck_tui::UserKeyBinding::Chord("]".into()),
+        )];
+        review.view_preferences_config_path = Some(PathBuf::from("/tmp/workdeck-config.toml"));
+        review.view_preferences_write_policy =
+            workdeck_core::ViewPreferenceWritePolicy::LegacyReadOnly;
+        let input = CliInput::Vcs(VcsDiffCommandInput {
+            range: None,
+            range_endpoints: None,
+            staged: false,
+            pathspecs: Vec::new(),
+            options: review.common_options(),
+        });
+        let changeset = Changeset {
+            id: "changeset:test".into(),
+            source_label: "test".into(),
+            title: "before".into(),
+            summary: None,
+            agent_summary: None,
+            source: ChangesetSource::WorkingTree { staged: false },
+            files: Vec::new(),
+        };
+
+        let mut bootstrap = prepare_app_bootstrap(
+            &nested,
+            Some(repo),
+            changeset,
+            &review,
+            input.clone(),
+            None,
+            prepared,
+        )
+        .unwrap();
+        assert_eq!(bootstrap.input, input);
+        assert_eq!(bootstrap.changeset.title, "after");
+        assert_eq!(bootstrap.initial_theme_mode, Some(TerminalThemeMode::Dark));
+        assert_eq!(bootstrap.keybindings, review.keybindings);
+        assert_eq!(
+            bootstrap.view_preferences_config_path.as_deref(),
+            Some(Path::new("/tmp/workdeck-config.toml"))
+        );
+        assert_eq!(
+            bootstrap.view_preferences_write_policy,
+            workdeck_core::ViewPreferenceWritePolicy::LegacyReadOnly
+        );
+        assert_eq!(
+            review.tui_options().view_preferences_write_policy,
+            workdeck_core::ViewPreferenceWritePolicy::LegacyReadOnly
+        );
+        let prepared = bootstrap.extensions.as_mut().unwrap();
+        assert_eq!(prepared.extensions[0].manifest.id, "custom-vcs");
+        for extension in &mut prepared.extensions {
+            extension.retire();
+        }
+        assert_eq!(
+            std::fs::read_to_string(factory_log).unwrap(),
+            "factory\nshutdown\n"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn failed_session_bootstrap_cannot_mutate_the_active_file_language_registry() {
+        let directory = tempfile::tempdir().unwrap();
+        let repo = directory.path().join("repo");
+        std::fs::create_dir_all(repo.join(".custom")).unwrap();
+        let repo = repo.canonicalize().unwrap();
+        let (manifest, _) = install_external_vcs_test_extension(directory.path(), &repo);
+        let mut bootstrap = load_cli_extensions(&repo, &[manifest], false).unwrap();
+        let mut active = LanguageRegistry::default();
+        active.replace_extensions(vec![LanguageRegistration {
+            matcher: LanguageMatcher::Filename("CurrentWorkdeckfile".into()),
+            language: "python".into(),
+            reserved: false,
+        }]);
+
+        let attempt: Result<()> = (|| {
+            let provisional = build_review_language_registry(&bootstrap.load().extensions);
+            assert_eq!(
+                provisional.language_for_path("ReplacementWorkdeckfile"),
+                "ruby"
+            );
+            bail!("load failed")
+        })();
+        assert_eq!(attempt.unwrap_err().to_string(), "load failed");
+        assert_eq!(active.language_for_path("CurrentWorkdeckfile"), "python");
+        assert_eq!(active.language_for_path("ReplacementWorkdeckfile"), "text");
+
+        bootstrap.load_mut().retire();
+    }
+
+    #[test]
+    fn frozen_hunk_session_bootstrap_oracle_maps_both_pins_and_every_source_test() {
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/session-bootstrap.json"
+        ))
+        .unwrap();
+        let baselines = oracle["baselines"].as_array().unwrap();
+        assert_eq!(baselines.len(), 2);
+        assert_eq!(
+            baselines[0]["source_blob"],
+            "eb36b7ed7d63a4dda9621b637b821078a29ee481"
+        );
+        assert_eq!(baselines[0]["source_bytes"], 4_033);
+        assert_eq!(
+            baselines[0]["test_blob"],
+            "cad35584f7c86a24065396e26c122402b6142a1b"
+        );
+        assert_eq!(baselines[0]["test_bytes"], 3_604);
+        assert_eq!(baselines[0]["passed"], 2);
+        assert_eq!(baselines[0]["expect_calls"], 10);
+        assert_eq!(
+            baselines[1]["source_blob"],
+            "2c998dbedaac98efca7f580b6d9505e4862e065e"
+        );
+        assert_eq!(baselines[1]["source_bytes"], 3_475);
+        assert_eq!(
+            baselines[1]["test_blob"],
+            "06035ce98002460368ffe50ecfe8cd16cd3a617a"
+        );
+        assert_eq!(baselines[1]["test_bytes"], 2_371);
+        assert_eq!(baselines[1]["passed"], 1);
+        assert_eq!(baselines[1]["expect_calls"], 6);
+        assert_eq!(oracle["test_mapping"].as_array().unwrap().len(), 2);
+        assert_eq!(oracle["expected"]["transformed_title"], "after");
+        assert_eq!(
+            oracle["expected"]["rust_file_language_rollback_mechanism"],
+            "session-local registry discarded before commit"
+        );
+    }
+
+    #[test]
+    fn frozen_hunk_extension_cli_bootstrap_oracle_maps_every_source_test() {
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/extension-cli-bootstrap.json"
+        ))
+        .unwrap();
+        let baselines = oracle["baselines"].as_array().unwrap();
+        assert_eq!(baselines.len(), 2);
+        assert_eq!(baselines[0]["status"], "present");
+        assert_eq!(
+            baselines[0]["source_blob"],
+            "862209d23e2781e2219e6baf02cf2071cba6c6c0"
+        );
+        assert_eq!(baselines[0]["source_bytes"], 4_307);
+        assert_eq!(
+            baselines[0]["test_blob"],
+            "484208371fd642479b7bb14e9175a1e62a0c70b5"
+        );
+        assert_eq!(baselines[0]["test_bytes"], 3_228);
+        assert_eq!(baselines[0]["passed"], 2);
+        assert_eq!(baselines[0]["failed"], 0);
+        assert_eq!(baselines[0]["expect_calls"], 7);
+        assert_eq!(baselines[1]["status"], "absent");
+        let mappings = oracle["test_mapping"].as_array().unwrap();
+        assert_eq!(mappings.len(), 2);
+        assert!(mappings.iter().all(|mapping| {
+            mapping["source_test"]
+                .as_str()
+                .is_some_and(|name| !name.is_empty())
+                && mapping["rust_tests"]
+                    .as_array()
+                    .is_some_and(|tests| !tests.is_empty())
+        }));
+    }
+
+    #[test]
+    fn frozen_hunk_startup_extension_cli_oracle_maps_the_baseline_prefix() {
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/startup-extension-cli.json"
+        ))
+        .unwrap();
+        let baselines = oracle["baselines"].as_array().unwrap();
+        assert_eq!(baselines.len(), 2);
+        assert_eq!(
+            baselines[0]["source_blob"],
+            "79c05c50e63fa4f533fbb1c7b3c3868913750386"
+        );
+        assert_eq!(baselines[0]["source_bytes"], 20_884);
+        assert_eq!(baselines[0]["mapped_source_interval"]["byte_start"], 4_323);
+        assert_eq!(baselines[0]["mapped_source_interval"]["byte_end"], 11_416);
+        assert_eq!(
+            baselines[0]["test_blob"],
+            "2a346bcb5cbebd34376663bb79c832f9d25fc44f"
+        );
+        assert_eq!(baselines[0]["test_bytes"], 26_836);
+        assert_eq!(baselines[0]["mapped_test_interval"]["byte_end"], 6_379);
+        assert_eq!(baselines[0]["suite_passed"], 25);
+        assert_eq!(baselines[0]["suite_failed"], 0);
+        assert_eq!(baselines[0]["suite_expect_calls"], 58);
+        assert_eq!(baselines[0]["mapped_tests"], 4);
+        assert_eq!(
+            baselines[1]["source_blob"],
+            "672a2f7966498e616cddab940ca07757b1e393c2"
+        );
+        assert_eq!(baselines[1]["source_bytes"], 13_344);
+        assert_eq!(
+            baselines[1]["test_blob"],
+            "6084991177e681b6e28b3dc328a3d0aa58ea12c2"
+        );
+        assert_eq!(baselines[1]["test_bytes"], 20_777);
+        assert_eq!(baselines[1]["mapped_feature_status"], "absent");
+        assert_eq!(oracle["test_mapping"].as_array().unwrap().len(), 4);
+        assert_eq!(oracle["expected"]["nonzero_extension_exit_code"], 6);
+        assert_eq!(
+            oracle["expected"]["delegate_reuses_loaded_extensions"],
+            true
+        );
+        assert_eq!(
+            oracle["expected"]["unknown_command_lists_loaded_usage"],
+            "workdeck tools <status|review> — Demonstrate workflows"
+        );
+    }
+
+    #[test]
+    fn frozen_hunk_startup_watch_oracle_maps_native_preflight() {
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/startup-watch.json"
+        ))
+        .unwrap();
+        let baselines = oracle["baselines"].as_array().unwrap();
+        assert_eq!(baselines.len(), 2);
+        assert_eq!(
+            baselines[0]["mapped_source_interval"],
+            serde_json::json!({
+                "byte_start": 16030,
+                "byte_end": 16470,
+                "line_start": 466,
+                "line_end": 478,
+            })
+        );
+        assert_eq!(
+            baselines[0]["mapped_test_interval"],
+            serde_json::json!({
+                "byte_start": 17285,
+                "byte_end": 18865,
+                "line_start": 522,
+                "line_end": 570,
+            })
+        );
+        assert_eq!(baselines[0]["mapped_tests"], 2);
+        assert_eq!(baselines[1]["stdin_watch_test_present"], true);
+        assert_eq!(baselines[1]["bun_deadlock_test_present"], false);
+        assert_eq!(oracle["test_mapping"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            oracle["expected"]["startup_order"],
+            serde_json::json!([
+                "resolve-configured-input",
+                "assert-native-watch-runtime",
+                "validate-reloadability",
+                "attach-controlling-terminal",
+                "load-extensions",
+                "load-changeset",
+            ])
+        );
+        assert_eq!(
+            oracle["expected"]["native_runtime_requires_external_upgrade"],
+            false
+        );
+    }
+
+    #[test]
+    fn frozen_hunk_extension_bootstrap_oracle_covers_both_pins_and_every_source_test() {
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/extension-bootstrap.json"
+        ))
+        .unwrap();
+        let baselines = oracle["baselines"].as_array().unwrap();
+        assert_eq!(baselines.len(), 2);
+        assert_eq!(
+            baselines
+                .iter()
+                .map(|baseline| baseline["commit"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            [
+                "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+                "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"
+            ]
+        );
+        assert!(baselines.iter().all(|baseline| {
+            baseline["test_blob"] == "692d87fa76d60a3e8a6093a0c17b70aacd5d65f2"
+                && baseline["vcs_test_blob"] == "099b2e0d1176fa0b76d87d379043b8d31b028504"
+                && baseline["passed"] == 4
+                && baseline["failed"] == 0
+                && baseline["expect_calls"] == 18
+        }));
+        assert_eq!(
+            baselines[0]["source_blob"],
+            "15adc2d84ebeffe07641a238b8b7e39fc9318fb8"
+        );
+        assert_eq!(baselines[0]["source_bytes"], 5_662);
+        assert_eq!(
+            baselines[1]["source_blob"],
+            "1a10fc5023e29cf6e32a642b06a3f1f31ad2c72b"
+        );
+        assert_eq!(baselines[1]["source_bytes"], 5_232);
+        assert_eq!(oracle["test_mapping"].as_array().unwrap().len(), 4);
+        assert!(
+            oracle["test_mapping"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|mapping| {
+                    mapping["source_test"]
+                        .as_str()
+                        .is_some_and(|name| !name.is_empty())
+                        && mapping["rust_tests"]
+                            .as_array()
+                            .is_some_and(|tests| !tests.is_empty())
+                })
+        );
+        assert_eq!(
+            oracle["expected"]["configuration_roots"],
+            serde_json::json!([null, "external-repository"])
+        );
+        assert_eq!(oracle["expected"]["factory_starts"], 1);
+        assert_eq!(oracle["expected"]["preloaded_factory_starts"], 1);
+        assert_eq!(oracle["expected"]["final_vcs"], "custom");
+        assert_eq!(oracle["expected"]["final_title"], "Custom working copy");
+    }
+
+    #[test]
+    fn extension_theme_catalog_and_startup_notice_order_match_both_pins() {
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/startup-extensions.json"
+        ))
+        .unwrap();
+        let config_themes = [NamedCustomThemeConfig {
+            id: "ocean".into(),
+            accent: Some("#123456".into()),
+            ..NamedCustomThemeConfig::default()
+        }];
+        let extension_themes = [
+            RegisteredCustomTheme::new(
+                "pack",
+                serde_json::json!({"id": "ocean", "accent": "#654321"}),
+            ),
+            RegisteredCustomTheme::new(
+                "pack",
+                serde_json::json!({"id": "sunset", "accent": "#abcdef"}),
+            ),
+            RegisteredCustomTheme::new("pack", serde_json::json!({"id": "Bad Id"})),
+        ];
+        let themes = collect_session_custom_themes(&config_themes, &extension_themes);
+        assert_eq!(
+            serde_json::to_value(&themes.themes).unwrap(),
+            oracle["expected"]["theme_catalog"]
+        );
+        assert_eq!(
+            themes
+                .notices
+                .iter()
+                .map(|notice| notice.message.as_str())
+                .collect::<Vec<_>>(),
+            oracle["expected"]["theme_notices"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|message| message.as_str().unwrap())
+                .collect::<Vec<_>>()
+        );
+
+        let mut prepared = PreparedReviewExtensions {
+            extensions: Vec::new(),
+            notifications: ExtensionNotificationHub::new(),
+            pending_trust_repo_root: None,
+            configured_notices: vec![StartupNotice::new("config", "config")],
+            application_notices: vec![StartupNotice::new("apply", "apply")],
+            unknown_vcs_notices: vec![StartupNotice::new("unknown-vcs", "unknown-vcs")],
+            load_notices: vec![StartupNotice::new("load", "load")],
+            vcs_catalog: None,
+        };
+        let notices =
+            take_review_startup_notices(&mut prepared, vec![StartupNotice::new("theme", "theme")]);
+        assert_eq!(
+            serde_json::to_value(
+                notices
+                    .iter()
+                    .map(|notice| notice.key.as_str())
+                    .collect::<Vec<_>>()
+            )
+            .unwrap(),
+            oracle["expected"]["startup_notice_order"]
+        );
+    }
+
+    #[test]
+    fn common_options_preserve_the_resolved_review_input_for_native_reload() {
+        let options = ReviewCliOptions {
+            vcs: Some("jj".into()),
+            mode: Some(ReviewLayoutArg::Split),
+            watch: true,
+            pager: true,
+            no_line_numbers: true,
+            tab_width: Some(8),
+            cursor_line: Some(CursorLineArg::Number),
+            wrap: true,
+            no_hunk_headers: true,
+            no_sidebar: true,
+            agent_notes: true,
+            file_gap: Some(3),
+            hunk_gap: Some(2),
+            transparent_background: true,
+            agent_context: Some(PathBuf::from("notes.json")),
+            theme: Some("nord".into()),
+            extension: vec![PathBuf::from("review-extension")],
+            color_moved: Some(false),
+            ..ReviewCliOptions::default()
+        };
+
+        let common = options.common_options();
+        assert_eq!(common.mode, Some(InputLayoutMode::Split));
+        assert_eq!(common.cursor_line, Some(InputCursorLine::Number));
+        assert_eq!(common.vcs.as_deref(), Some("jj"));
+        assert_eq!(common.theme.as_deref(), Some("nord"));
+        assert_eq!(common.agent_context.as_deref(), Some("notes.json"));
+        assert_eq!(common.pager, Some(true));
+        assert_eq!(common.watch, Some(true));
+        assert_eq!(common.line_numbers, Some(false));
+        assert_eq!(common.tab_width, Some(8));
+        assert_eq!(common.file_gap, Some(3));
+        assert_eq!(common.hunk_gap, Some(2));
+        assert_eq!(common.wrap_lines, Some(true));
+        assert_eq!(common.hunk_headers, Some(false));
+        assert_eq!(common.sidebar, Some(SidebarVisibility::Hidden));
+        assert_eq!(common.agent_notes, Some(true));
+        assert_eq!(common.transparent_background, Some(true));
+        assert_eq!(common.color_moved, Some(false));
+        assert_eq!(common.extensions, Some(true));
+        assert_eq!(common.extension_paths, ["review-extension"]);
+    }
+
+    #[test]
+    fn automatic_vcs_and_explicit_disable_flags_keep_provider_neutral_defaults() {
+        let options = ReviewCliOptions {
+            vcs: Some("auto".into()),
+            no_watch: true,
+            no_extensions: true,
+            ..ReviewCliOptions::default()
+        };
+        let common = options.common_options();
+        assert_eq!(common.vcs, None);
+        assert_eq!(common.watch, Some(false));
+        assert_eq!(common.extensions, Some(false));
+    }
+
+    #[test]
+    fn custom_native_vcs_ids_are_not_rejected_by_cli_parsing() {
+        let parsed =
+            Args::try_parse_from(["workdeck", "diff", "--vcs", "fossil-tools", "--no-watch"])
+                .unwrap();
+        let Some(Command::Diff { review, .. }) = parsed.command else {
+            panic!("expected diff command");
+        };
+        assert_eq!(review.configured_vcs_id(), Some("fossil-tools"));
+        assert_eq!(review.preference(), ProviderPreference::Auto);
+        assert_eq!(review.common_options().vcs.as_deref(), Some("fossil-tools"));
+    }
+
+    #[test]
+    fn native_extension_theme_fields_enter_the_provider_neutral_catalog() {
+        let registration = workdeck_extension_api::ThemeRegistration {
+            id: "midnight-review".into(),
+            base: Some("graphite".into()),
+            colors: BTreeMap::from([
+                ("accent".into(), "#ABCDEF".into()),
+                ("panelAlt".into(), "#123456".into()),
+            ]),
+        };
+        let registered = registered_custom_theme("paint.review", &registration);
+        let resolved = collect_session_custom_themes(&[], &[registered]);
+
+        assert!(resolved.notices.is_empty());
+        assert_eq!(
+            serde_json::to_value(&resolved.themes).unwrap(),
+            serde_json::json!([{
+                "id": "midnight-review",
+                "base": "github-dark-default",
+                "accent": "#abcdef",
+                "panelAlt": "#123456",
+            }])
+        );
+    }
+
+    #[test]
+    fn direct_file_mode_is_explicit_and_two_positionals_remain_revisions() {
+        let parsed = Args::try_parse_from([
+            "workdeck",
+            "diff",
+            "--files",
+            "before.rs",
+            "after.rs",
+            "--mode",
+            "stack",
+        ])
+        .unwrap();
+        let Some(Command::Diff {
+            files,
+            revisions,
+            review,
+            ..
+        }) = parsed.command
+        else {
+            panic!("expected diff command");
+        };
+        assert_eq!(
+            files,
+            [PathBuf::from("before.rs"), PathBuf::from("after.rs")]
+        );
+        assert!(revisions.is_empty());
+        assert!(matches!(review.mode, Some(ReviewLayoutArg::Stack)));
+
+        let parsed = Args::try_parse_from(["workdeck", "diff", "before.rs", "after.rs"]).unwrap();
+        assert!(matches!(
+            parsed.command,
+            Some(Command::Diff { revisions, files, .. })
+                if revisions == ["before.rs", "after.rs"] && files.is_empty()
+        ));
+    }
+
+    #[test]
+    fn direct_file_mode_rejects_malformed_and_mixed_forms() {
+        let message = "exactly two file paths";
+        for (files, revisions, staged, pathspecs) in [
+            (vec!["one"], vec![], false, vec![]),
+            (vec!["one", "two", "three"], vec![], false, vec![]),
+            (vec!["one", "two"], vec![], true, vec![]),
+            (vec!["one", "two"], vec!["target"], false, vec![]),
+            (vec!["one", "two"], vec![], false, vec!["src"]),
+        ] {
+            let files = files.into_iter().map(PathBuf::from).collect::<Vec<_>>();
+            let revisions = revisions.into_iter().map(str::to_owned).collect::<Vec<_>>();
+            let pathspecs = pathspecs.into_iter().map(str::to_owned).collect::<Vec<_>>();
+            assert!(
+                validate_diff_file_arguments(&files, &revisions, staged, &pathspecs)
+                    .unwrap_err()
+                    .to_string()
+                    .contains(message)
+            );
+        }
+    }
+
+    #[test]
+    fn watch_signature_is_captured_before_direct_file_content_changes() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(directory.path().join("before.rs"), "before\n").unwrap();
+        std::fs::write(directory.path().join("after.rs"), "after\n").unwrap();
+        let review = ReviewCliOptions {
+            watch: true,
+            ..ReviewCliOptions::default()
+        };
+        let input = CliInput::Files(FileCommandInput {
+            left: "before.rs".into(),
+            right: "after.rs".into(),
+            options: review.common_options(),
+        });
+
+        let captured =
+            capture_initial_watch_signature(&review, &input, directory.path(), None).unwrap();
+        std::fs::write(directory.path().join("after.rs"), "changed and longer\n").unwrap();
+        let after = compute_watch_signature(
+            &input,
+            WatchSignatureContext {
+                cwd: directory.path(),
+                vcs_catalog: None,
+            },
+        )
+        .unwrap();
+
+        assert_ne!(captured, after);
+        let stdin_patch = CliInput::Patch(PatchCommandInput {
+            file: None,
+            text: None,
+            options: review.common_options(),
+        });
+        assert!(
+            capture_initial_watch_signature(&review, &stdin_patch, directory.path(), None)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn configured_review_defaults_match_the_pinned_main_bootstrap_oracle() {
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/loader-bootstrap.json"
+        ))
+        .unwrap();
+        let expected = &oracle["baselines"][0]["view_defaults"];
+        let config = Config::default();
+        let review = ReviewCliOptions::from_config(&config);
+        let common = review.common_options();
+        let tui = review.tui_options();
+        let actual = serde_json::json!({
+            "mode": "auto",
+            "theme": review.theme,
+            "lineNumbers": tui.line_numbers,
+            "tabWidth": tui.tab_width,
+            "fileGap": tui.file_gap,
+            "hunkGap": tui.hunk_gap,
+            "wrapLines": tui.wrap_lines,
+            "hunkHeaders": tui.hunk_headers,
+            "menuBar": tui.show_menu_bar,
+            "sidebar": "auto",
+            "agentNotes": tui.agent_notes,
+            "copyDecorations": tui.copy_decorations,
+            "cursorLine": "row",
+        });
+
+        assert_eq!(actual, *expected);
+        assert_eq!(common.menu_bar, Some(true));
+        assert_eq!(common.copy_decorations, Some(false));
+        assert_eq!(common.sidebar, Some(SidebarVisibility::Auto));
+
+        let mut configured = Config::default();
+        configured.review.menu_bar = false;
+        configured.review.copy_decorations = true;
+        configured.review.sidebar = workdeck_cli::config::ReviewSidebar::Hide;
+        let configured_review = ReviewCliOptions::from_config(&configured);
+        assert_eq!(
+            configured_review.common_options().sidebar,
+            Some(SidebarVisibility::Hidden)
+        );
+        let configured_tui = configured_review.tui_options();
+        assert!(!configured_tui.show_menu_bar);
+        assert!(configured_tui.copy_decorations);
+        assert!(!configured_tui.sidebar);
+    }
+
+    #[test]
+    fn review_configuration_uses_command_and_pager_context() {
+        let cases: &[(&[&str], Option<&str>, bool)] = &[
+            (&["workdeck", "diff"], Some("vcs"), false),
+            (
+                &["workdeck", "diff", "--files", "before", "after"],
+                Some("diff"),
+                false,
+            ),
+            (&["workdeck", "show"], Some("show"), false),
+            (&["workdeck", "stash", "show"], Some("stash-show"), false),
+            (&["workdeck", "patch"], Some("patch"), false),
+            (
+                &["workdeck", "difftool", "before", "after"],
+                Some("difftool"),
+                false,
+            ),
+            (&["workdeck", "pager"], Some("patch"), true),
+            (&["workdeck", "show", "--pager"], Some("show"), true),
+        ];
+        for (arguments, section, pager) in cases {
+            let parsed = Args::try_parse_from(*arguments).unwrap();
+            let command = parsed.command.unwrap();
+            assert_eq!(command.review_config_section(), *section, "{arguments:?}");
+            assert_eq!(
+                command.is_pager_review_with_stdin(true),
+                *pager,
+                "{arguments:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn redirected_patch_stdin_selects_pager_configuration_before_terminal_attachment() {
+        for arguments in [vec!["workdeck", "patch"], vec!["workdeck", "patch", "-"]] {
+            let command = Args::try_parse_from(arguments).unwrap().command.unwrap();
+            assert!(command.is_pager_review_with_stdin(false));
+            assert!(!command.is_pager_review_with_stdin(true));
+        }
+        let command = Args::try_parse_from(["workdeck", "patch", "input.patch"])
+            .unwrap()
+            .command
+            .unwrap();
+        assert!(!command.is_pager_review_with_stdin(false));
+    }
+
+    #[test]
+    fn config_and_cli_precedence_matches_the_pinned_patch_pager_case() {
+        let directory = tempfile::tempdir().unwrap();
+        let user_config = directory.path().join("user.toml");
+        let repo_config = directory.path().join("repo.toml");
+        std::fs::write(
+            &user_config,
+            concat!(
+                "theme = 'github-dark-default'\n",
+                "line_numbers = false\n",
+                "tab_width = 8\n",
+                "transparentBackground = true\n",
+                "color_moved = true\n",
+                "prompt_save_view_preferences = false\n",
+                "[patch]\nmode = 'split'\n",
+                "[pager]\nmode = 'stack'\n",
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            &repo_config,
+            concat!(
+                "theme = 'github-light-default'\n",
+                "wrap_lines = true\n",
+                "menu_bar = false\n",
+                "[pager]\nhunk_headers = false\n",
+            ),
+        )
+        .unwrap();
+        let config = Config::load_from_paths_for_review(
+            &repo_config,
+            Some(&user_config),
+            Some("patch"),
+            true,
+        )
+        .unwrap();
+        let parsed = Args::try_parse_from([
+            "workdeck",
+            "patch",
+            "-",
+            "--pager",
+            "--agent-notes",
+            "--tab-width",
+            "6",
+        ])
+        .unwrap();
+        let Some(Command::Patch { mut review, .. }) = parsed.command else {
+            panic!("expected patch command");
+        };
+        review.apply_config_defaults(&config);
+        let options = review.common_options();
+
+        assert_eq!(options.pager, Some(true));
+        assert_eq!(options.mode, Some(InputLayoutMode::Stack));
+        assert_eq!(options.theme.as_deref(), Some("github-light-default"));
+        assert_eq!(options.line_numbers, Some(false));
+        assert_eq!(options.tab_width, Some(6));
+        assert_eq!(options.wrap_lines, Some(true));
+        assert_eq!(options.menu_bar, Some(false));
+        assert_eq!(options.hunk_headers, Some(false));
+        assert_eq!(options.agent_notes, Some(true));
+        assert_eq!(options.prompt_save_view_preferences, Some(false));
+        assert_eq!(options.transparent_background, Some(true));
+        assert_eq!(options.color_moved, Some(true));
+    }
+
+    #[test]
+    fn launch_only_flags_and_explicit_scalar_flags_outrank_config() {
+        let directory = tempfile::tempdir().unwrap();
+        let user_config = directory.path().join("user.toml");
+        let repo_config = directory.path().join("missing.toml");
+        std::fs::write(
+            &user_config,
+            concat!(
+                "fast = true\n",
+                "experimental = true\n",
+                "cursor_line = 'number'\n",
+                "watch = true\n",
+                "sidebar = false\n",
+                "transparent_background = true\n",
+                "exclude_untracked = true\n",
+            ),
+        )
+        .unwrap();
+        let config = Config::load_from_paths_for_review(
+            &repo_config,
+            Some(&user_config),
+            Some("vcs"),
+            false,
+        )
+        .unwrap();
+        let parsed = Args::try_parse_from([
+            "workdeck",
+            "--fast",
+            "--experimental",
+            "diff",
+            "--cursor-line",
+            "off",
+            "--no-watch",
+            "--sidebar",
+            "--opaque-bg",
+            "--include-untracked",
+        ])
+        .unwrap();
+        let Some(Command::Diff {
+            exclude_untracked,
+            include_untracked,
+            mut review,
+            ..
+        }) = parsed.command
+        else {
+            panic!("expected diff command");
+        };
+        assert!(!review.fast);
+        assert!(!review.experimental);
+        review.fast = parsed.fast;
+        review.experimental = parsed.experimental;
+        review.apply_config_defaults(&config);
+        let options = review.common_options();
+        assert_eq!(options.fast, Some(true));
+        assert_eq!(options.experimental, Some(true));
+        assert_eq!(options.cursor_line, Some(InputCursorLine::Off));
+        assert_eq!(options.watch, Some(false));
+        assert_eq!(options.sidebar, Some(SidebarVisibility::Visible));
+        assert_eq!(options.transparent_background, Some(false));
+        assert!(include_untracked);
+        assert!(review.config_exclude_untracked);
+        let resolved_exclude =
+            !include_untracked && (exclude_untracked || review.config_exclude_untracked);
+        assert!(!resolved_exclude);
+    }
+
+    #[test]
+    fn bundled_vcs_detection_and_explicit_override_match_config_resolution() {
+        let directory = tempfile::tempdir().unwrap();
+        let jj_repo = directory.path().join("jj");
+        let colocated = directory.path().join("colocated");
+        let parent_jj = directory.path().join("parent-jj");
+        let nested_git = parent_jj.join("git-project");
+        let plain = directory.path().join("plain");
+        for path in [&jj_repo, &colocated, &nested_git, &plain] {
+            std::fs::create_dir_all(path).unwrap();
+        }
+        std::fs::create_dir(jj_repo.join(".jj")).unwrap();
+        std::fs::create_dir(colocated.join(".jj")).unwrap();
+        std::fs::create_dir(colocated.join(".git")).unwrap();
+        std::fs::create_dir(parent_jj.join(".jj")).unwrap();
+        std::fs::create_dir(nested_git.join(".git")).unwrap();
+
+        let detected = |path: &Path| {
+            select_review_vcs_adapter(path, None, bundled_vcs_catalog())
+                .unwrap()
+                .adapter
+                .id
+        };
+        assert_eq!(detected(&jj_repo), "jj");
+        assert_eq!(detected(&colocated), "jj");
+        assert_eq!(detected(&nested_git), "git");
+        assert_eq!(detected(&plain), "git");
+
+        let repo_config = jj_repo.join("config.toml");
+        std::fs::write(&repo_config, "vcs = 'git'\n").unwrap();
+        let config = Config::load_from_paths(&repo_config, None).unwrap();
+        let review = ReviewCliOptions::from_config(&config);
+        assert_eq!(review.configured_vcs_id(), Some("git"));
+        assert_eq!(
+            select_review_vcs_adapter(&jj_repo, review.configured_vcs_id(), bundled_vcs_catalog(),)
+                .unwrap()
+                .adapter
+                .id,
+            "git"
+        );
+    }
+
+    #[test]
+    fn fallback_vcs_is_detected_while_configured_vcs_remains_explicit() {
+        let default_review = ReviewCliOptions::from_config(&Config::default());
+        assert_eq!(default_review.configured_vcs_id(), None);
+        assert_eq!(default_review.preference(), ProviderPreference::Auto);
+
+        let mut configured = Config::default();
+        configured.review.vcs = "hg".into();
+        configured.explicit_vcs_id = Some("hg".into());
+        let configured_review = ReviewCliOptions::from_config(&configured);
+        assert_eq!(configured_review.configured_vcs_id(), Some("hg"));
+        assert_eq!(configured_review.preference(), ProviderPreference::Auto);
+    }
+
+    #[test]
+    fn composed_bootstrap_crosses_the_core_boundary_with_exact_initial_state() {
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/loader-bootstrap.json"
+        ))
+        .unwrap();
+        let config = Config::default();
+        let mut review = ReviewCliOptions::from_config(&config);
+        review.initial_theme_mode = Some(TerminalThemeMode::Light);
+        let input = CliInput::Patch(PatchCommandInput {
+            file: Some("nested/input.patch".into()),
+            text: None,
+            options: review.common_options(),
+        });
+        let changeset = parse_patch_input(
+            "--- a/a.txt\n+++ b/a.txt\n@@ -1,1 +1,1 @@\n-old\n+new\n",
+            "nested/input.patch",
+        )
+        .unwrap();
+        let bootstrap = build_app_bootstrap(
+            Path::new("/repo/subdir"),
+            Some(PathBuf::from("/repo")),
+            changeset,
+            &review,
+            input.clone(),
+            Some("initial-signature".into()),
+            PreparedReviewExtensions {
+                extensions: Vec::new(),
+                notifications: ExtensionNotificationHub::new(),
+                pending_trust_repo_root: None,
+                configured_notices: vec![StartupNotice::new("fixture", "notice")],
+                application_notices: Vec::new(),
+                unknown_vcs_notices: Vec::new(),
+                load_notices: Vec::new(),
+                vcs_catalog: Some(bundled_vcs_catalog().clone()),
+            },
+        );
+        let actual = serde_json::json!({
+            "mode": match bootstrap.initial_mode {
+                InputLayoutMode::Auto => "auto",
+                InputLayoutMode::Split => "split",
+                InputLayoutMode::Stack => "stack",
+            },
+            "theme": bootstrap.initial_theme,
+            "lineNumbers": bootstrap.initial_show_line_numbers,
+            "tabWidth": bootstrap.initial_tab_width,
+            "fileGap": bootstrap.initial_file_gap,
+            "hunkGap": bootstrap.initial_hunk_gap,
+            "wrapLines": bootstrap.initial_wrap_lines,
+            "hunkHeaders": bootstrap.initial_show_hunk_headers,
+            "menuBar": bootstrap.initial_show_menu_bar,
+            "sidebar": match bootstrap.initial_sidebar {
+                SidebarVisibility::Auto => serde_json::Value::String("auto".into()),
+                SidebarVisibility::Visible => serde_json::Value::Bool(true),
+                SidebarVisibility::Hidden => serde_json::Value::Bool(false),
+            },
+            "agentNotes": bootstrap.initial_show_agent_notes,
+            "copyDecorations": bootstrap.initial_copy_decorations,
+            "cursorLine": match bootstrap.initial_cursor_line {
+                InputCursorLine::Row => "row",
+                InputCursorLine::Number => "number",
+                InputCursorLine::Off => "off",
+            },
+        });
+
+        assert_eq!(actual, oracle["baselines"][0]["view_defaults"]);
+        assert_eq!(bootstrap.initial_theme_mode, Some(TerminalThemeMode::Light));
+        assert_eq!(bootstrap.input, input);
+        assert_eq!(bootstrap.reload_context.cwd, Path::new("/repo/subdir"));
+        assert_eq!(
+            bootstrap.reload_context.repo_root.as_deref(),
+            Some(Path::new("/repo"))
+        );
+        assert_eq!(
+            bootstrap.reload_context.initial_watch_signature.as_deref(),
+            Some("initial-signature")
+        );
+        assert!(bootstrap.reload_context.vcs_catalog.is_some());
+        assert_eq!(bootstrap.startup_notices[0].key, "fixture");
+        let startup_oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/startup-extensions.json"
+        ))
+        .unwrap();
+        assert_eq!(
+            bootstrap.extensions.is_some(),
+            startup_oracle["expected"]["bootstrap_owns_extensions"]
+                .as_bool()
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn composed_bootstrap_carries_config_themes_and_view_preference_destination() {
+        let directory = tempfile::tempdir().unwrap();
+        let user_config = directory.path().join("config.toml");
+        std::fs::write(
+            &user_config,
+            concat!(
+                "[ui]\ntheme = 'custom'\n",
+                "[custom_theme]\nbase = 'catppuccin-mocha'\naccent = '#7755aa'\n",
+                "[custom_theme.syntax_scopes]\ncomment = '#998877'\n",
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            directory.path().join("before.ts"),
+            "export const alpha = 1;\n",
+        )
+        .unwrap();
+        std::fs::write(
+            directory.path().join("after.ts"),
+            "export const alpha = 2;\n",
+        )
+        .unwrap();
+        let config = Config::load_from_paths(
+            &directory.path().join("missing-repo-config.toml"),
+            Some(&user_config),
+        )
+        .unwrap();
+        let review = ReviewCliOptions::from_config(&config);
+        let input = CliInput::Files(FileCommandInput {
+            left: "before.ts".into(),
+            right: "after.ts".into(),
+            options: review.common_options(),
+        });
+        let changeset = load_file_comparison(
+            directory.path(),
+            Path::new("before.ts"),
+            Path::new("after.ts"),
+        )
+        .unwrap();
+        let bootstrap = build_app_bootstrap(
+            directory.path(),
+            None,
+            changeset,
+            &review,
+            input,
+            None,
+            PreparedReviewExtensions {
+                extensions: Vec::new(),
+                notifications: ExtensionNotificationHub::new(),
+                pending_trust_repo_root: None,
+                configured_notices: Vec::new(),
+                application_notices: Vec::new(),
+                unknown_vcs_notices: Vec::new(),
+                load_notices: Vec::new(),
+                vcs_catalog: None,
+            },
+        );
+
+        assert_eq!(bootstrap.initial_theme.as_deref(), Some("custom"));
+        assert_eq!(
+            serde_json::to_value(&bootstrap.custom_themes).unwrap(),
+            serde_json::json!([{
+                "id": "custom",
+                "base": "catppuccin-mocha",
+                "accent": "#7755aa",
+                "syntaxScopes": { "comment": "#998877" },
+            }]),
+        );
+        assert_eq!(
+            bootstrap.view_preferences_config_path.as_deref(),
+            Some(user_config.as_path())
+        );
+    }
+
+    #[test]
+    fn prepared_direct_file_bootstrap_applies_relative_agent_context_before_handoff() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(
+            directory.path().join("before.ts"),
+            "export const answer = 41;\n",
+        )
+        .unwrap();
+        std::fs::write(
+            directory.path().join("after.ts"),
+            "export const answer = 42;\nexport const bonus = true;\n",
+        )
+        .unwrap();
+        std::fs::write(
+            directory.path().join("agent.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "summary": "Agent added the bonus export.",
+                "files": [{
+                    "path": "after.ts",
+                    "annotations": [{
+                        "newRange": [2, 2],
+                        "summary": "Introduces the bonus flag."
+                    }]
+                }]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let review = ReviewCliOptions {
+            agent_context: Some(PathBuf::from("agent.json")),
+            ..ReviewCliOptions::from_config(&Config::default())
+        };
+        let input = CliInput::Files(FileCommandInput {
+            left: "before.ts".into(),
+            right: "after.ts".into(),
+            options: review.common_options(),
+        });
+        let changeset = load_file_comparison(
+            directory.path(),
+            Path::new("before.ts"),
+            Path::new("after.ts"),
+        )
+        .unwrap();
+        let bootstrap = prepare_app_bootstrap(
+            directory.path(),
+            None,
+            changeset,
+            &review,
+            input,
+            None,
+            PreparedReviewExtensions {
+                extensions: Vec::new(),
+                notifications: ExtensionNotificationHub::new(),
+                pending_trust_repo_root: None,
+                configured_notices: Vec::new(),
+                application_notices: Vec::new(),
+                unknown_vcs_notices: Vec::new(),
+                load_notices: Vec::new(),
+                vcs_catalog: None,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            bootstrap.changeset.agent_summary.as_deref(),
+            Some("Agent added the bonus export.")
+        );
+        assert_eq!(
+            bootstrap.changeset.files[0]
+                .agent
+                .as_ref()
+                .unwrap()
+                .annotations[0]
+                .summary,
+            "Introduces the bonus flag."
+        );
+    }
+
+    #[test]
+    fn dynamic_loader_reopens_each_file_backed_shape_at_the_validated_cwd() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(directory.path().join("before.rs"), "fn value() { 1 }\n").unwrap();
+        std::fs::write(directory.path().join("after.rs"), "fn value() { 2 }\n").unwrap();
+        std::fs::write(
+            directory.path().join("agent.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "files": [{
+                    "path": "after.rs",
+                    "annotations": [{"newRange": [1, 1], "summary": "Changed value"}]
+                }]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let files = CliInput::Files(FileCommandInput {
+            left: "before.rs".into(),
+            right: "after.rs".into(),
+            options: CommonOptions {
+                agent_context: Some("agent.json".into()),
+                ..CommonOptions::default()
+            },
+        });
+        let loaded = load_dynamic_review_input(&files, directory.path(), None, &[]).unwrap();
+        assert_eq!(loaded.changeset.files[0].path, "after.rs");
+        assert_eq!(
+            loaded.changeset.files[0]
+                .agent
+                .as_ref()
+                .unwrap()
+                .annotations[0]
+                .summary,
+            "Changed value"
+        );
+
+        let patch_text =
+            "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old\n+new\n";
+        std::fs::write(directory.path().join("review.patch"), patch_text).unwrap();
+        let patch = CliInput::Patch(PatchCommandInput {
+            file: Some("review.patch".into()),
+            text: None,
+            options: CommonOptions::default(),
+        });
+        assert_eq!(
+            load_dynamic_review_input(&patch, directory.path(), None, &[])
+                .unwrap()
+                .changeset
+                .files[0]
+                .path,
+            "a.rs"
+        );
+        let inline = CliInput::Patch(PatchCommandInput {
+            file: None,
+            text: Some(patch_text.into()),
+            options: CommonOptions::default(),
+        });
+        assert_eq!(
+            load_dynamic_review_input(&inline, directory.path(), None, &[])
+                .unwrap()
+                .changeset
+                .files[0]
+                .path,
+            "a.rs"
+        );
+    }
+
+    #[test]
+    fn dynamic_loader_refreshes_a_changed_agent_sidecar_on_the_next_load() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(
+            directory.path().join("before.ts"),
+            "export const answer = 41;\n",
+        )
+        .unwrap();
+        std::fs::write(
+            directory.path().join("after.ts"),
+            "export const answer = 42;\n",
+        )
+        .unwrap();
+        let sidecar = directory.path().join("agent.json");
+        std::fs::write(&sidecar, r#"{"version":1,"files":[]}"#).unwrap();
+        let input = CliInput::Files(FileCommandInput {
+            left: "before.ts".into(),
+            right: "after.ts".into(),
+            options: CommonOptions {
+                agent_context: Some("agent.json".into()),
+                watch: Some(true),
+                agent_notes: Some(true),
+                ..CommonOptions::default()
+            },
+        });
+        let initial = load_dynamic_review_input(&input, directory.path(), None, &[]).unwrap();
+        assert!(initial.changeset.files[0].agent.is_none());
+
+        std::fs::write(
+            &sidecar,
+            serde_json::to_vec(&serde_json::json!({
+                "version": 1,
+                "files": [{
+                    "path": "after.ts",
+                    "annotations": [{
+                        "newRange": [1, 1],
+                        "summary": "Watch rationale updated"
+                    }]
+                }]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let refreshed = load_dynamic_review_input(&input, directory.path(), None, &[]).unwrap();
+        assert_eq!(
+            refreshed.changeset.files[0]
+                .agent
+                .as_ref()
+                .unwrap()
+                .annotations[0]
+                .summary,
+            "Watch rationale updated"
+        );
+    }
+
+    fn changeset_contains_line(changeset: &Changeset, needle: &str) -> bool {
+        changeset
+            .files
+            .iter()
+            .flat_map(|file| &file.hunks)
+            .any(|hunk| hunk.lines.iter().any(|line| line.content.contains(needle)))
+    }
+
+    #[test]
+    fn dynamic_loader_reopens_a_changed_file_pair() {
+        let files = tempfile::tempdir().unwrap();
+        std::fs::write(
+            files.path().join("before.ts"),
+            "export const answer = 41;\n",
+        )
+        .unwrap();
+        std::fs::write(
+            files.path().join("after.ts"),
+            "export const answer = 42;\nexport const first = true;\n",
+        )
+        .unwrap();
+        let file_input = CliInput::Files(FileCommandInput {
+            left: "before.ts".into(),
+            right: "after.ts".into(),
+            options: CommonOptions {
+                mode: Some(InputLayoutMode::Stack),
+                ..CommonOptions::default()
+            },
+        });
+        let initial = load_dynamic_review_input(&file_input, files.path(), None, &[]).unwrap();
+        assert!(changeset_contains_line(&initial.changeset, "first"));
+        std::fs::write(
+            files.path().join("after.ts"),
+            "export const answer = 42;\nexport const second = true;\n",
+        )
+        .unwrap();
+        let refreshed = load_dynamic_review_input(&file_input, files.path(), None, &[]).unwrap();
+        assert!(changeset_contains_line(&refreshed.changeset, "second"));
+        assert!(!changeset_contains_line(&refreshed.changeset, "first"));
+    }
+
+    #[test]
+    fn dynamic_loader_reopens_a_changed_git_worktree() {
+        let repo = tempfile::tempdir().unwrap();
+        let git = |arguments: &[&str]| {
+            let output = std::process::Command::new("git")
+                .args(arguments)
+                .current_dir(repo.path())
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "git {arguments:?}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+        git(&["init"]);
+        git(&["config", "user.email", "test@test"]);
+        git(&["config", "user.name", "test"]);
+        std::fs::write(repo.path().join("test.txt"), "original line\n").unwrap();
+        git(&["add", "test.txt"]);
+        git(&["commit", "-m", "init"]);
+        std::fs::write(
+            repo.path().join("test.txt"),
+            "original line\nfirst change\n",
+        )
+        .unwrap();
+        let vcs_input = CliInput::Vcs(VcsDiffCommandInput {
+            range: None,
+            range_endpoints: None,
+            staged: false,
+            pathspecs: Vec::new(),
+            options: CommonOptions {
+                mode: Some(InputLayoutMode::Stack),
+                vcs: Some("git".into()),
+                exclude_untracked: Some(true),
+                ..CommonOptions::default()
+            },
+        });
+        let initial = load_dynamic_review_input(&vcs_input, repo.path(), None, &[]).unwrap();
+        assert!(changeset_contains_line(&initial.changeset, "first change"));
+        std::fs::write(
+            repo.path().join("test.txt"),
+            "original line\nsecond change\n",
+        )
+        .unwrap();
+        let refreshed = load_dynamic_review_input(&vcs_input, repo.path(), None, &[]).unwrap();
+        assert!(changeset_contains_line(
+            &refreshed.changeset,
+            "second change"
+        ));
+        assert!(!changeset_contains_line(
+            &refreshed.changeset,
+            "first change"
+        ));
+    }
+
+    #[test]
+    fn dynamic_input_resolution_reapplies_repo_config_then_explicit_options() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::create_dir(directory.path().join(".git")).unwrap();
+        std::fs::create_dir_all(directory.path().join(".agents/workdeck")).unwrap();
+        std::fs::write(
+            directory.path().join(".agents/workdeck/config.toml"),
+            "[review]\nwrap_lines = true\nline_numbers = false\ntab_width = 7\n",
+        )
+        .unwrap();
+        let requested = CliInput::Files(FileCommandInput {
+            left: "before.rs".into(),
+            right: "after.rs".into(),
+            options: CommonOptions {
+                line_numbers: Some(true),
+                experimental: Some(false),
+                extensions: Some(false),
+                extension_paths: vec!["launch-extension".into()],
+                ..CommonOptions::default()
+            },
+        });
+
+        let resolved =
+            resolve_dynamic_review_input(&requested, directory.path(), bundled_vcs_catalog())
+                .unwrap();
+        assert_eq!(resolved.options().wrap_lines, Some(true));
+        assert_eq!(resolved.options().tab_width, Some(7));
+        assert_eq!(resolved.options().line_numbers, Some(true));
+        assert_eq!(resolved.options().experimental, Some(false));
+        assert_eq!(resolved.options().extensions, Some(false));
+        assert_eq!(resolved.options().extension_paths, ["launch-extension"]);
+    }
+
+    #[test]
+    fn dynamic_extension_reload_preserves_launch_disable_authority() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::create_dir(directory.path().join(".git")).unwrap();
+        std::fs::write(directory.path().join("before.rs"), "old\n").unwrap();
+        std::fs::write(directory.path().join("after.rs"), "new\n").unwrap();
+        let input = CliInput::Files(FileCommandInput {
+            left: "before.rs".into(),
+            right: "after.rs".into(),
+            options: CommonOptions {
+                extensions: Some(false),
+                extension_paths: vec!["must-not-be-executed".into()],
+                ..CommonOptions::default()
+            },
+        });
+
+        let loaded = load_dynamic_review_session(
+            &input,
+            directory.path(),
+            true,
+            bundled_vcs_catalog(),
+            &[],
+            &ExtensionNotificationHub::new(),
+        )
+        .unwrap();
+        assert!(loaded.replacement_extensions.as_ref().unwrap().is_empty());
+        assert!(loaded.replacement_vcs_catalog.is_some());
+        assert_eq!(loaded.input.options().extensions, Some(false));
+        assert_eq!(
+            loaded.input.options().extension_paths,
+            ["must-not-be-executed"]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn workbench_file_reload_rejects_symlinks_and_preserves_snapshot_sources() {
+        let directory = tempfile::tempdir().unwrap();
+        git2::Repository::init(directory.path()).unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("secret.rs"), "outside content\n").unwrap();
+        std::os::unix::fs::symlink(
+            outside.path().join("secret.rs"),
+            directory.path().join("link.rs"),
+        )
+        .unwrap();
+        let provider =
+            workdeck_cli::repository_panels::RepositoryPanels::new(directory.path(), None, 20)
+                .unwrap();
+        let input = |path: &str| {
+            CliInput::Files(FileCommandInput {
+                left: path.into(),
+                right: path.into(),
+                options: CommonOptions::default(),
+            })
+        };
+        assert!(
+            load_dynamic_review_input_with_workbench(
+                &input("link.rs"),
+                directory.path(),
+                None,
+                &[],
+                Some(&provider)
+            )
+            .is_err()
+        );
+        std::fs::write(
+            directory.path().join("main.rs"),
+            "fn captured_source() {}\n",
+        )
+        .unwrap();
+        let loaded = load_dynamic_review_input_with_workbench(
+            &input("main.rs"),
+            directory.path(),
+            None,
+            &[],
+            Some(&provider),
+        )
+        .unwrap();
+        assert!(format!("{:?}", loaded.changeset).contains("captured_source"));
+        assert!(!format!("{:?}", loaded.changeset).contains("outside content"));
+    }
+
+    #[test]
+    fn registered_checkout_file_reload_uses_the_selected_root_without_widening_the_original_provider()
+     {
+        use workdeck_pm::{Repository, RequestId, SourceSelector, registry::*};
+        use workdeck_tui::workbench::RepositoryPanelProvider;
+        let origin = tempfile::tempdir().unwrap();
+        let target = tempfile::tempdir().unwrap();
+        git2::Repository::init(origin.path()).unwrap();
+        git2::Repository::init(target.path()).unwrap();
+        let owner = Repository::init(origin.path(), "WD").unwrap();
+        Repository::init(target.path(), "WD").unwrap();
+        std::fs::write(origin.path().join("same.rs"), "original checkout source").unwrap();
+        std::fs::write(target.path().join("same.rs"), "registered checkout source").unwrap();
+        let provider =
+            workdeck_cli::repository_panels::RepositoryPanels::new(origin.path(), None, 20)
+                .unwrap();
+        let input = CliInput::Files(FileCommandInput {
+            left: "same.rs".into(),
+            right: "same.rs".into(),
+            options: CommonOptions::default(),
+        });
+        assert!(
+            load_dynamic_review_input_with_workbench(
+                &input,
+                target.path(),
+                None,
+                &[],
+                Some(&provider)
+            )
+            .is_err()
+        );
+        let registry = RegistryStore::open(&owner).unwrap();
+        let mapping =
+            inspect_checkout("secondary", target.path(), SourceSelector::WorkingTree).unwrap();
+        registry
+            .mutate(
+                &RegistryRequest {
+                    expected: registry.snapshot().unwrap().source,
+                    mutation: RegistryMutation::Register {
+                        checkout: mapping.clone(),
+                    },
+                },
+                &RequestId::new(),
+            )
+            .unwrap();
+        let loaded = load_dynamic_review_input_with_workbench(
+            &input,
+            target.path(),
+            None,
+            &[],
+            Some(&provider),
+        )
+        .unwrap();
+        assert!(format!("{:?}", loaded.changeset).contains("registered checkout source"));
+        assert!(!format!("{:?}", loaded.changeset).contains("original checkout source"));
+        assert_eq!(
+            loaded.host_options.repo_root,
+            Some(mapping.checkout.clone())
+        );
+        assert_eq!(
+            provider.source().root,
+            origin.path().canonicalize().unwrap()
+        );
+        assert!(
+            provider
+                .read_file_for_navigation(&mapping.checkout.join("same.rs"))
+                .is_err()
+        );
+        let navigation = loaded.host_options.registry_navigation.as_ref().unwrap();
+        assert_eq!(navigation.checkout(), &mapping);
+        assert_eq!(
+            loaded
+                .host_options
+                .repository_panels
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .source()
+                .root,
+            mapping.checkout
+        );
+        registry
+            .mutate(
+                &RegistryRequest {
+                    expected: registry.snapshot().unwrap().source,
+                    mutation: RegistryMutation::Remove {
+                        alias: mapping.alias,
+                    },
+                },
+                &RequestId::new(),
+            )
+            .unwrap();
+        assert!(
+            navigation.revalidate().is_err(),
+            "loaded navigation must carry the original registry guard to commit"
+        );
+    }
+
+    #[test]
+    fn workbench_nonfile_reload_preserves_unregistered_review_source_support() {
+        let origin = tempfile::tempdir().unwrap();
+        let target = tempfile::tempdir().unwrap();
+        git2::Repository::init(origin.path()).unwrap();
+        git2::Repository::init(target.path()).unwrap();
+        workdeck_pm::Repository::init(origin.path(), "WD").unwrap();
+        let provider =
+            workdeck_cli::repository_panels::RepositoryPanels::new(origin.path(), None, 20)
+                .unwrap();
+        let input = CliInput::Patch(workdeck_core::PatchCommandInput {
+            file: None,
+            text: Some("diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old\n+explicit review source\n".into()),
+            options: CommonOptions::default(),
+        });
+        let loaded = load_dynamic_review_input_with_workbench(
+            &input,
+            target.path(),
+            None,
+            &[],
+            Some(&provider),
+        )
+        .unwrap();
+        assert!(format!("{:?}", loaded.changeset).contains("explicit review source"));
+        assert!(loaded.host_options.registry_navigation.is_none());
+    }
+
+    #[test]
+    fn unknown_vcs_ids_fall_back_with_a_sanitized_startup_notice() {
+        let root = tempfile::tempdir().unwrap();
+        let selection = select_review_vcs_adapter(
+            root.path(),
+            Some("fossil\u{1b}[31m-tools"),
+            bundled_vcs_catalog(),
+        )
+        .unwrap();
+        assert_eq!(selection.adapter.id, "git");
+        let notice = selection.unknown_id_notice.unwrap();
+        assert_eq!(notice.key, "vcs:unknown:fossil\u{1b}[31m-tools");
+        assert!(notice.message.contains("Unknown vcs \"fossil-tools\""));
+        assert!(notice.message.contains("falling back to git"));
+        assert!(!notice.message.contains('\u{1b}'));
+    }
+
+    #[test]
+    fn adapter_patch_repo_root_overrides_built_in_discovery_for_the_session() {
+        let cwd = Path::new("/checkout/nested");
+        let adapter_root = Path::new("/extension/repository");
+        assert_eq!(
+            resolve_review_repo_root(cwd, ProviderPreference::Auto, Some(adapter_root)),
+            adapter_root
+        );
+    }
+
+    #[test]
+    fn user_command_bindings_flow_from_config_into_review_options() {
+        let config = Config {
+            keybindings: vec![UserKeyBindingEntry::new(
+                "workdeck.app.quit",
+                workdeck_tui::UserKeyBinding::Chord("ctrl+q".into()),
+            )],
+            keybinding_notices: vec!["ignored invalid binding".into()],
+            ..Config::default()
+        };
+
+        let review = ReviewCliOptions::from_config(&config);
+        let tui = review.tui_options();
+        assert_eq!(tui.keybindings, config.keybindings);
+        assert_eq!(tui.keybinding_notices, config.keybinding_notices);
+    }
+
+    #[test]
+    fn extension_configuration_flows_from_config_into_review_startup() {
+        let mut config = Config::default();
+        config.resolved_extensions.extension_configs.insert(
+            "example.review".into(),
+            serde_json::json!({ "threshold": 3 }),
+        );
+        config.resolved_extensions.enabled = false;
+        config.startup_notices.push(StartupNotice::new(
+            "extension:repo-config:example.review",
+            "Repo config overrides settings for extension(s): example.review",
+        ));
+
+        let review = ReviewCliOptions::from_config(&config);
+        assert_eq!(
+            review.extension_config["example.review"],
+            serde_json::json!({ "threshold": 3 })
+        );
+        assert!(review.no_extensions);
+        assert_eq!(review.startup_notices, config.startup_notices);
+        let oracle: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../port/hunk/oracles/config-extensions.json"
+        ))
+        .unwrap();
+        assert_eq!(
+            !review.no_extensions,
+            oracle["expected"]["precedence"]["hardOff"]
+                .as_bool()
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn explicit_no_extensions_remains_a_hard_off_after_enabled_config() {
+        let config = Config::default();
+        assert!(config.resolved_extensions.enabled);
+        let mut review = ReviewCliOptions {
+            no_extensions: true,
+            ..ReviewCliOptions::default()
+        };
+
+        review.apply_config_defaults(&config);
+
+        assert!(review.no_extensions);
+    }
+}
+
+#[cfg(test)]
+mod extension_cli_tests {
+    use super::*;
+
+    #[test]
+    fn unknown_top_level_tokens_retain_raw_args_for_native_extensions() {
+        let parsed = Args::try_parse_from([
+            "workdeck",
+            "--extension",
+            "./cli-tools",
+            "cli-tools",
+            "review",
+            "--mode",
+            "split",
+            "--",
+            "-leading",
+        ])
+        .unwrap();
+        assert_eq!(parsed.extension, [PathBuf::from("./cli-tools")]);
+        assert!(matches!(
+            parsed.command,
+            Some(Command::External(tokens))
+                if tokens == ["cli-tools", "review", "--mode", "split", "--", "-leading"]
+        ));
+    }
+
+    #[test]
+    fn global_extension_paths_apply_to_built_in_review_commands() {
+        let mut parsed = Args::try_parse_from([
+            "workdeck",
+            "diff",
+            "--extension",
+            "./one",
+            "--extension=./two",
+        ])
+        .unwrap();
+        let review = parsed
+            .command
+            .as_mut()
+            .and_then(Command::review_options_mut)
+            .unwrap();
+        review.extension.clone_from(&parsed.extension);
+        assert_eq!(
+            review.extension,
+            [PathBuf::from("./one"), PathBuf::from("./two")]
+        );
+    }
+
+    #[test]
+    fn invalid_and_duplicate_manifests_are_contained_before_process_start() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = ["first", "duplicate", "invalid"]
+            .map(|name| root.path().join(name).join("workdeck-extension.toml"));
+        for path in &paths {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        }
+        let valid = "id = 'example'\nname = 'Example'\nversion = '1.0.0'\napi_version = 1\nexecutable = 'example'\ncapabilities = []\n";
+        std::fs::write(&paths[0], valid).unwrap();
+        std::fs::write(&paths[1], valid).unwrap();
+        std::fs::write(&paths[2], "not valid = [").unwrap();
+
+        let candidates = paths
+            .iter()
+            .cloned()
+            .map(|path| workdeck_extension_host::ManifestCandidate {
+                path,
+                origin: workdeck_extension_host::ManifestOrigin::Explicit,
+            })
+            .collect::<Vec<_>>();
+        let prepared = workdeck_extension_host::prepare_extension_load(
+            workdeck_extension_host::LoadExtensionsOptions {
+                candidates: &candidates,
+                cwd: root.path(),
+                all_candidates: None,
+                previous_load: None,
+                host_version: "test",
+                extension_configs: &BTreeMap::new(),
+                notifications: None,
+                pending_trust_repo_root: None,
+            },
+        );
+        assert_eq!(prepared.accepted.len(), 1);
+        assert_eq!(prepared.accepted[0].manifest_path, paths[0]);
+        assert_eq!(prepared.result.issues.len(), 2);
+        assert!(
+            prepared
+                .result
+                .issues
+                .iter()
+                .any(|issue| issue.message.contains("already loaded"))
+        );
+        assert!(
+            prepared
+                .result
+                .issues
+                .iter()
+                .any(|issue| issue.message.contains("invalid extension manifest"))
+        );
+    }
+
+    #[test]
+    fn delegated_parsing_preserves_bootstrap_flags_and_rejects_extension_targets() {
+        let parsed = parse_delegated_args(
+            Path::new("/tmp/repo"),
+            &[PathBuf::from("tool")],
+            false,
+            vec!["diff".into(), "HEAD".into()],
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(parsed.cwd, PathBuf::from("/tmp/repo"));
+        assert_eq!(parsed.extension, [PathBuf::from("tool")]);
+        assert!(
+            matches!(parsed.command, Some(Command::Diff { revisions, .. }) if revisions == ["HEAD"])
+        );
+
+        let parsed =
+            parse_delegated_args(Path::new("."), &[], false, vec!["another-extension".into()])
+                .unwrap()
+                .unwrap();
+        assert!(matches!(parsed.command, Some(Command::External(_))));
+    }
+
+    #[test]
+    fn extension_metadata_is_collapsed_to_one_terminal_safe_line() {
+        assert_eq!(
+            extension_cli_commands::single_line("safe\n\x1b]52;c;AAAA\x07\ttext"),
+            "safetext"
+        );
+    }
+
+    #[test]
+    fn bootstrap_flags_are_rejected_by_non_review_built_ins() {
+        let parsed = Args::try_parse_from(["workdeck", "--extension", "tool", "status"]).unwrap();
+        assert!(
+            run(parsed)
+                .unwrap_err()
+                .to_string()
+                .contains("may be used only")
+        );
+    }
+}
+
+#[cfg(test)]
+mod hunk_cli_parity_tests {
+    use super::*;
+
+    fn parse(argv: &[&str]) -> Args {
+        parse_args_with_fast_shorthand(argv.iter().copied()).unwrap()
+    }
+
+    fn session(argv: &[&str]) -> LiveSessionCommand {
+        let parsed = parse(argv);
+        let Some(Command::Session {
+            command: Some(command),
+        }) = parsed.command
+        else {
+            panic!("expected session command");
+        };
+        command
+    }
+
+    fn review_input(argv: &[&str]) -> Result<CliInput> {
+        let mut parsed = parse(argv);
+        if let Some(review) = parsed
+            .command
+            .as_mut()
+            .and_then(Command::review_options_mut)
+        {
+            review.experimental = parsed.experimental;
+            review.fast = parsed.fast;
+            review.extension.clone_from(&parsed.extension);
+            review.no_extensions = parsed.no_extensions && !parsed.extensions;
+        }
+        let mut input = review_command_input(parsed.command)?;
+        input.options_mut().extensions = if parsed.no_extensions {
+            Some(false)
+        } else if parsed.extensions {
+            Some(true)
+        } else {
+            None
+        };
+        Ok(input)
+    }
+
+    #[test]
+    fn fast_shorthand_and_prefixed_review_flags_reach_the_diff_parser() {
+        for argv in [
+            vec!["workdeck", "--fast"],
+            vec!["workdeck", "--fast", "--staged"],
+            vec!["workdeck", "--experimental", "--fast", "HEAD"],
+            vec!["workdeck", "--fast", "--theme", "nord"],
+        ] {
+            let parsed = parse(&argv);
+            assert!(parsed.fast);
+            let Some(Command::Diff {
+                revisions,
+                staged,
+                mut review,
+                ..
+            }) = parsed.command
+            else {
+                panic!("fast shorthand must become diff");
+            };
+            review.fast = parsed.fast;
+            review.experimental = parsed.experimental;
+            assert_eq!(review.parsed_common_options().fast, Some(true));
+            if argv.contains(&"--experimental") {
+                assert_eq!(review.parsed_common_options().experimental, Some(true));
+            }
+            if argv.contains(&"--staged") {
+                assert!(staged);
+            }
+            if argv.contains(&"HEAD") {
+                assert_eq!(revisions, ["HEAD"]);
+            }
+        }
+
+        let pathspec = parse(&["workdeck", "diff", "--", "--fast"]);
+        assert!(!pathspec.fast);
+        assert!(matches!(
+            pathspec.command,
+            Some(Command::Diff { pathspec, .. }) if pathspec == ["--fast"]
+        ));
+
+        for following_flag in ["--no-extensions", "--fast", "--experimental", "--extension"] {
+            assert!(
+                parse_args_with_fast_shorthand([
+                    "workdeck",
+                    "--extension",
+                    following_flag,
+                    "review-tools",
+                ])
+                .is_err(),
+                "{following_flag} must not be consumed as an extension path"
+            );
+        }
+    }
+
+    #[test]
+    fn hunk_review_aliases_and_daemon_alias_are_registered() {
+        let transparent = parse(&["workdeck", "diff", "--transparent-bg"]);
+        assert!(matches!(
+            transparent.command,
+            Some(Command::Diff { review, .. }) if review.transparent_background
+        ));
+        let opaque = parse(&["workdeck", "diff", "--no-transparent-bg"]);
+        assert!(matches!(
+            opaque.command,
+            Some(Command::Diff { review, .. }) if review.opaque_background
+        ));
+        assert!(matches!(
+            parse(&["workdeck", "mcp", "serve"]).command,
+            Some(Command::Daemon {
+                command: Some(DaemonCommand::Serve)
+            })
+        ));
+        assert!(matches!(
+            parse(&["workdeck", "ext"]).command,
+            Some(Command::Extension { command: None })
+        ));
+        assert!(matches!(
+            parse(&["workdeck", "stash"]).command,
+            Some(Command::Stash { command: None })
+        ));
+        assert!(matches!(
+            parse(&["workdeck", "extension", "uninstall", "example"]).command,
+            Some(Command::Extension {
+                command: Some(ExtensionCommand::Remove { name, .. })
+            }) if name == "example"
+        ));
+    }
+
+    #[test]
+    fn shared_review_options_preserve_only_explicit_cli_values() {
+        let input = review_input(&[
+            "workdeck",
+            "--extension",
+            "./first",
+            "--fast",
+            "--experimental",
+            "diff",
+            "main...feature",
+            "--mode",
+            "split",
+            "--cursor-line",
+            "number",
+            "--theme",
+            "github-light-default",
+            "--agent-context",
+            "notes.json",
+            "--no-line-numbers",
+            "-x4",
+            "--file-gap",
+            "3",
+            "--hunk-gap",
+            "1",
+            "--wrap",
+            "--no-hunk-headers",
+            "--agent-notes",
+            "--transparent-bg",
+            "--watch",
+        ])
+        .unwrap();
+        let CliInput::Vcs(input) = input else {
+            panic!("expected vcs input");
+        };
+        assert_eq!(input.range.as_deref(), Some("main...feature"));
+        assert_eq!(input.options.mode, Some(InputLayoutMode::Split));
+        assert_eq!(input.options.cursor_line, Some(InputCursorLine::Number));
+        assert_eq!(input.options.theme.as_deref(), Some("github-light-default"));
+        assert_eq!(input.options.agent_context.as_deref(), Some("notes.json"));
+        assert_eq!(input.options.line_numbers, Some(false));
+        assert_eq!(input.options.tab_width, Some(4));
+        assert_eq!(input.options.file_gap, Some(3));
+        assert_eq!(input.options.hunk_gap, Some(1));
+        assert_eq!(input.options.wrap_lines, Some(true));
+        assert_eq!(input.options.hunk_headers, Some(false));
+        assert_eq!(input.options.agent_notes, Some(true));
+        assert_eq!(input.options.transparent_background, Some(true));
+        assert_eq!(input.options.watch, Some(true));
+        assert_eq!(input.options.fast, Some(true));
+        assert_eq!(input.options.experimental, Some(true));
+        assert_eq!(input.options.extension_paths, ["./first"]);
+        assert_eq!(input.options.extensions, None);
+
+        let defaults = review_input(&["workdeck", "diff"]).unwrap();
+        assert_eq!(defaults.options(), &CommonOptions::default());
+
+        let explicitly_enabled = review_input(&["workdeck", "diff", "--extensions"]).unwrap();
+        assert_eq!(explicitly_enabled.options().extensions, Some(true));
+    }
+
+    #[test]
+    fn clap_command_tree_is_the_executable_cli_reference_contract() {
+        fn command_at<'a>(root: &'a clap::Command, path: &[&str]) -> &'a clap::Command {
+            path.iter().fold(root, |command, name| {
+                command
+                    .find_subcommand(name)
+                    .unwrap_or_else(|| panic!("missing command path component {name}"))
+            })
+        }
+
+        let root = Args::command();
+        for (path, about, watch) in [
+            (
+                &["diff"][..],
+                "review diffs or compare two concrete files",
+                true,
+            ),
+            (&["show"][..], "review the last commit or a given ref", true),
+            (
+                &["stash", "show"][..],
+                "review a stash entry as a full Workdeck changeset",
+                true,
+            ),
+            (
+                &["patch"][..],
+                "review a patch file, or read a patch from stdin",
+                true,
+            ),
+            (
+                &["pager"][..],
+                "general Git pager wrapper with diff detection",
+                false,
+            ),
+            (&["difftool"][..], "review Git difftool file pairs", true),
+        ] {
+            let command = command_at(&root, path);
+            assert_eq!(
+                command.get_about().map(ToString::to_string).as_deref(),
+                Some(about)
+            );
+            let longs = command
+                .get_arguments()
+                .filter_map(|argument| argument.get_long())
+                .collect::<BTreeSet<_>>();
+            for common in [
+                "mode",
+                "cursor-line",
+                "theme",
+                "agent-context",
+                "pager",
+                "line-numbers",
+                "no-line-numbers",
+                "tab-width",
+                "file-gap",
+                "hunk-gap",
+                "wrap",
+                "no-wrap",
+                "hunk-headers",
+                "no-hunk-headers",
+                "sidebar",
+                "no-sidebar",
+                "agent-notes",
+                "no-agent-notes",
+                "transparent-bg",
+                "opaque-bg",
+            ] {
+                assert!(
+                    longs.contains(common),
+                    "{} lacks --{common}",
+                    path.join(" ")
+                );
+            }
+            if watch {
+                assert!(longs.contains("watch"), "{} lacks --watch", path.join(" "));
+            } else {
+                // Ratatui shares one review-options type across commands; the pager's
+                // user-visible parity boundary is the startup validator, which rejects this
+                // otherwise parsed flag before terminal or extension initialization.
+                let pager = Args::try_parse_from(["workdeck", "pager", "--watch"]).unwrap();
+                assert!(validate_review_watch_input(pager.command.as_ref().unwrap()).is_err());
+            }
+        }
+
+        let diff = command_at(&root, &["diff"]);
+        let diff_longs = diff
+            .get_arguments()
+            .filter_map(|argument| argument.get_long())
+            .collect::<BTreeSet<_>>();
+        for option in ["files", "staged", "exclude-untracked", "include-untracked"] {
+            assert!(diff_longs.contains(option), "diff lacks --{option}");
+        }
+    }
+
+    #[test]
+    fn bare_workdeck_retains_the_unified_shell_override() {
+        let parsed = parse(&["workdeck"]);
+        assert!(parsed.command.is_none());
+        assert!(!parsed.init);
+        assert!(!parsed.status_json);
+        let help = Args::command().render_long_help().to_string();
+        assert!(help.contains("Common review options:"));
+        assert!(help.contains("Git diff options:"));
+        assert!(help.contains("Notes:"));
+    }
+
+    #[test]
+    fn frozen_hunk_cli_oracle_maps_every_baseline_test_definition_and_case() {
+        let oracle: Value =
+            serde_json::from_str(include_str!("../../../port/hunk/oracles/cli.json")).unwrap();
+        let baselines = oracle["baselines"].as_array().unwrap();
+        assert_eq!(baselines.len(), 2);
+        assert_eq!(
+            baselines[0]["commit"],
+            "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2"
+        );
+        assert_eq!(
+            baselines[0]["source_blob"],
+            "4c6d4483bb1576d4c0d0855d9fb42d2302fc3fc9"
+        );
+        assert_eq!(baselines[0]["source_bytes"], 71_747);
+        assert_eq!(
+            baselines[0]["test_blob"],
+            "dd9333691b01dbed79d5cca0e716a24d0e24ed60"
+        );
+        assert_eq!(baselines[0]["test_bytes"], 67_778);
+        assert_eq!(baselines[0]["suite_passed"], 147);
+        assert_eq!(baselines[0]["suite_failed"], 0);
+        assert_eq!(baselines[0]["suite_expect_calls"], 384);
+        assert_eq!(baselines[1]["suite_passed"], 127);
+        assert_eq!(baselines[1]["suite_failed"], 0);
+        assert_eq!(baselines[1]["suite_expect_calls"], 304);
+        let process_oracles = oracle["process_oracles"].as_array().unwrap();
+        assert_eq!(process_oracles.len(), 2);
+        for process_oracle in process_oracles {
+            let cases = process_oracle["cases"].as_array().unwrap();
+            assert_eq!(cases.len(), 9);
+            for case in cases {
+                assert!(!case["argv"].as_array().unwrap().is_empty());
+                assert!(case["exit"].is_u64());
+                assert!(case["stdout_bytes"].is_u64());
+                assert!(case["stderr_bytes"].is_u64());
+                if let Some(hash) = case["stdout_sha256"].as_str() {
+                    assert_eq!(hash.len(), 64);
+                    assert!(hash.bytes().all(|byte| byte.is_ascii_hexdigit()));
+                }
+            }
+        }
+
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let main_tests = include_str!("main.rs");
+        let integration_tests = include_str!("../tests/cli.rs");
+        let source_mapping = oracle["source_mapping"].as_array().unwrap();
+        let mut next_byte = 0_u64;
+        let mut next_line = 1_u64;
+        for mapping in source_mapping {
+            let bytes = mapping["bytes"].as_array().unwrap();
+            let lines = mapping["lines"].as_array().unwrap();
+            assert_eq!(bytes[0].as_u64(), Some(next_byte));
+            assert_eq!(lines[0].as_u64(), Some(next_line));
+            next_byte = bytes[1].as_u64().unwrap();
+            next_line = lines[1].as_u64().unwrap() + 1;
+            assert!(bytes[0].as_u64().unwrap() < next_byte);
+            assert!(!mapping["semantics"].as_str().unwrap().is_empty());
+            for destination in mapping["destinations"].as_array().unwrap() {
+                let destination = destination.as_str().unwrap();
+                let path = destination
+                    .split_once('#')
+                    .map_or(destination, |(path, _)| path);
+                assert!(repo_root.join(path).is_file(), "missing {path}");
+            }
+            for rust_test in mapping["rust_tests"].as_array().unwrap() {
+                let name = rust_test.as_str().unwrap();
+                let needle = format!("fn {name}(");
+                assert!(
+                    main_tests.contains(&needle) || integration_tests.contains(&needle),
+                    "source mapping references missing Rust test {name}"
+                );
+            }
+        }
+        assert_eq!(next_byte, 71_747);
+        assert_eq!(next_line, 2_134);
+
+        let mappings = oracle["test_mapping"].as_array().unwrap();
+        let mut next_number = 1_u64;
+        let mut expanded_cases = 0_u64;
+        let mut titles = BTreeSet::new();
+        for mapping in mappings {
+            let source_tests = mapping["source_tests"].as_array().unwrap();
+            let rust_tests = mapping["rust_tests"].as_array().unwrap();
+            assert!(!source_tests.is_empty());
+            assert!(!rust_tests.is_empty());
+            for source_test in source_tests {
+                assert_eq!(source_test["number"].as_u64(), Some(next_number));
+                next_number += 1;
+                expanded_cases += source_test["case_count"].as_u64().unwrap_or(1);
+                let title = source_test["title"].as_str().unwrap();
+                assert!(!title.is_empty());
+                assert!(titles.insert(title));
+            }
+            for rust_test in rust_tests {
+                let name = rust_test.as_str().unwrap();
+                let needle = format!("fn {name}(");
+                assert!(
+                    main_tests.contains(&needle) || integration_tests.contains(&needle),
+                    "oracle references missing Rust test {name}"
+                );
+            }
+        }
+        assert_eq!(next_number, 139);
+        assert_eq!(titles.len(), 138);
+        assert_eq!(expanded_cases, 147);
+        assert_eq!(
+            oracle["stable_only_cli_expectations"]
+                .as_array()
+                .unwrap()
+                .len(),
+            5
+        );
+        assert_eq!(oracle["workdeck_adaptations"].as_array().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn shared_review_flag_pairs_and_bounds_match_the_pinned_parser() {
+        for (enabled, disabled, field) in [
+            ("--line-numbers", "--no-line-numbers", "line_numbers"),
+            ("--wrap", "--no-wrap", "wrap_lines"),
+            ("--hunk-headers", "--no-hunk-headers", "hunk_headers"),
+            ("--agent-notes", "--no-agent-notes", "agent_notes"),
+        ] {
+            let enabled_input = review_input(&["workdeck", "diff", enabled]).unwrap();
+            let disabled_input = review_input(&["workdeck", "diff", disabled]).unwrap();
+            let value = |input: &CliInput| match field {
+                "line_numbers" => input.options().line_numbers,
+                "wrap_lines" => input.options().wrap_lines,
+                "hunk_headers" => input.options().hunk_headers,
+                "agent_notes" => input.options().agent_notes,
+                _ => unreachable!(),
+            };
+            assert_eq!(value(&enabled_input), Some(true), "{enabled}");
+            assert_eq!(value(&disabled_input), Some(false), "{disabled}");
+            let last_disabled = review_input(&["workdeck", "diff", enabled, disabled]).unwrap();
+            let last_enabled = review_input(&["workdeck", "diff", disabled, enabled]).unwrap();
+            assert_eq!(value(&last_disabled), Some(false), "{enabled} {disabled}");
+            assert_eq!(value(&last_enabled), Some(true), "{disabled} {enabled}");
+        }
+        assert_eq!(
+            review_input(&["workdeck", "diff", "--sidebar"])
+                .unwrap()
+                .options()
+                .sidebar,
+            Some(SidebarVisibility::Visible)
+        );
+        assert_eq!(
+            review_input(&["workdeck", "diff", "--no-sidebar"])
+                .unwrap()
+                .options()
+                .sidebar,
+            Some(SidebarVisibility::Hidden)
+        );
+        assert_eq!(
+            review_input(&["workdeck", "diff", "--sidebar", "--no-sidebar", "--sidebar",])
+                .unwrap()
+                .options()
+                .sidebar,
+            Some(SidebarVisibility::Visible)
+        );
+        assert_eq!(
+            review_input(&[
+                "workdeck",
+                "diff",
+                "--transparent-bg",
+                "--no-transparent-bg",
+            ])
+            .unwrap()
+            .options()
+            .transparent_background,
+            Some(false)
+        );
+        assert_eq!(
+            review_input(&["workdeck", "diff", "--no-extensions", "--extensions",])
+                .unwrap()
+                .options()
+                .extensions,
+            Some(true)
+        );
+        assert_eq!(
+            review_input(&[
+                "workdeck",
+                "diff",
+                "--exclude-untracked",
+                "--no-exclude-untracked",
+            ])
+            .unwrap()
+            .options()
+            .exclude_untracked,
+            Some(false)
+        );
+
+        for argv in [
+            vec!["workdeck", "diff", "--tab-width", "0"],
+            vec!["workdeck", "diff", "--tab-width", "17"],
+            vec!["workdeck", "diff", "--tab-width", "4x"],
+            vec!["workdeck", "diff", "--file-gap", "9"],
+            vec!["workdeck", "diff", "--hunk-gap", "abc"],
+            vec!["workdeck", "diff", "--mode", "bogus"],
+            vec!["workdeck", "diff", "--cursor-line", "sparkles"],
+            vec!["workdeck", "diff", "--not-a-real-flag"],
+        ] {
+            assert!(Args::try_parse_from(argv).is_err());
+        }
+    }
+
+    #[test]
+    fn diff_parser_preserves_untracked_staging_files_revisions_and_pathspecs() {
+        let excluded = review_input(&["workdeck", "diff", "--exclude-untracked"]).unwrap();
+        assert_eq!(excluded.options().exclude_untracked, Some(true));
+        let included = review_input(&["workdeck", "diff", "--no-exclude-untracked"]).unwrap();
+        assert_eq!(included.options().exclude_untracked, Some(false));
+        assert!(matches!(
+            review_input(&["workdeck", "diff", "--cached"]).unwrap(),
+            CliInput::Vcs(VcsDiffCommandInput { staged: true, .. })
+        ));
+        assert!(matches!(
+            review_input(&[
+                "workdeck", "diff", "main", "feature", "--", "src/app.ts"
+            ])
+            .unwrap(),
+            CliInput::Vcs(VcsDiffCommandInput {
+                range_endpoints: Some(VcsRangeEndpoints { from, to }), pathspecs, ..
+            }) if from == "main" && to == "feature" && pathspecs == ["src/app.ts"]
+        ));
+        assert!(matches!(
+            review_input(&[
+                "workdeck", "diff", "--files", "before.rs", "after.rs", "--mode", "stack"
+            ])
+            .unwrap(),
+            CliInput::Files(FileCommandInput { left, right, options })
+                if left == "before.rs" && right == "after.rs"
+                    && options.mode == Some(InputLayoutMode::Stack)
+        ));
+        for argv in [
+            vec!["workdeck", "diff", "--files", "one"],
+            vec!["workdeck", "diff", "--files", "one", "two", "three"],
+            vec!["workdeck", "diff", "--files", "one", "two", "--staged"],
+            vec!["workdeck", "diff", "target", "--files", "one", "two"],
+            vec!["workdeck", "diff", "--staged", "left", "right"],
+        ] {
+            assert!(review_input(&argv).is_err(), "{argv:?}");
+        }
+    }
+
+    #[test]
+    fn paired_option_names_after_separator_are_literal_pathspecs() {
+        for pathspec in [
+            "--exclude-untracked",
+            "--no-exclude-untracked",
+            "--line-numbers",
+            "--no-line-numbers",
+            "--wrap",
+            "--no-wrap",
+            "--hunk-headers",
+            "--no-hunk-headers",
+            "--sidebar",
+            "--no-sidebar",
+            "--agent-notes",
+            "--no-agent-notes",
+            "--transparent-bg",
+            "--no-transparent-bg",
+            "--extensions",
+            "--no-extensions",
+            "--fast",
+        ] {
+            let input = review_input(&["workdeck", "diff", "--", pathspec]).unwrap();
+            let CliInput::Vcs(input) = input else {
+                panic!("expected vcs input");
+            };
+            assert_eq!(input.pathspecs, [pathspec]);
+            assert_eq!(input.options, CommonOptions::default());
+        }
+    }
+
+    #[test]
+    fn show_stash_patch_pager_and_difftool_parse_into_distinct_inputs() {
+        assert!(matches!(
+            review_input(&["workdeck", "show", "HEAD~1", "--", "src/app.ts"]).unwrap(),
+            CliInput::Show(VcsShowCommandInput { reference: Some(reference), pathspecs, .. })
+                if reference == "HEAD~1" && pathspecs == ["src/app.ts"]
+        ));
+        assert!(matches!(
+            review_input(&["workdeck", "stash", "show", "stash@{1}"]).unwrap(),
+            CliInput::StashShow(VcsStashShowCommandInput { reference: Some(reference), .. })
+                if reference == "stash@{1}"
+        ));
+        assert!(matches!(
+            review_input(&["workdeck", "patch", "changes.patch", "--pager"]).unwrap(),
+            CliInput::Patch(PatchCommandInput { file: Some(file), options, .. })
+                if file == "changes.patch" && options.pager == Some(true)
+        ));
+        assert!(matches!(
+            review_input(&[
+                "workdeck", "difftool", "left.ts", "right.ts", "src/example.ts", "--mode", "stack"
+            ])
+            .unwrap(),
+            CliInput::DiffTool(DiffToolCommandInput { left, right, path: Some(path), options })
+                if left == "left.ts" && right == "right.ts" && path == "src/example.ts"
+                    && options.mode == Some(InputLayoutMode::Stack)
+        ));
+        assert!(review_input(&["workdeck", "pager"]).is_err());
+    }
+
+    #[test]
+    fn nested_reload_preserves_show_pathspecs_and_structured_diff_endpoints() {
+        let command = session(&[
+            "workdeck",
+            "session",
+            "reload",
+            "session-1",
+            "--json",
+            "--",
+            "show",
+            "HEAD~1",
+            "--",
+            "README.md",
+        ]);
+        let LiveSessionCommand::Reload {
+            id,
+            json,
+            next_command,
+            ..
+        } = command
+        else {
+            panic!("expected reload");
+        };
+        assert_eq!(id.as_deref(), Some("session-1"));
+        assert!(json);
+        assert_eq!(next_command, ["show", "HEAD~1", "--", "README.md"]);
+        assert!(matches!(
+            parse_reload_review_input(&next_command).unwrap(),
+            CliInput::Show(VcsShowCommandInput { reference: Some(reference), pathspecs, .. })
+                if reference == "HEAD~1" && pathspecs == ["README.md"]
+        ));
+
+        let endpoints = parse_reload_review_input(&[
+            "diff".into(),
+            "main".into(),
+            "feature".into(),
+            "--".into(),
+            "src/app.ts".into(),
+        ])
+        .unwrap();
+        assert!(matches!(
+            endpoints,
+            CliInput::Vcs(VcsDiffCommandInput {
+                range_endpoints: Some(VcsRangeEndpoints { from, to }),
+                pathspecs,
+                ..
+            }) if from == "main" && to == "feature" && pathspecs == ["src/app.ts"]
+        ));
+
+        let help_pathspec = parse_reload_review_input(&[
+            "show".into(),
+            "HEAD".into(),
+            "--".into(),
+            "--help".into(),
+        ])
+        .unwrap();
+        assert!(matches!(
+            help_pathspec,
+            CliInput::Show(VcsShowCommandInput { reference: Some(reference), pathspecs, .. })
+                if reference == "HEAD" && pathspecs == ["--help"]
+        ));
+        assert!(
+            parse_reload_review_input(&["show".into(), "--help".into()]).is_err(),
+            "nested command help cannot replace a live review"
+        );
+    }
+
+    #[test]
+    fn reload_parses_split_session_and_source_paths_and_rejects_non_review_inputs() {
+        let command = session(&[
+            "workdeck",
+            "session",
+            "reload",
+            "--session-path",
+            "/tmp/live-window",
+            "--source",
+            "/tmp/source-repo",
+            "--",
+            "diff",
+        ]);
+        let LiveSessionCommand::Reload {
+            id,
+            repo,
+            session_path,
+            source,
+            next_command,
+            ..
+        } = command
+        else {
+            panic!("expected reload");
+        };
+        let selector = reload_session_selector(id, repo, session_path).unwrap();
+        assert_eq!(selector.session_path.as_deref(), Some("/tmp/live-window"));
+        assert_eq!(source.as_deref(), Some(Path::new("/tmp/source-repo")));
+        assert!(matches!(
+            parse_reload_review_input(&next_command).unwrap(),
+            CliInput::Vcs(VcsDiffCommandInput {
+                range: None,
+                range_endpoints: None,
+                ..
+            })
+        ));
+        for tokens in [
+            vec!["session".into(), "list".into()],
+            vec!["extension".into(), "list".into()],
+            vec!["pager".into()],
+            vec!["patch".into(), "-".into()],
+        ] {
+            assert!(parse_reload_review_input(&tokens).is_err(), "{tokens:?}");
+        }
+    }
+
+    #[test]
+    fn session_navigation_supports_hunks_lines_comments_and_directions() {
+        assert!(matches!(
+            session(&[
+                "workdeck", "session", "navigate", "session-1", "--file", "README.md",
+                "--hunk", "2", "--json"
+            ]),
+            LiveSessionCommand::Navigate { file: Some(file), hunk: Some(2), json: true, .. }
+                if file == Path::new("README.md")
+        ));
+        assert!(matches!(
+            session(&[
+                "workdeck", "session", "navigate", "session-1", "--comment", "comment-1"
+            ]),
+            LiveSessionCommand::Navigate { comment: Some(id), .. } if id == "comment-1"
+        ));
+        assert!(matches!(
+            session(&[
+                "workdeck",
+                "session",
+                "navigate",
+                "--repo",
+                ".",
+                "--next-comment"
+            ]),
+            LiveSessionCommand::Navigate {
+                next_comment: true,
+                ..
+            }
+        ));
+        assert!(
+            Args::try_parse_from([
+                "workdeck",
+                "session",
+                "navigate",
+                "session-1",
+                "--next-comment",
+                "--prev-comment",
+            ])
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn session_numeric_parsers_match_javascript_safe_integer_boundaries() {
+        for value in ["1", "42", "9007199254740991"] {
+            assert_eq!(
+                parse_positive_safe_integer(value).unwrap().to_string(),
+                value
+            );
+            assert!(
+                Args::try_parse_from([
+                    "workdeck",
+                    "session",
+                    "navigate",
+                    "session-1",
+                    "--file",
+                    "README.md",
+                    "--hunk",
+                    value,
+                ])
+                .is_ok()
+            );
+        }
+        for value in ["0", "-1", "1.5", "1e3", "12abc", "01", "9007199254740992"] {
+            assert!(parse_positive_safe_integer(value).is_err(), "{value}");
+            assert!(
+                Args::try_parse_from([
+                    "workdeck",
+                    "session",
+                    "navigate",
+                    "session-1",
+                    "--file",
+                    "README.md",
+                    "--hunk",
+                    value,
+                ])
+                .is_err()
+            );
+        }
+        assert_eq!(parse_non_negative_safe_integer("0"), Ok(0));
+        assert!(parse_non_negative_safe_integer("00").is_err());
+        for flag in ["--hunk", "--old-line", "--new-line"] {
+            assert!(
+                Args::try_parse_from([
+                    "workdeck",
+                    "session",
+                    "navigate",
+                    "session-1",
+                    "--file",
+                    "README.md",
+                    flag,
+                    "12abc",
+                ])
+                .is_err(),
+                "{flag}"
+            );
+        }
+    }
+
+    #[test]
+    fn session_read_review_and_repo_selectors_preserve_all_fields() {
+        assert!(matches!(
+            session(&["workdeck", "session", "list", "--json"]),
+            LiveSessionCommand::List { json: true }
+        ));
+        assert!(matches!(
+            session(&["workdeck", "session", "context", "session-1", "--json"]),
+            LiveSessionCommand::Context { id: Some(id), json: true, .. } if id == "session-1"
+        ));
+        assert!(matches!(
+            session(&[
+                "workdeck",
+                "session",
+                "review",
+                "session-1",
+                "--include-patch",
+                "--include-notes",
+                "--json",
+            ]),
+            LiveSessionCommand::Review {
+                id: Some(id),
+                include_patch: true,
+                include_notes: true,
+                json: true,
+                ..
+            } if id == "session-1"
+        ));
+
+        let directory = tempfile::tempdir().unwrap();
+        let nested = directory.path().join("packages/app");
+        std::fs::create_dir_all(&nested).unwrap();
+        assert_eq!(
+            repo_selector_path(nested.clone()).unwrap(),
+            nested.canonicalize().unwrap().to_string_lossy()
+        );
+        #[cfg(unix)]
+        {
+            let link = directory.path().join("repo-link");
+            std::os::unix::fs::symlink(&nested, &link).unwrap();
+            assert_eq!(
+                repo_selector_path(link).unwrap(),
+                nested.canonicalize().unwrap().to_string_lossy()
+            );
+        }
+    }
+
+    #[test]
+    fn comment_command_surface_covers_add_apply_filter_remove_and_clear() {
+        assert!(matches!(
+            session(&[
+                "workdeck",
+                "session",
+                "comment",
+                "add",
+                "session-1",
+                "--file",
+                "README.md",
+                "--new-line",
+                "103",
+                "--summary",
+                "Tighten this",
+                "--focus"
+            ]),
+            LiveSessionCommand::Comment {
+                command: Some(LiveCommentCommand::Add {
+                    new_line: Some(103),
+                    focus: true,
+                    ..
+                })
+            }
+        ));
+        let add = session(&[
+            "workdeck",
+            "session",
+            "comment",
+            "add",
+            "session-1",
+            "--file",
+            "README.md",
+            "--new-line",
+            "7",
+            "--summary",
+            "Rendered note",
+            "--rationale",
+            "Why",
+            "--markup",
+            "<b>hot path</b>",
+            "--author",
+            "Pi",
+        ]);
+        assert!(matches!(
+            add,
+            LiveSessionCommand::Comment {
+                command: Some(LiveCommentCommand::Add {
+                    id: Some(id),
+                    file,
+                    new_line: Some(7),
+                    summary,
+                    rationale: Some(rationale),
+                    markup: Some(markup),
+                    author: Some(author),
+                    focus: false,
+                    ..
+                })
+            } if id == "session-1"
+                && file == Path::new("README.md")
+                && summary == "Rendered note"
+                && rationale == "Why"
+                && markup == "<b>hot path</b>"
+                && author == "Pi"
+        ));
+        assert!(matches!(
+            session(&[
+                "workdeck",
+                "session",
+                "comment",
+                "apply",
+                "session-1",
+                "--stdin",
+                "--focus",
+                "--json"
+            ]),
+            LiveSessionCommand::Comment {
+                command: Some(LiveCommentCommand::Apply {
+                    stdin: true,
+                    focus: true,
+                    json: true,
+                    ..
+                })
+            }
+        ));
+        assert!(matches!(
+            session(&[
+                "workdeck",
+                "session",
+                "comment",
+                "list",
+                "session-1",
+                "--file",
+                "README.md",
+                "--type",
+                "user"
+            ]),
+            LiveSessionCommand::Comment {
+                command: Some(LiveCommentCommand::List {
+                    list_type: Some(LiveCommentListTypeArg::User),
+                    ..
+                })
+            }
+        ));
+        assert!(matches!(
+            session(&[
+                "workdeck", "session", "comment", "rm", "session-1", "comment-1"
+            ]),
+            LiveSessionCommand::Comment {
+                command: Some(LiveCommentCommand::Remove { targets, .. })
+            } if targets == ["session-1", "comment-1"]
+        ));
+        assert!(matches!(
+            session(&[
+                "workdeck",
+                "session",
+                "comment",
+                "clear",
+                "--repo",
+                ".",
+                "--include-user",
+                "--yes"
+            ]),
+            LiveSessionCommand::Comment {
+                command: Some(LiveCommentCommand::Clear {
+                    include_user: true,
+                    yes: true,
+                    ..
+                })
+            }
+        ));
+    }
+
+    #[test]
+    fn comment_apply_payload_is_validated_atomically() {
+        let comments = parse_session_comment_apply_payload(
+            r#"{"comments":[{"filePath":"README.md","hunk":2,"summary":"Explain","rationale":"Why","author":"Pi"},{"filePath":"src/lib.rs","oldLine":7,"summary":"Check"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(comments.len(), 2);
+        assert_eq!(comments[0].hunk_number, Some(2));
+        assert_eq!(comments[1].side, Some(ReviewSide::Old));
+        assert_eq!(comments[1].line, Some(7));
+
+        for (raw, message) in [
+            ("", "one JSON object"),
+            ("{", "valid JSON"),
+            ("[]", "top-level `comments` array"),
+            (r#"{}"#, "comments"),
+            (r#"{"comments":[]}"#, "at least one"),
+            (r#"{"comments":[null]}"#, "JSON object"),
+            (r#"{"comments":[{"summary":"x","newLine":1}]}"#, "filePath"),
+            (r#"{"comments":[{"filePath":"x","newLine":1}]}"#, "summary"),
+            (
+                r#"{"comments":[{"filePath":"x","summary":"x","hunk":0}]}"#,
+                "positive integer",
+            ),
+            (
+                r#"{"comments":[{"filePath":"x","summary":"x","hunk":1,"hunkNumber":1}]}"#,
+                "both",
+            ),
+            (
+                r#"{"comments":[{"filePath":"x","summary":"x"}]}"#,
+                "exactly one",
+            ),
+        ] {
+            let error = parse_session_comment_apply_payload(raw).unwrap_err();
+            assert!(error.to_string().contains(message), "{raw}: {error:#}");
+        }
+
+        let json_number_forms = parse_session_comment_apply_payload(
+            r#"{"comments":[{"filePath":"a","hunk":1.0,"summary":"decimal"},{"filePath":"b","newLine":1e3,"summary":"exponent"},{"filePath":"c","oldLine":9007199254740992,"summary":"integer beyond the CLI safe range"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(json_number_forms[0].hunk_number, Some(1));
+        assert_eq!(json_number_forms[1].line, Some(1_000));
+        assert_eq!(json_number_forms[2].line, Some(9_007_199_254_740_992));
+    }
+
+    #[test]
+    fn highlight_surface_validates_sides_ranges_tones_and_clear_scope() {
+        assert!(matches!(
+            session(&[
+                "workdeck",
+                "session",
+                "highlight",
+                "add",
+                "session-1",
+                "--file",
+                "src/App.tsx",
+                "--old-line",
+                "42",
+                "--start",
+                "6",
+                "--end",
+                "19",
+                "--tone",
+                "warning",
+                "--focus"
+            ]),
+            LiveSessionCommand::Highlight {
+                command: Some(LiveHighlightCommand::Add {
+                    old_line: Some(42),
+                    start: 6,
+                    end: 19,
+                    tone: Some(LiveHighlightToneArg::Warning),
+                    focus: true,
+                    ..
+                })
+            }
+        ));
+        assert!(matches!(
+            session(&[
+                "workdeck", "session", "highlight", "clear", "--repo", ".", "--file", "src/App.tsx"
+            ]),
+            LiveSessionCommand::Highlight {
+                command: Some(LiveHighlightCommand::Clear { file: Some(file), .. })
+            } if file == Path::new("src/App.tsx")
+        ));
+        assert!(
+            Args::try_parse_from([
+                "workdeck",
+                "session",
+                "highlight",
+                "add",
+                "session-1",
+                "--file",
+                "x",
+                "--new-line",
+                "1",
+                "--start",
+                "0",
+                "--end",
+                "1",
+                "--tone",
+                "robot"
+            ])
+            .is_err()
+        );
+        assert!(exactly_one_line_target(None, None, "highlight add").is_err());
+        assert!(exactly_one_line_target(Some(1), Some(2), "highlight add").is_err());
+    }
+
+    #[test]
+    fn session_selectors_are_explicit_and_mutually_exclusive() {
+        assert!(explicit_session_selector(None, None).is_err());
+        assert!(explicit_session_selector(Some("one".into()), Some(".".into())).is_err());
+        assert!(reload_session_selector(None, None, None).is_err());
+        assert!(reload_session_selector(Some("one".into()), Some(".".into()), None,).is_err());
+        assert!(matches!(
+            parse(&["workdeck", "session"]).command,
+            Some(Command::Session { command: None })
+        ));
+        assert!(matches!(
+            parse(&["workdeck", "session", "comment"]).command,
+            Some(Command::Session {
+                command: Some(LiveSessionCommand::Comment { command: None })
+            })
+        ));
+        for argv in [
+            vec!["workdeck", "session", "note", "list", "session-1"],
+            vec!["workdeck", "session", "highlight", "paint"],
+            vec!["workdeck", "session", "comment", "bogus", "session-1"],
+            vec!["workdeck", "daemon", "bogus"],
+            vec!["workdeck", "stash", "bogus"],
+            vec!["workdeck", "extension", "publish"],
+        ] {
+            assert!(Args::try_parse_from(argv).is_err());
+        }
+        for command in ["--bogus", "-x"] {
+            assert!(Args::try_parse_from(["workdeck", command]).is_err());
+        }
+        for command in ["UPPER", "under_score"] {
+            let parsed = Args::try_parse_from(["workdeck", command]).unwrap();
+            let Some(Command::External(tokens)) = parsed.command else {
+                panic!("expected external token preservation");
+            };
+            assert!(!workdeck_cli::command_names::is_valid_extension_cli_command_name(&tokens[0]));
+        }
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -216,8 +5278,37 @@ enum ChangesCommand {
 
 #[derive(Debug, Subcommand)]
 enum IssueCommand {
+    #[command(about = "Select ready work with source-bound eligibility and exclusion explanations")]
+    Next {
+        #[command(flatten)]
+        options: Box<pm_context::NextIssueOptions>,
+    },
+    #[command(flatten)]
+    Graph(pm_graph::GraphCommand),
+    #[command(about = "Patch individual custom fields without replacing unmentioned values")]
+    Custom {
+        key: String,
+        #[command(flatten)]
+        input: pm_organization::CustomOptions,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Set an exact estimate in an explicit unit, or clear the estimate")]
+    Estimate {
+        key: String,
+        #[arg(required_unless_present = "clear")]
+        value: Option<String>,
+        #[arg(long, requires = "value", required_unless_present = "clear")]
+        unit: Option<String>,
+        #[arg(long, conflicts_with_all = ["value", "unit"])]
+        clear: bool,
+        #[arg(long)]
+        json: bool,
+    },
     #[command(about = "List local issues")]
     List {
+        #[command(flatten)]
+        query_options: pm_cli::IssueListOptions,
         #[arg(long)]
         status: Option<String>,
         #[arg(long)]
@@ -235,8 +5326,19 @@ enum IssueCommand {
         #[arg(long, help = "Print issues as JSON")]
         json: bool,
     },
+    #[command(about = "List repository issue templates")]
+    Templates {
+        #[arg(long)]
+        json: bool,
+    },
     #[command(about = "Create a local issue")]
     Create {
+        #[command(flatten)]
+        authoring: pm_cli::AuthoringOptions,
+        #[command(flatten)]
+        associations: pm_cli::IssueAssociationOptions,
+        #[arg(long, value_name = "ID", help = "Apply a repository issue template")]
+        template: Option<String>,
         title: Option<String>,
         #[arg(
             long,
@@ -269,6 +5371,16 @@ enum IssueCommand {
     },
     #[command(about = "Update a local issue")]
     Update {
+        #[command(flatten)]
+        authoring: pm_cli::AuthoringOptions,
+        #[command(flatten)]
+        associations: pm_cli::IssueAssociationOptions,
+        #[arg(
+            long,
+            value_name = "PATH",
+            help = "Read update fields from JSON, or minus for stdin"
+        )]
+        from_json: Option<PathBuf>,
         key: String,
         #[arg(long)]
         title: Option<String>,
@@ -291,6 +5403,22 @@ enum IssueCommand {
         #[arg(long = "commit", value_delimiter = ',')]
         linked_commit: Vec<String>,
         #[arg(long, help = "Print the updated issue as JSON")]
+        json: bool,
+    },
+    #[command(
+        about = "Edit issue Markdown in an external editor or from a draft file",
+        after_help = "Interactive editing uses EDITOR, then VISUAL, and captures the issue source before launch.
+Use --from-file for --no-input or caller-supplied --request-id retries."
+    )]
+    Edit {
+        key: String,
+        #[arg(
+            long,
+            value_name = "PATH",
+            help = "Apply a complete Markdown draft without launching an editor"
+        )]
+        from_file: Option<PathBuf>,
+        #[arg(long)]
         json: bool,
     },
     #[command(about = "Link a file path to an issue")]
@@ -334,6 +5462,84 @@ enum IssueCommand {
         #[arg(long, help = "Print the updated issue as JSON")]
         json: bool,
     },
+    #[command(about = "Link an inert document path, URL, or stable reference")]
+    LinkDocument {
+        key: String,
+        reference: String,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Remove an issue document reference")]
+    UnlinkDocument {
+        key: String,
+        reference: String,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Cancel an issue using a configured canceled workflow state")]
+    Cancel {
+        key: String,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Complete an issue using its completion policy")]
+    Done {
+        key: String,
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        manual_actor: Option<String>,
+        #[arg(long)]
+        manual_reason: Option<String>,
+        #[arg(long, conflicts_with_all = ["manual_actor", "manual_reason"], help = "CompleteRedGreenIssue JSON with independent authority and original proof pins; supports --dry-run")]
+        verification_file: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Add an immutable issue comment")]
+    Comment {
+        key: String,
+        body: Option<String>,
+        #[arg(long)]
+        body_file: Option<PathBuf>,
+        #[arg(long)]
+        author: String,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Attach an inert file to an issue")]
+    Attach {
+        key: String,
+        path: PathBuf,
+        #[arg(long)]
+        author: String,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long)]
+        media_type: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "List issue attachment metadata")]
+    Attachments {
+        key: String,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "List issue comments")]
+    Comments {
+        key: String,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Archive an issue or restore it")]
+    Archive {
+        key: String,
+        #[arg(long)]
+        restore: bool,
+        #[arg(long)]
+        json: bool,
+    },
     #[command(about = "Close an issue")]
     Close {
         key: String,
@@ -375,6 +5581,8 @@ enum IssueCommand {
     #[command(about = "Delete an issue")]
     Delete {
         key: String,
+        #[command(flatten)]
+        retirement: pm_cli::RetirementOptions,
         #[arg(long, help = "Confirm deletion")]
         yes: bool,
         #[arg(long, help = "Print deletion result as JSON")]
@@ -529,6 +5737,58 @@ enum AgentCommand {
 
 #[derive(Debug, Subcommand)]
 enum ProjectCommand {
+    #[command(about = "Patch individual custom fields without replacing unmentioned values")]
+    Custom {
+        id: String,
+        #[command(flatten)]
+        input: pm_organization::CustomOptions,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Create a new native planning record")]
+    Create {
+        name: String,
+        #[arg(long)]
+        id: Option<String>,
+        #[command(flatten)]
+        input: pm_reference::Fields,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Update a native planning record")]
+    Update {
+        id: String,
+        #[arg(long)]
+        name: Option<String>,
+        #[command(flatten)]
+        input: pm_reference::Fields,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Archive or restore a native planning record, retaining references")]
+    Archive {
+        id: String,
+        #[arg(long)]
+        restore: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Assess project exit policy without writing")]
+    Assess {
+        id: String,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Complete a project after attributed manual acceptance")]
+    Complete {
+        id: String,
+        #[arg(long)]
+        actor: String,
+        #[arg(long)]
+        reason: String,
+        #[arg(long)]
+        json: bool,
+    },
     #[command(about = "List local projects")]
     List {
         #[arg(long)]
@@ -551,15 +5811,22 @@ enum ProjectCommand {
     #[command(about = "Show one project")]
     Show {
         id: String,
+        #[command(flatten)]
+        membership: pm_reference::MembershipOptions,
         #[arg(long, help = "Print the project as JSON")]
         json: bool,
     },
     #[command(about = "Delete a project")]
     Delete {
         id: String,
+        #[command(flatten)]
+        retirement: pm_cli::RetirementOptions,
         #[arg(long, help = "Confirm deletion")]
         yes: bool,
-        #[arg(long, help = "Clear issue references")]
+        #[arg(
+            long,
+            help = "Preview association removal with --dry-run; apply requires --expected-preview"
+        )]
         force: bool,
         #[arg(long, help = "Print the deleted project as JSON")]
         json: bool,
@@ -568,6 +5835,51 @@ enum ProjectCommand {
 
 #[derive(Debug, Subcommand)]
 enum CycleCommand {
+    #[command(
+        about = "Preview unfinished work for another cycle; apply only an exact reviewed fingerprint"
+    )]
+    Carryover {
+        #[command(flatten)]
+        input: pm_carryover::Input,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Patch individual custom fields without replacing unmentioned values")]
+    Custom {
+        id: String,
+        #[command(flatten)]
+        input: pm_organization::CustomOptions,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Create a new native planning record")]
+    Create {
+        name: String,
+        #[arg(long)]
+        id: Option<String>,
+        #[command(flatten)]
+        input: pm_reference::Fields,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Update a native planning record")]
+    Update {
+        id: String,
+        #[arg(long)]
+        name: Option<String>,
+        #[command(flatten)]
+        input: pm_reference::Fields,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Archive or restore a native planning record, retaining references")]
+    Archive {
+        id: String,
+        #[arg(long)]
+        restore: bool,
+        #[arg(long)]
+        json: bool,
+    },
     #[command(about = "List local cycles")]
     List {
         #[arg(long)]
@@ -592,15 +5904,22 @@ enum CycleCommand {
     #[command(about = "Show one cycle")]
     Show {
         id: String,
+        #[command(flatten)]
+        membership: pm_reference::MembershipOptions,
         #[arg(long, help = "Print the cycle as JSON")]
         json: bool,
     },
     #[command(about = "Delete a cycle")]
     Delete {
         id: String,
+        #[command(flatten)]
+        retirement: pm_cli::RetirementOptions,
         #[arg(long, help = "Confirm deletion")]
         yes: bool,
-        #[arg(long, help = "Clear issue references")]
+        #[arg(
+            long,
+            help = "Preview association removal with --dry-run; apply requires --expected-preview"
+        )]
         force: bool,
         #[arg(long, help = "Print the deleted cycle as JSON")]
         json: bool,
@@ -609,6 +5928,42 @@ enum CycleCommand {
 
 #[derive(Debug, Subcommand)]
 enum LabelCommand {
+    #[command(about = "Patch individual custom fields without replacing unmentioned values")]
+    Custom {
+        id: String,
+        #[command(flatten)]
+        input: pm_organization::CustomOptions,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Create a new native planning record")]
+    Create {
+        name: String,
+        #[arg(long)]
+        id: Option<String>,
+        #[command(flatten)]
+        input: pm_reference::Fields,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Update a native planning record")]
+    Update {
+        id: String,
+        #[arg(long)]
+        name: Option<String>,
+        #[command(flatten)]
+        input: pm_reference::Fields,
+        #[arg(long)]
+        json: bool,
+    },
+    #[command(about = "Archive or restore a native planning record, retaining references")]
+    Archive {
+        id: String,
+        #[arg(long)]
+        restore: bool,
+        #[arg(long)]
+        json: bool,
+    },
     #[command(about = "List local labels")]
     List {
         #[arg(long)]
@@ -629,27 +5984,128 @@ enum LabelCommand {
     #[command(about = "Show one label")]
     Show {
         id: String,
+        #[command(flatten)]
+        membership: pm_reference::MembershipOptions,
         #[arg(long, help = "Print the label as JSON")]
         json: bool,
     },
     #[command(about = "Delete a label")]
     Delete {
         id: String,
+        #[command(flatten)]
+        retirement: pm_cli::RetirementOptions,
         #[arg(long, help = "Confirm deletion")]
         yes: bool,
-        #[arg(long, help = "Remove label from issues")]
+        #[arg(
+            long,
+            help = "Preview label removal with --dry-run; apply requires --expected-preview"
+        )]
         force: bool,
         #[arg(long, help = "Print the deleted label as JSON")]
         json: bool,
     },
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error("command exited with status {0}")]
+struct CommandExit(i32);
+
+struct ProcessExtensionCliStdin {
+    source: std::io::Stdin,
+}
+
+impl ProcessExtensionCliStdin {
+    fn current() -> Self {
+        Self {
+            source: std::io::stdin(),
+        }
+    }
+}
+
+impl ExtensionCliStdin for ProcessExtensionCliStdin {
+    fn try_read(&mut self, max_bytes: usize) -> std::io::Result<Option<Vec<u8>>> {
+        if !process_stdin_is_ready(&self.source)? {
+            return Ok(None);
+        }
+        let mut bytes = vec![0; max_bytes];
+        let count = self.source.read(&mut bytes)?;
+        bytes.truncate(count);
+        Ok(Some(bytes))
+    }
+}
+
+#[cfg(unix)]
+fn process_stdin_is_ready(source: &std::io::Stdin) -> std::io::Result<bool> {
+    use std::os::fd::AsRawFd;
+
+    let mut descriptor = libc::pollfd {
+        fd: source.as_raw_fd(),
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    // SAFETY: descriptor points to one initialized pollfd for the duration of this zero-timeout
+    // readiness probe.
+    let result = unsafe { libc::poll(&mut descriptor, 1, 0) };
+    if result < 0 {
+        let error = std::io::Error::last_os_error();
+        return if error.kind() == std::io::ErrorKind::Interrupted {
+            Ok(false)
+        } else {
+            Err(error)
+        };
+    }
+    if descriptor.revents & libc::POLLNVAL != 0 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "extension CLI stdin is not a valid descriptor",
+        ));
+    }
+    if descriptor.revents & libc::POLLERR != 0 {
+        return Err(std::io::Error::other(
+            "extension CLI stdin reported an error",
+        ));
+    }
+    Ok(result > 0 && descriptor.revents & (libc::POLLIN | libc::POLLHUP) != 0)
+}
+
+#[cfg(windows)]
+fn process_stdin_is_ready(source: &std::io::Stdin) -> std::io::Result<bool> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Foundation::{WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT};
+    use windows_sys::Win32::System::Threading::WaitForSingleObject;
+
+    // SAFETY: stdin owns a live process input handle for the duration of this zero-timeout probe.
+    let result = unsafe { WaitForSingleObject(source.as_raw_handle() as _, 0) };
+    match result {
+        WAIT_OBJECT_0 => Ok(true),
+        WAIT_TIMEOUT => Ok(false),
+        WAIT_FAILED => Err(std::io::Error::last_os_error()),
+        result => Err(std::io::Error::other(format!(
+            "extension CLI stdin readiness returned status {result}"
+        ))),
+    }
+}
+
 fn main() -> ExitCode {
-    let args = match Args::try_parse() {
+    let argv = std::env::args_os().collect::<Vec<_>>();
+    let hunk_compat_exit = uses_hunk_compat_exit_semantics(&argv);
+    let args = match parse_args_with_fast_shorthand(argv.iter().cloned()) {
         Ok(args) => args,
         Err(error) => {
-            let code = error.exit_code();
+            if error.use_stderr() && pm_diagnostics::parser_machine_request(&argv) {
+                pm_diagnostics::print_parser(&error);
+                return ExitCode::from(2);
+            }
+            let rendered = error.to_string();
+            let code = if hunk_compat_exit && error.use_stderr() {
+                1
+            } else {
+                error.exit_code()
+            };
             let _ = error.print();
+            if hunk_compat_exit && let Some(first_line) = rendered.lines().next() {
+                eprintln!("workdeck: {first_line}");
+            }
             return ExitCode::from(code.try_into().unwrap_or(2));
         }
     };
@@ -657,34 +6113,408 @@ fn main() -> ExitCode {
     match run(args) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            if is_json_error_already_printed(&error) {
+            if let Some(failure) = error.downcast_ref::<pm_cli::CommandFailure>() {
+                failure.print(wants_json);
+            } else if error.downcast_ref::<CommandExit>().is_some()
+                || is_json_error_already_printed(&error)
+            {
                 // The command printed a structured JSON error with command-specific details.
             } else if wants_json {
                 let _ = print_json_error(&error);
+            } else if let Some(user) = error.chain().find_map(|cause| {
+                let catalog = cause.downcast_ref::<VcsCatalogError>()?;
+                match catalog {
+                    VcsCatalogError::User(user) => Some(user),
+                    _ => None,
+                }
+            }) {
+                eprint!(
+                    "{}",
+                    format_cli_error_from_environment(&workdeck_core::CliFailure::User(
+                        user.clone()
+                    ))
+                );
+            } else if let Some(user) = error
+                .chain()
+                .find_map(|cause| cause.downcast_ref::<WorkdeckUserError>())
+            {
+                eprint!(
+                    "{}",
+                    format_cli_error_from_environment(&workdeck_core::CliFailure::User(
+                        user.clone()
+                    ))
+                );
+            } else if let Some(published) = error
+                .chain()
+                .find_map(|cause| cause.downcast_ref::<WorkdeckExtensionUserError>())
+            {
+                eprint!(
+                    "{}",
+                    format_cli_error_from_environment(&workdeck_core::CliFailure::Published(
+                        published.clone()
+                    ))
+                );
+            } else if hunk_compat_exit {
+                eprintln!("workdeck: {error:#}");
             } else {
                 eprintln!("Error: {error:#}");
             }
-            ExitCode::from(classify_exit_code(&error))
+            let code = if hunk_compat_exit && error.downcast_ref::<CommandExit>().is_none() {
+                1
+            } else {
+                classify_exit_code(&error)
+            };
+            ExitCode::from(code)
         }
     }
 }
 
+fn uses_hunk_compat_exit_semantics(argv: &[OsString]) -> bool {
+    let mut cursor = 1;
+    let mut prefixed_fast = false;
+    while cursor < argv.len() {
+        let token = argv[cursor].to_string_lossy();
+        match token.as_ref() {
+            "--fast" => {
+                prefixed_fast = true;
+                cursor += 1;
+            }
+            "--experimental" | "--extensions" | "--no-extensions" => cursor += 1,
+            "--extension" | "--cwd" => cursor = (cursor + 2).min(argv.len()),
+            value if value.starts_with("--extension=") || value.starts_with("--cwd=") => {
+                cursor += 1;
+            }
+            _ => break,
+        }
+    }
+    let command = argv.get(cursor).map(|token| token.to_string_lossy());
+    if prefixed_fast
+        && command
+            .as_deref()
+            .is_none_or(|command| !is_builtin_cli_command_name(command))
+    {
+        return true;
+    }
+    matches!(
+        command.as_deref(),
+        Some(
+            "diff"
+                | "show"
+                | "stash"
+                | "patch"
+                | "difftool"
+                | "pager"
+                | "daemon"
+                | "mcp"
+                | "session"
+                | "extension"
+                | "ext"
+                | "markup"
+                | "skill"
+        )
+    )
+}
+
+fn parse_args_with_fast_shorthand<I, T>(argv: I) -> std::result::Result<Args, clap::Error>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<OsString>,
+{
+    let mut argv = argv.into_iter().map(Into::into).collect::<Vec<OsString>>();
+    let mut cursor = 1;
+    let mut fast = false;
+    while cursor < argv.len() {
+        let token = argv[cursor].to_string_lossy();
+        match token.as_ref() {
+            "--fast" => {
+                fast = true;
+                cursor += 1;
+            }
+            "--experimental" | "--extensions" | "--no-extensions" => cursor += 1,
+            "--extension" | "--cwd" => cursor = (cursor + 2).min(argv.len()),
+            value if value.starts_with("--extension=") || value.starts_with("--cwd=") => {
+                cursor += 1;
+            }
+            _ => break,
+        }
+    }
+    normalize_namespace_help(&mut argv, cursor);
+    if fast {
+        let command = argv.get(cursor).map(|token| token.to_string_lossy());
+        let is_help_or_version = command.as_deref().is_some_and(|token| {
+            matches!(
+                token,
+                "help" | "--help" | "-h" | "version" | "--version" | "-V" | "-v"
+            )
+        });
+        let is_builtin = command.as_deref().is_some_and(is_builtin_cli_command_name);
+        if !is_help_or_version && !is_builtin {
+            argv.insert(cursor, OsString::from("diff"));
+        }
+    }
+    if argv.get(cursor).is_some_and(|token| {
+        token == std::ffi::OsStr::new("version") || token == std::ffi::OsStr::new("-v")
+    }) {
+        argv[cursor] = OsString::from("--version");
+    }
+    Args::try_parse_from(argv)
+}
+
+fn normalize_namespace_help(argv: &mut Vec<OsString>, command_index: usize) {
+    let tail = argv[command_index..]
+        .iter()
+        .map(|token| token.to_string_lossy())
+        .collect::<Vec<_>>();
+    let is_help = |token: &str| matches!(token, "--help" | "-h");
+    let namespace_help = matches!(
+        tail.as_slice(),
+        [command, help]
+            if matches!(
+                command.as_ref(),
+                "stash"
+                    | "daemon"
+                    | "mcp"
+                    | "session"
+                    | "extension"
+                    | "ext"
+                    | "markup"
+                    | "skill"
+            ) && is_help(help)
+    ) || matches!(
+        tail.as_slice(),
+        [session, namespace, help]
+            if session == "session"
+                && matches!(namespace.as_ref(), "comment" | "highlight")
+                && is_help(help)
+    );
+    if namespace_help {
+        argv.pop();
+        return;
+    }
+    if matches!(
+        tail.as_slice(),
+        [skill, path, help]
+            if skill == "skill" && path == "path" && is_help(help)
+    ) {
+        argv.truncate(command_index + 1);
+    }
+}
+
+fn is_builtin_cli_command_name(name: &str) -> bool {
+    matches!(
+        name,
+        "init"
+            | "capabilities"
+            | "schema"
+            | "operation"
+            | "view"
+            | "wiki"
+            | "diff"
+            | "show"
+            | "stash"
+            | "patch"
+            | "difftool"
+            | "pager"
+            | "daemon"
+            | "mcp"
+            | "session"
+            | "extension"
+            | "migrate"
+            | "markup"
+            | "skill"
+            | "update"
+            | "install"
+            | "status"
+            | "files"
+            | "changes"
+            | "search"
+            | "config"
+            | "events"
+            | "import"
+            | "doctor"
+            | "export"
+            | "issue"
+            | "agent"
+            | "project"
+            | "cycle"
+            | "label"
+    )
+}
+
 fn run(args: Args) -> Result<()> {
+    run_with_preloaded_extensions(args, None)
+}
+
+fn run_with_preloaded_extensions(
+    mut args: Args,
+    mut preloaded_extensions: Option<PreloadedExtensionBootstrap>,
+) -> Result<()> {
+    if (args.fast || args.experimental)
+        && args
+            .command
+            .as_ref()
+            .is_some_and(|command| !command.is_review_command())
+    {
+        let flag = if args.fast {
+            "--fast"
+        } else {
+            "--experimental"
+        };
+        bail!("`{flag}` must be used with a Workdeck review command.");
+    }
+    let has_extension_bootstrap_flags =
+        !args.extension.is_empty() || args.extensions || args.no_extensions;
+    let accepts_extension_bootstrap = args.command.as_ref().is_none_or(|command| {
+        command.is_review_command() || matches!(command, Command::External(_))
+    });
+    if has_extension_bootstrap_flags && !accepts_extension_bootstrap {
+        bail!(
+            "`--extension`, `--extensions`, and `--no-extensions` may be used only with a Workdeck review command or an extension CLI command"
+        );
+    }
+
+    if let Some(review) = args.command.as_mut().and_then(Command::review_options_mut) {
+        review.extension.clone_from(&args.extension);
+        review.extensions = args.extensions;
+        review.no_extensions = args.no_extensions && !args.extensions;
+        review.experimental = args.experimental;
+        review.fast = args.fast;
+    }
+
+    if args.init {
+        let init = Command::Init {
+            prefix: "WD".into(),
+            json: false,
+        };
+        return pm_cli::try_run(&args.cwd, Some(&init))
+            .expect("native initialization is always handled");
+    }
+
+    if !args.init
+        && !args.status_json
+        && let Some(result) = pm_cli::try_run(&args.cwd, args.command.as_ref())
+    {
+        return result;
+    }
+
+    // Spool piped review input and attach the controlling terminal before config, theme, or
+    // extension initialization can create Crossterm's process-global event reader.
+    let mut prepared_piped_input = prepare_piped_review_input(args.command.as_ref())?;
+
+    if matches!(args.command, Some(Command::External(_))) {
+        let Command::External(tokens) = args.command.take().expect("external command was present")
+        else {
+            unreachable!()
+        };
+        let (command_name, command_args) = tokens
+            .split_first()
+            .context("extension CLI command is missing its command name")?;
+        if !workdeck_cli::command_names::is_valid_extension_cli_command_name(command_name) {
+            bail!("Unknown command: {command_name}");
+        }
+        return handle_extension_cli_command(
+            &args.cwd,
+            &args.extension,
+            args.no_extensions && !args.extensions,
+            command_name,
+            command_args,
+        );
+    }
+
+    if !args.init
+        && !args.status_json
+        && args
+            .command
+            .as_ref()
+            .is_some_and(Command::is_review_command)
+    {
+        let mut command = args.command.take().expect("review command was present");
+        let config_command_section = command.review_config_section();
+        let pager_review = command.is_pager_review();
+        {
+            let review = command
+                .review_options_mut()
+                .expect("review command has review options");
+            review.config_command_section = config_command_section;
+            review.pager = pager_review;
+        }
+        let raw_review = command
+            .review_options()
+            .expect("review command has review options")
+            .clone();
+        let delegated_discovery_catalog = preloaded_extensions
+            .as_ref()
+            .map(|preloaded| preloaded.discovery_catalog.clone());
+        let config_catalog = delegated_discovery_catalog
+            .as_ref()
+            .unwrap_or_else(|| bundled_vcs_catalog());
+        let config_root = find_project_root_candidate_with_catalog(&args.cwd, Some(config_catalog))
+            .unwrap_or_else(|| args.cwd.clone());
+        let config = Config::load_for_review(&config_root, config_command_section, pager_review)?;
+        command
+            .review_options_mut()
+            .expect("review command has review options")
+            .apply_config_defaults(&config);
+        validate_review_watch_input(&command)?;
+        attach_prepared_controlling_terminal(Some(&command), prepared_piped_input.as_mut())?;
+        let initial_theme_mode = detect_initial_review_theme_mode(
+            command
+                .review_options()
+                .expect("review command has review options"),
+            prepared_piped_input
+                .as_mut()
+                .and_then(|prepared| prepared.terminal.as_mut()),
+        )?;
+        command
+            .review_options_mut()
+            .expect("review command has review options")
+            .initial_theme_mode = initial_theme_mode;
+        return handle_review_command(
+            &args.cwd,
+            command,
+            raw_review,
+            preloaded_extensions
+                .take()
+                .map(|mut preloaded| preloaded.take_load()),
+            delegated_discovery_catalog,
+            prepared_piped_input,
+        );
+    }
+
+    if !args.init
+        && !args.status_json
+        && args
+            .command
+            .as_ref()
+            .is_some_and(Command::is_global_command)
+    {
+        return handle_global_command(
+            &args.cwd,
+            args.command.take().expect("global command was present"),
+        );
+    }
+
     let repo_root = git::discover_repo_root(&args.cwd)?;
 
-    if let Some(Command::Doctor { json }) = &args.command {
+    if let Some(Command::Doctor { json, .. }) = &args.command {
         handle_doctor(&repo_root, *json)?;
         return Ok(());
     }
 
-    let config = Config::load(&repo_root)?;
-    let store = WorkdeckStore::new(config.data_dir(&repo_root));
-
-    if args.init {
-        store.init()?;
-        println!("initialized {}", store.root().display());
-        return Ok(());
+    // Config inspection and repair must work even when the active preferences
+    // are invalid. Set validates the proposed complete layer before publishing.
+    if matches!(args.command, Some(Command::Config { .. })) {
+        let Some(Command::Config { command }) = args.command.take() else {
+            unreachable!()
+        };
+        return handle_config_command(&repo_root, command);
     }
+
+    let config = Config::load(&repo_root)?;
+    if let Some(command) = args.command.as_ref() {
+        pm_cli::guard_legacy_consumer(&repo_root, &config.data_dir(&repo_root), command)?;
+    }
+    let store = WorkdeckStore::new(config.data_dir(&repo_root));
 
     if args.status_json {
         print_status(&repo_root, true)?;
@@ -694,6 +6524,27 @@ fn run(args: Args) -> Result<()> {
     if let Some(command) = args.command {
         match command {
             Command::Status { json } => print_status(&repo_root, json)?,
+            Command::Diff { .. }
+            | Command::Show { .. }
+            | Command::Stash {
+                command: Some(StashCommand::Show { .. }),
+            }
+            | Command::Patch { .. }
+            | Command::Difftool { .. }
+            | Command::Pager { .. } => {
+                unreachable!("review commands are handled before config load")
+            }
+            Command::Stash { command: None }
+            | Command::Daemon { .. }
+            | Command::Session { .. }
+            | Command::Extension { .. }
+            | Command::Migrate { .. }
+            | Command::Markup { .. }
+            | Command::Skill { .. }
+            | Command::Install { .. }
+            | Command::Update { .. } => {
+                unreachable!("global commands are handled before repository config load")
+            }
             Command::Files { command } => handle_files_command(&repo_root, command)?,
             Command::Changes { command } => handle_changes_command(&repo_root, command)?,
             Command::Search {
@@ -701,28 +6552,150 @@ fn run(args: Args) -> Result<()> {
                 target,
                 json,
             } => handle_search_command(&repo_root, &config, &store, query, target, json)?,
-            Command::Config { command } => handle_config_command(&repo_root, &store, command)?,
+            Command::Config { command } => handle_config_command(&repo_root, command)?,
             Command::Events { command } => handle_events_command(&store, command)?,
             Command::Import {
+                options,
                 path,
                 merge,
                 replace,
                 dry_run,
                 json,
-            } => handle_import_command(&store, path, merge, replace, dry_run, json)?,
+            } => {
+                if options.is_native() {
+                    bail!("native import options require initialized planning or migration");
+                }
+                handle_import_command(
+                    &repo_root,
+                    &store,
+                    path.context("import requires a source path")?,
+                    merge,
+                    replace,
+                    dry_run,
+                    json,
+                )?;
+            }
+            Command::Init { .. } => unreachable!("init is handled before config load"),
+            Command::Initiative { .. } | Command::Milestone { .. } | Command::Target { .. } => {
+                unreachable!("native hierarchy is handled before config load")
+            }
+            Command::Protocol { .. } | Command::Capabilities { .. } | Command::Schema { .. } => {
+                unreachable!("introspection is handled before config load")
+            }
+            Command::View { .. } => unreachable!("view is handled before config load"),
+            Command::Wiki { .. } => unreachable!("wiki is handled before config load"),
+            Command::Time { .. } => unreachable!("time is handled before config load"),
+            Command::Hooks { .. }
+            | Command::Claim { .. }
+            | Command::Source { .. }
+            | Command::Repository { .. }
+            | Command::Index { .. }
+            | Command::Question { .. }
+            | Command::Handoff { .. }
+            | Command::Context { .. }
+            | Command::Recipe { .. }
+            | Command::Check { .. }
+            | Command::Next { .. }
+            | Command::Feature { .. }
+            | Command::Gate { .. }
+            | Command::Evidence { .. } => {
+                unreachable!("native capability domains are handled before config load")
+            }
+            Command::User { .. } | Command::Organization { .. } => {
+                unreachable!("organization is handled before config load")
+            }
+            Command::Operation { .. } => unreachable!("operations are handled before config load"),
+            Command::Ci { .. } => unreachable!("CI validation is handled before config load"),
             Command::Doctor { .. } => unreachable!("doctor is handled before config load"),
             Command::Export { json, jsonl } => handle_export(&repo_root, &store, json, jsonl)?,
-            Command::Issue { command } => handle_issue_command(&store, command)?,
-            Command::Agent { command } => handle_agent_command(&store, command)?,
-            Command::Project { command } => handle_project_command(&store, command)?,
-            Command::Cycle { command } => handle_cycle_command(&store, command)?,
-            Command::Label { command } => handle_label_command(&store, command)?,
+            Command::Issue { command, .. } => handle_issue_command(&store, command)?,
+            Command::Agent { options, command } => {
+                if options.is_native() {
+                    bail!("native annotation options require planning initialization or migration");
+                }
+                handle_agent_command(&store, command)?;
+            }
+            Command::Project { command, .. } => handle_project_command(&store, command)?,
+            Command::Cycle { command, .. } => handle_cycle_command(&store, command)?,
+            Command::Label { command, .. } => handle_label_command(&store, command)?,
+            Command::External(_) => {
+                unreachable!("extension CLI commands are handled before repository discovery")
+            }
         }
         return Ok(());
     }
-
-    let app = App::new(&args.cwd)?;
-    workdeck_cli::tui::run(app)
+    let raw_review = ReviewCliOptions {
+        experimental: args.experimental,
+        fast: args.fast,
+        extension: args.extension,
+        extensions: args.extensions,
+        no_extensions: args.no_extensions && !args.extensions,
+        ..ReviewCliOptions::default()
+    };
+    let mut review = raw_review.clone();
+    review.apply_config_defaults(&config);
+    attach_prepared_controlling_terminal(None, prepared_piped_input.as_mut())?;
+    review.initial_theme_mode = detect_initial_review_theme_mode(
+        &review,
+        prepared_piped_input
+            .as_mut()
+            .and_then(|prepared| prepared.terminal.as_mut()),
+    )?;
+    let mut prepared_extensions = prepare_review_extensions(
+        &args.cwd,
+        &mut review,
+        &raw_review,
+        preloaded_extensions
+            .take()
+            .map(|mut preloaded| preloaded.take_load()),
+        None,
+    )?;
+    let catalog = compose_review_vcs_catalog(&prepared_extensions.extensions);
+    prepared_extensions.vcs_catalog = Some(catalog.clone());
+    let mut vcs_input = VcsReviewInput::Diff(VcsDiffCommandInput {
+        range: None,
+        range_endpoints: None,
+        staged: false,
+        pathspecs: Vec::new(),
+        options: {
+            let mut options = review.common_options();
+            options.exclude_untracked = Some(review.config_exclude_untracked);
+            options
+        },
+    });
+    let selection = select_review_vcs_adapter(&args.cwd, review.configured_vcs_id(), &catalog)?;
+    if let Some(notice) = selection.unknown_id_notice {
+        prepared_extensions.unknown_vcs_notices.push(notice);
+    }
+    let adapter = selection.adapter;
+    vcs_input_options_mut(&mut vcs_input).vcs = Some(adapter.id.clone());
+    let session_input = match &vcs_input {
+        VcsReviewInput::Diff(input) => CliInput::Vcs(input.clone()),
+        _ => unreachable!(),
+    };
+    let initial_watch_signature =
+        capture_initial_watch_signature(&review, &session_input, &args.cwd, Some(&catalog));
+    let loaded = load_selected_vcs_changeset(&args.cwd, &adapter, &catalog, &vcs_input)?;
+    review.workbench = Some(workdeck_tui::workbench::WorkbenchOptions::new(
+        &loaded.repo_root,
+    ));
+    let mut reload = || {
+        load_selected_vcs_changeset(&args.cwd, &adapter, &catalog, &vcs_input)
+            .map(|loaded| loaded.changeset)
+    };
+    run_review_with_preloaded_extensions(
+        &args.cwd,
+        LoadedReviewChangeset {
+            changeset: loaded.changeset,
+            source_capabilities: Some(loaded.source_capabilities),
+            repo_root: Some(loaded.repo_root),
+        },
+        review,
+        session_input,
+        initial_watch_signature,
+        Some(&mut reload),
+        prepared_extensions,
+    )
 }
 
 impl Args {
@@ -732,8 +6705,111 @@ impl Args {
 }
 
 impl Command {
+    fn is_review_command(&self) -> bool {
+        matches!(
+            self,
+            Command::Diff { .. }
+                | Command::Show { .. }
+                | Command::Stash {
+                    command: Some(StashCommand::Show { .. }),
+                }
+                | Command::Patch { .. }
+                | Command::Difftool { .. }
+                | Command::Pager { .. }
+        )
+    }
+
+    fn review_options(&self) -> Option<&ReviewCliOptions> {
+        match self {
+            Self::Diff { review, .. }
+            | Self::Show { review, .. }
+            | Self::Patch { review, .. }
+            | Self::Difftool { review, .. }
+            | Self::Pager { review } => Some(review),
+            Self::Stash {
+                command: Some(StashCommand::Show { review, .. }),
+            } => Some(review),
+            _ => None,
+        }
+    }
+
+    fn review_options_mut(&mut self) -> Option<&mut ReviewCliOptions> {
+        match self {
+            Self::Diff { review, .. }
+            | Self::Show { review, .. }
+            | Self::Patch { review, .. }
+            | Self::Difftool { review, .. }
+            | Self::Pager { review } => Some(review),
+            Self::Stash {
+                command: Some(StashCommand::Show { review, .. }),
+            } => Some(review),
+            _ => None,
+        }
+    }
+
+    fn review_config_section(&self) -> Option<&'static str> {
+        match self {
+            Self::Diff { files, .. } if files.is_empty() => Some("vcs"),
+            Self::Diff { .. } => Some("diff"),
+            Self::Show { .. } => Some("show"),
+            Self::Stash {
+                command: Some(StashCommand::Show { .. }),
+            } => Some("stash-show"),
+            Self::Patch { .. } | Self::Pager { .. } => Some("patch"),
+            Self::Difftool { .. } => Some("difftool"),
+            _ => None,
+        }
+    }
+
+    fn is_pager_review(&self) -> bool {
+        self.is_pager_review_with_stdin(std::io::stdin().is_terminal())
+    }
+
+    fn is_pager_review_with_stdin(&self, stdin_is_terminal: bool) -> bool {
+        matches!(self, Self::Pager { .. })
+            || matches!(self, Self::Patch { file, .. }
+                if file.as_deref().is_none_or(|file| file == Path::new("-"))
+                    && !stdin_is_terminal)
+            || self.review_options().is_some_and(|review| review.pager)
+    }
+
+    fn is_global_command(&self) -> bool {
+        matches!(self, Command::Stash { command: None })
+            || matches!(
+                self,
+                Command::Daemon { .. }
+                    | Command::Session { .. }
+                    | Command::Extension { .. }
+                    | Command::Migrate { .. }
+                    | Command::Markup { .. }
+                    | Command::Skill { .. }
+                    | Command::Install { .. }
+                    | Command::Update { .. }
+            )
+    }
+
     fn wants_json(&self) -> bool {
         match self {
+            Command::Diff { .. }
+            | Command::Show { .. }
+            | Command::Stash {
+                command: Some(StashCommand::Show { .. }),
+            }
+            | Command::Stash { command: None }
+            | Command::Patch { .. }
+            | Command::Difftool { .. }
+            | Command::Pager { .. }
+            | Command::Daemon { .. } => false,
+            Command::Session { command } => {
+                command.as_ref().is_some_and(LiveSessionCommand::wants_json)
+            }
+            Command::Extension { command } => {
+                command.as_ref().is_some_and(ExtensionCommand::wants_json)
+            }
+            Command::Migrate { command } => command.wants_json(),
+            Command::Markup { command } => command.as_ref().is_some_and(MarkupCommand::wants_json),
+            Command::Skill { command } => command.as_ref().is_some_and(SkillCommand::wants_json),
+            Command::Update { .. } | Command::Install { .. } => false,
             Command::Status { json } => *json,
             Command::Files { command } => command.wants_json(),
             Command::Changes { command } => command.wants_json(),
@@ -741,15 +6817,3992 @@ impl Command {
             Command::Config { command } => command.wants_json(),
             Command::Events { command } => command.wants_json(),
             Command::Import { json, .. } => *json,
-            Command::Doctor { json } => *json,
-            Command::Export { json, jsonl } => *json && !*jsonl,
-            Command::Issue { command } => command.wants_json(),
-            Command::Agent { command } => command.wants_json(),
-            Command::Project { command } => command.wants_json(),
-            Command::Cycle { command } => command.wants_json(),
-            Command::Label { command } => command.wants_json(),
+            Command::Init { json, .. }
+            | Command::Doctor { json, .. }
+            | Command::Operation { json, .. }
+            | Command::Schema { json, .. } => *json,
+            Command::Export { json, jsonl } => *json || *jsonl,
+            Command::Ci { options, .. } => options.json,
+            Command::Hooks { options, .. } => options.json,
+            Command::Claim { options, .. }
+            | Command::Source { options, .. }
+            | Command::Repository { options, .. }
+            | Command::Index { options, .. } => options.json,
+            Command::View { options, .. } => options.json,
+            Command::Wiki { options, .. } => options.json,
+            Command::Time { options, .. } => options.json,
+            Command::Protocol { options, .. } => options.json,
+            Command::Capabilities { json, output, .. } => *json || output.machine(),
+            Command::Question { options, .. } | Command::Handoff { options, .. } => {
+                options.native.json || options.output.machine()
+            }
+            Command::Context { options } => options.native.json || options.output.machine(),
+            Command::Recipe { options, .. } | Command::Check { options, .. } => {
+                options.native.json || options.output.machine()
+            }
+            Command::Next { options } => options.native.json || options.output.machine(),
+            Command::Feature { options, .. }
+            | Command::Gate { options, .. }
+            | Command::Evidence { options, .. } => options.json,
+            Command::User { options, .. } | Command::Organization { options, .. } => options.json,
+            Command::Issue { command, .. } => command.wants_json(),
+            Command::Agent { command, .. } => command.wants_json(),
+            Command::Project { command, .. } => command.wants_json(),
+            Command::Initiative { command, .. }
+            | Command::Milestone { command, .. }
+            | Command::Target { command, .. } => command.wants_json(),
+            Command::Cycle { command, .. } => command.wants_json(),
+            Command::Label { command, .. } => command.wants_json(),
+            Command::External(_) => false,
         }
     }
+}
+
+impl LiveSessionCommand {
+    fn wants_json(&self) -> bool {
+        match self {
+            Self::List { json }
+            | Self::Get { json, .. }
+            | Self::Context { json, .. }
+            | Self::Review { json, .. }
+            | Self::Reload { json, .. }
+            | Self::Navigate { json, .. }
+            | Self::Quit { json, .. } => *json,
+            Self::Comment { command } => {
+                command.as_ref().is_some_and(LiveCommentCommand::wants_json)
+            }
+            Self::Highlight { command } => command
+                .as_ref()
+                .is_some_and(LiveHighlightCommand::wants_json),
+        }
+    }
+}
+
+impl LiveCommentCommand {
+    fn wants_json(&self) -> bool {
+        match self {
+            Self::Add { json, .. }
+            | Self::Apply { json, .. }
+            | Self::List { json, .. }
+            | Self::Remove { json, .. }
+            | Self::Clear { json, .. } => *json,
+        }
+    }
+}
+
+impl LiveHighlightCommand {
+    fn wants_json(&self) -> bool {
+        match self {
+            Self::Add { json, .. } | Self::Clear { json, .. } => *json,
+        }
+    }
+}
+
+impl ExtensionCommand {
+    fn wants_json(&self) -> bool {
+        match self {
+            Self::Install { json, .. }
+            | Self::List { json }
+            | Self::Update { json, .. }
+            | Self::Remove { json, .. }
+            | Self::Validate { json, .. }
+            | Self::Trust { json, .. } => *json,
+        }
+    }
+}
+
+impl MigrateCommand {
+    fn wants_json(&self) -> bool {
+        match self {
+            Self::Legacy { options } => options.json,
+            Self::Hunk { json, .. } => *json,
+        }
+    }
+}
+
+impl MarkupCommand {
+    fn wants_json(&self) -> bool {
+        matches!(self, Self::Render { json: true, .. })
+    }
+}
+
+impl SkillCommand {
+    fn wants_json(&self) -> bool {
+        matches!(self, Self::Path { json: true, .. })
+    }
+}
+
+struct PreparedPipedInput {
+    text: String,
+    terminal: Option<workdeck_tui::ControllingTerminal<File>>,
+}
+
+struct PreparedReviewExtensions {
+    extensions: Vec<LoadedExtension>,
+    notifications: ExtensionNotificationHub,
+    pending_trust_repo_root: Option<PathBuf>,
+    configured_notices: Vec<StartupNotice>,
+    application_notices: Vec<StartupNotice>,
+    unknown_vcs_notices: Vec<StartupNotice>,
+    load_notices: Vec<StartupNotice>,
+    vcs_catalog: Option<VcsCatalog>,
+}
+
+struct PreloadedExtensionBootstrap {
+    load: Option<ExtensionLoadResult>,
+    discovery_catalog: VcsCatalog,
+    configured_notices: Vec<StartupNotice>,
+}
+
+impl PreloadedExtensionBootstrap {
+    fn load(&self) -> &ExtensionLoadResult {
+        self.load
+            .as_ref()
+            .expect("preloaded extension bootstrap still owns its load")
+    }
+
+    fn load_mut(&mut self) -> &mut ExtensionLoadResult {
+        self.load
+            .as_mut()
+            .expect("preloaded extension bootstrap still owns its load")
+    }
+
+    fn take_load(&mut self) -> ExtensionLoadResult {
+        self.load
+            .take()
+            .expect("preloaded extension bootstrap still owns its load")
+    }
+}
+
+impl Drop for PreloadedExtensionBootstrap {
+    fn drop(&mut self) {
+        if let Some(load) = &mut self.load {
+            load.retire();
+        }
+    }
+}
+
+/// Retain provisional load ownership until bootstrap either commits it to the TUI or fails.
+///
+/// `LoadedExtension` is cloneable because VCS callbacks retain process handles. A plain dropped
+/// vector therefore cannot guarantee immediate revocation when a provisional catalog is still in
+/// scope. This guard explicitly closes the owning load result on every error path.
+struct ProvisionalReviewExtensionLoad(Option<ExtensionLoadResult>);
+
+impl ProvisionalReviewExtensionLoad {
+    fn new(result: ExtensionLoadResult) -> Self {
+        Self(Some(result))
+    }
+
+    fn result(&self) -> &ExtensionLoadResult {
+        self.0
+            .as_ref()
+            .expect("provisional extension load is still owned")
+    }
+
+    fn take(&mut self) -> ExtensionLoadResult {
+        self.0
+            .take()
+            .expect("provisional extension load is still owned")
+    }
+}
+
+impl Drop for ProvisionalReviewExtensionLoad {
+    fn drop(&mut self) {
+        if let Some(result) = &mut self.0 {
+            result.retire();
+        }
+    }
+}
+
+struct ProvisionalLoadedExtensions(Option<Vec<LoadedExtension>>);
+
+impl ProvisionalLoadedExtensions {
+    fn new(extensions: Vec<LoadedExtension>) -> Self {
+        Self(Some(extensions))
+    }
+
+    fn extensions(&self) -> &[LoadedExtension] {
+        self.0
+            .as_deref()
+            .expect("provisional extensions have not been adopted")
+    }
+
+    fn adopt(&mut self) -> Vec<LoadedExtension> {
+        self.0
+            .take()
+            .expect("provisional extensions are adopted exactly once")
+    }
+}
+
+impl Drop for ProvisionalLoadedExtensions {
+    fn drop(&mut self) {
+        let Some(extensions) = &mut self.0 else {
+            return;
+        };
+        for extension in extensions.iter_mut() {
+            let _ = extension.begin_retirement();
+        }
+        let deadline = std::time::Instant::now() + EXTENSION_SHUTDOWN_TIMEOUT;
+        for extension in extensions.iter_mut() {
+            extension.finish_retirement(deadline);
+        }
+    }
+}
+
+type WorkdeckAppBootstrap = AppBootstrap<PreparedReviewExtensions, VcsCatalog>;
+
+struct SelectedVcsAdapter {
+    adapter: VcsAdapter,
+    unknown_id_notice: Option<StartupNotice>,
+}
+
+struct LoadedReviewChangeset {
+    source_capabilities: Option<workdeck_vcs::VcsSourceCapabilities>,
+    changeset: Changeset,
+    repo_root: Option<PathBuf>,
+}
+
+fn prepare_review_extensions(
+    cwd: &Path,
+    review: &mut ReviewCliOptions,
+    raw_review: &ReviewCliOptions,
+    previous_load: Option<ExtensionLoadResult>,
+    discovery_catalog: Option<&VcsCatalog>,
+) -> Result<PreparedReviewExtensions> {
+    load_review_extensions(cwd, review, raw_review, previous_load, discovery_catalog)
+}
+
+fn load_extensions_before_changeset<E, C>(
+    load_extensions: impl FnOnce() -> Result<E>,
+    load_changeset: impl FnOnce() -> Result<C>,
+) -> Result<(E, C)> {
+    let extensions = load_extensions()?;
+    let changeset = load_changeset()?;
+    Ok((extensions, changeset))
+}
+
+fn compose_review_vcs_catalog(extensions: &[LoadedExtension]) -> VcsCatalog {
+    let base = bundled_vcs_catalog();
+    let resolution = resolve_loaded_extension_registrations(extensions, base);
+    extend_vcs_catalog(base, resolved_native_vcs_adapters(extensions, &resolution))
+}
+
+fn select_review_vcs_adapter(
+    cwd: &Path,
+    configured_id: Option<&str>,
+    catalog: &VcsCatalog,
+) -> Result<SelectedVcsAdapter> {
+    if let Some(id) = configured_id {
+        if let Ok(adapter) = get_vcs_adapter(id, catalog) {
+            return Ok(SelectedVcsAdapter {
+                adapter: adapter.clone(),
+                unknown_id_notice: None,
+            });
+        }
+        let adapter = detect_vcs(cwd, catalog)
+            .and_then(|detection| get_vcs_adapter(&detection.id, catalog).ok())
+            .map_or_else(|| get_default_vcs_adapter(catalog), Ok)?
+            .clone();
+        let message = sanitize_terminal_line(&format!(
+            "Unknown vcs \"{id}\" • falling back to {}. Install an extension that registers it, or fix the id in Workdeck config.",
+            adapter.id
+        ));
+        return Ok(SelectedVcsAdapter {
+            adapter,
+            unknown_id_notice: Some(StartupNotice::new(format!("vcs:unknown:{id}"), message)),
+        });
+    }
+    if let Some(detection) = detect_vcs(cwd, catalog) {
+        return Ok(SelectedVcsAdapter {
+            adapter: get_vcs_adapter(&detection.id, catalog)?.clone(),
+            unknown_id_notice: None,
+        });
+    }
+    Ok(SelectedVcsAdapter {
+        adapter: get_default_vcs_adapter(catalog)?.clone(),
+        unknown_id_notice: None,
+    })
+}
+
+fn vcs_input_options_mut(input: &mut VcsReviewInput) -> &mut CommonOptions {
+    match input {
+        VcsReviewInput::Diff(input) => &mut input.options,
+        VcsReviewInput::Show(input) => &mut input.options,
+        VcsReviewInput::StashShow(input) => &mut input.options,
+    }
+}
+
+fn load_selected_vcs_changeset(
+    cwd: &Path,
+    adapter: &VcsAdapter,
+    catalog: &VcsCatalog,
+    input: &VcsReviewInput,
+) -> Result<workdeck_vcs::LoadedVcsChangeset> {
+    workdeck_vcs::load_selected_vcs_changeset_deferred(cwd, adapter, catalog, input)
+        .map_err(Into::into)
+}
+
+/// Load any already-validated session input at its requested working
+/// directory. Extension transforms remain owned by the mounted TUI so they run
+/// exactly once after the content candidate has loaded successfully.
+fn review_config_context_for_input(input: &CliInput) -> (Option<&'static str>, bool) {
+    let command_section = match input {
+        CliInput::Vcs(_) => Some("vcs"),
+        CliInput::Show(_) => Some("show"),
+        CliInput::StashShow(_) => Some("stash-show"),
+        CliInput::Files(_) => Some("diff"),
+        CliInput::Patch(_) => Some("patch"),
+        CliInput::DiffTool(_) => Some("difftool"),
+    };
+    (command_section, input.options().pager.unwrap_or(false))
+}
+
+fn resolve_dynamic_review_input(
+    input: &CliInput,
+    cwd: &Path,
+    vcs_catalog: &VcsCatalog,
+) -> Result<CliInput> {
+    let config_root = find_project_root_candidate_with_catalog(cwd, Some(vcs_catalog))
+        .unwrap_or_else(|| cwd.to_owned());
+    let (command_section, pager) = review_config_context_for_input(input);
+    let config = Config::load_for_review(&config_root, command_section, pager)?;
+    let mut configured = ReviewCliOptions::from_config(&config).common_options();
+    let requested = input.options();
+    macro_rules! overlay {
+        ($field:ident) => {
+            if requested.$field.is_some() {
+                configured.$field = requested.$field.clone();
+            }
+        };
+    }
+    overlay!(mode);
+    overlay!(cursor_line);
+    overlay!(vcs);
+    overlay!(theme);
+    overlay!(agent_context);
+    overlay!(pager);
+    overlay!(watch);
+    overlay!(experimental);
+    overlay!(fast);
+    overlay!(exclude_untracked);
+    overlay!(line_numbers);
+    overlay!(tab_width);
+    overlay!(file_gap);
+    overlay!(hunk_gap);
+    overlay!(wrap_lines);
+    overlay!(hunk_headers);
+    overlay!(menu_bar);
+    overlay!(sidebar);
+    overlay!(agent_notes);
+    overlay!(copy_decorations);
+    overlay!(prompt_save_view_preferences);
+    overlay!(transparent_background);
+    overlay!(color_moved);
+    overlay!(extensions);
+    // AppHost restores the exact launch authority here, including an empty
+    // list, so repository configuration cannot inject executable paths into a
+    // live session reload.
+    configured
+        .extension_paths
+        .clone_from(&requested.extension_paths);
+    if matches!(input, CliInput::Vcs(_)) && requested.exclude_untracked.is_none() {
+        configured.exclude_untracked = Some(config.review.exclude_untracked);
+    }
+    let mut resolved = input.clone();
+    *resolved.options_mut() = configured;
+    Ok(resolved)
+}
+
+#[cfg(test)]
+fn load_dynamic_review_input(
+    input: &CliInput,
+    cwd: &Path,
+    vcs_catalog: Option<&VcsCatalog>,
+    current_extensions: &[LoadedExtension],
+) -> Result<workdeck_tui::DynamicReviewLoad> {
+    load_dynamic_review_input_with_workbench(input, cwd, vcs_catalog, current_extensions, None)
+}
+
+fn load_dynamic_review_input_with_workbench(
+    input: &CliInput,
+    cwd: &Path,
+    vcs_catalog: Option<&VcsCatalog>,
+    current_extensions: &[LoadedExtension],
+    workbench_panels: Option<&workdeck_cli::repository_panels::RepositoryPanels>,
+) -> Result<workdeck_tui::DynamicReviewLoad> {
+    let bundled;
+    let catalog = match vcs_catalog {
+        Some(catalog) => catalog,
+        None => {
+            bundled = bundled_vcs_catalog().clone();
+            &bundled
+        }
+    };
+    let config_root = find_project_root_candidate_with_catalog(cwd, Some(catalog))
+        .unwrap_or_else(|| cwd.to_owned());
+    let (command_section, pager) = review_config_context_for_input(input);
+    let config = Config::load_for_review(&config_root, command_section, pager)?;
+    let review = ReviewCliOptions::from_config(&config);
+    let session_themes = collect_review_custom_themes(&review, current_extensions);
+    let mut startup_notices = review.startup_notices.clone();
+    startup_notices.extend(session_themes.notices);
+    let prepared_panels = workbench_panels
+        .and_then(
+            |provider| match provider.prepare_review_root(&config_root) {
+                Ok(prepared) => Some(Ok(prepared)),
+                Err(error) if matches!(input, CliInput::Files(_)) => {
+                    Some(Err(anyhow::anyhow!(error.message)))
+                }
+                // Independent patch/VCS review retains its existing reload scope.
+                // Failure to admit PM navigation supplies no replacement provider
+                // or registry handle; it cannot authorize a planning-context switch.
+                Err(_) => None,
+            },
+        )
+        .transpose()?;
+    let (scoped_panels, registry_navigation) = match prepared_panels {
+        Some((provider, navigation)) => (Some(Arc::new(provider)), navigation),
+        None => (None, None),
+    };
+    let mut repo_root = Some(config_root);
+    let mut source_capabilities = workdeck_vcs::VcsSourceCapabilities::default();
+    let mut input = resolve_dynamic_review_input(input, cwd, catalog)?;
+    let mut changeset = match &mut input {
+        CliInput::Vcs(input) => {
+            let selected = select_review_vcs_adapter(cwd, input.options.vcs.as_deref(), catalog)?;
+            input.options.vcs = Some(selected.adapter.id.clone());
+            if let Some(notice) = selected.unknown_id_notice {
+                startup_notices.push(notice);
+            }
+            let review_input = VcsReviewInput::Diff(input.clone());
+            let loaded =
+                load_selected_vcs_changeset(cwd, &selected.adapter, catalog, &review_input)?;
+            repo_root = Some(loaded.repo_root);
+            source_capabilities = loaded.source_capabilities;
+            loaded.changeset
+        }
+        CliInput::Show(input) => {
+            let selected = select_review_vcs_adapter(cwd, input.options.vcs.as_deref(), catalog)?;
+            input.options.vcs = Some(selected.adapter.id.clone());
+            if let Some(notice) = selected.unknown_id_notice {
+                startup_notices.push(notice);
+            }
+            let review_input = VcsReviewInput::Show(input.clone());
+            let loaded =
+                load_selected_vcs_changeset(cwd, &selected.adapter, catalog, &review_input)?;
+            repo_root = Some(loaded.repo_root);
+            source_capabilities = loaded.source_capabilities;
+            loaded.changeset
+        }
+        CliInput::StashShow(input) => {
+            let selected = select_review_vcs_adapter(
+                cwd,
+                input.options.vcs.as_deref().or(Some("git")),
+                catalog,
+            )?;
+            input.options.vcs = Some(selected.adapter.id.clone());
+            if let Some(notice) = selected.unknown_id_notice {
+                startup_notices.push(notice);
+            }
+            let review_input = VcsReviewInput::StashShow(input.clone());
+            let loaded =
+                load_selected_vcs_changeset(cwd, &selected.adapter, catalog, &review_input)?;
+            repo_root = Some(loaded.repo_root);
+            source_capabilities = loaded.source_capabilities;
+            loaded.changeset
+        }
+        CliInput::Files(input) => {
+            if let Some(provider) = scoped_panels.as_deref() {
+                let resolved_cwd = cwd.canonicalize()?;
+                let left = resolve_input_path(&resolved_cwd, Path::new(&input.left));
+                let right = resolve_input_path(&resolved_cwd, Path::new(&input.right));
+                let read = |path: &Path| {
+                    provider
+                        .read_file_for_navigation(path)
+                        .map_err(|error| anyhow::anyhow!(error.message))
+                };
+                let left_bytes = read(&left)?;
+                let right_bytes = if left == right {
+                    left_bytes.clone()
+                } else {
+                    read(&right)?
+                };
+                workdeck_vcs::load_file_comparison_from_bytes(
+                    cwd,
+                    &left,
+                    &right,
+                    &left_bytes,
+                    &right_bytes,
+                )?
+            } else {
+                load_file_comparison(cwd, Path::new(&input.left), Path::new(&input.right))?
+            }
+        }
+        CliInput::Patch(input) => {
+            let (patch, label) = match (&input.file, &input.text) {
+                (Some(file), _) if file != "-" => {
+                    let path = resolve_input_path(cwd, Path::new(file));
+                    let patch = std::fs::read_to_string(&path)
+                        .with_context(|| format!("failed to read patch {}", path.display()))?;
+                    (patch, path.display().to_string())
+                }
+                (_, Some(text)) => (text.clone(), "session patch".into()),
+                _ => bail!("session reload cannot reopen a patch from stdin"),
+            };
+            parse_patch_input(&patch, label).map_err(anyhow::Error::from)?
+        }
+        CliInput::DiffTool(input) => load_difftool_comparison(
+            cwd,
+            Path::new(&input.left),
+            Path::new(&input.right),
+            input.path.as_deref().map(Path::new),
+        )
+        .map_err(anyhow::Error::from)?,
+    };
+    apply_agent_context(
+        cwd,
+        input.options().agent_context.as_deref().map(Path::new),
+        &mut changeset,
+    )?;
+    if let Some(provider) = &scoped_panels {
+        use workdeck_tui::workbench::RepositoryPanelProvider;
+        if repo_root.as_ref() != Some(&provider.source().root) {
+            bail!("Loaded review root does not match its registered panel provider");
+        }
+    }
+    Ok(workdeck_tui::DynamicReviewLoad {
+        host_options: workdeck_tui::DynamicReviewHostOptions {
+            source_capabilities: Some(source_capabilities),
+            registry_navigation,
+            command_cwd: cwd.to_owned(),
+            repo_root,
+            repository_panels: scoped_panels.map(|provider| {
+                Some(provider as Arc<dyn workdeck_tui::workbench::RepositoryPanelProvider>)
+            }),
+            startup_notices,
+            custom_themes: session_themes.themes,
+            keybindings: review.keybindings,
+            keybinding_notices: review.keybinding_notices,
+            view_preferences_config_path: review.view_preferences_config_path,
+            view_preferences_write_policy: review.view_preferences_write_policy,
+            prompt_save_view_preferences: input
+                .options()
+                .prompt_save_view_preferences
+                .unwrap_or(true),
+            transient_view_preferences: Some(uses_transient_view_preferences(
+                current_extensions
+                    .iter()
+                    .map(|extension| &extension.handshake),
+            )),
+            pending_extension_trust_repo_root: None,
+            pending_extension_trust_directory: None,
+            extension_trust_handler: Some(review_extension_trust_handler()),
+        },
+        input,
+        changeset,
+        replacement_extensions: None,
+        replacement_vcs_catalog: None,
+    })
+}
+
+#[cfg(test)]
+fn load_dynamic_review_session(
+    input: &CliInput,
+    cwd: &Path,
+    reload_extensions: bool,
+    current_catalog: &VcsCatalog,
+    current_extensions: &[LoadedExtension],
+    notifications: &ExtensionNotificationHub,
+) -> Result<workdeck_tui::DynamicReviewLoad> {
+    load_dynamic_review_session_with_workbench(
+        input,
+        cwd,
+        reload_extensions,
+        current_catalog,
+        current_extensions,
+        notifications,
+        None,
+    )
+}
+
+fn load_dynamic_review_session_with_workbench(
+    input: &CliInput,
+    cwd: &Path,
+    reload_extensions: bool,
+    current_catalog: &VcsCatalog,
+    current_extensions: &[LoadedExtension],
+    notifications: &ExtensionNotificationHub,
+    workbench_panels: Option<&workdeck_cli::repository_panels::RepositoryPanels>,
+) -> Result<workdeck_tui::DynamicReviewLoad> {
+    if !reload_extensions {
+        return load_dynamic_review_input_with_workbench(
+            input,
+            cwd,
+            Some(current_catalog),
+            current_extensions,
+            workbench_panels,
+        );
+    }
+
+    let config_root = find_project_root_candidate_with_catalog(cwd, Some(current_catalog))
+        .unwrap_or_else(|| cwd.to_owned());
+    let (command_section, pager) = review_config_context_for_input(input);
+    let config = Config::load_for_review(&config_root, command_section, pager)?;
+    let mut review = ReviewCliOptions::from_config(&config);
+    let mut raw_review = ReviewCliOptions::default();
+    for target in [&mut review, &mut raw_review] {
+        target.config_command_section = command_section;
+        target.pager = pager;
+        target.experimental = input.options().experimental.unwrap_or(false);
+        target.fast = input.options().fast.unwrap_or(false);
+        target.extension = input
+            .options()
+            .extension_paths
+            .iter()
+            .map(PathBuf::from)
+            .collect();
+        match input.options().extensions {
+            Some(true) => {
+                target.extensions = true;
+                target.no_extensions = false;
+            }
+            Some(false) => {
+                target.extensions = false;
+                target.no_extensions = true;
+            }
+            None => {}
+        }
+    }
+    let mut prepared = load_review_extensions_with_notifications(
+        cwd,
+        &mut review,
+        &raw_review,
+        notifications.clone(),
+        None,
+        Some(current_catalog),
+    )?;
+    let mut replacement = ProvisionalLoadedExtensions::new(prepared.extensions);
+    let replacement_catalog = compose_review_vcs_catalog(replacement.extensions());
+    let mut loaded = load_dynamic_review_input_with_workbench(
+        input,
+        cwd,
+        Some(&replacement_catalog),
+        replacement.extensions(),
+        workbench_panels,
+    )?;
+    let mut extension_notices = Vec::new();
+    extension_notices.append(&mut prepared.application_notices);
+    extension_notices.append(&mut prepared.load_notices);
+    loaded
+        .host_options
+        .startup_notices
+        .extend(extension_notices);
+    loaded.host_options.pending_extension_trust_directory = Some(
+        prepared
+            .pending_trust_repo_root
+            .as_deref()
+            .map(workdeck_extension_host::repository_extension_directory),
+    );
+    loaded.host_options.pending_extension_trust_repo_root = Some(prepared.pending_trust_repo_root);
+    loaded.replacement_extensions = Some(replacement.adopt());
+    loaded.replacement_vcs_catalog = Some(replacement_catalog);
+    Ok(loaded)
+}
+
+fn resolve_input_path(cwd: &Path, path: &Path) -> PathBuf {
+    if path.is_absolute() {
+        path.to_owned()
+    } else {
+        cwd.join(path)
+    }
+}
+
+fn prepare_piped_review_input(command: Option<&Command>) -> Result<Option<PreparedPipedInput>> {
+    let reads_stdin = match command {
+        Some(Command::Pager { .. }) => true,
+        Some(Command::Patch { file, .. }) => {
+            file.as_deref().is_none_or(|path| path == Path::new("-"))
+        }
+        _ => false,
+    };
+    if std::io::stdin().is_terminal() {
+        return Ok(None);
+    }
+    let mut text = String::new();
+    if reads_stdin {
+        std::io::stdin()
+            .read_to_string(&mut text)
+            .context("failed to read piped review input")?;
+    }
+    let will_need_controlling_terminal =
+        should_open_controlling_terminal(command, &text, false, std::io::stdout().is_terminal());
+    if !reads_stdin && !will_need_controlling_terminal {
+        return Ok(None);
+    }
+    Ok(Some(PreparedPipedInput {
+        text,
+        terminal: None,
+    }))
+}
+
+fn attach_prepared_controlling_terminal(
+    command: Option<&Command>,
+    prepared: Option<&mut PreparedPipedInput>,
+) -> Result<()> {
+    let Some(prepared) = prepared else {
+        return Ok(());
+    };
+    let environment = std::env::vars().collect::<BTreeMap<_, _>>();
+    if prepared.terminal.is_none()
+        && should_open_controlling_terminal_in_environment(
+            command,
+            &prepared.text,
+            false,
+            std::io::stdout().is_terminal(),
+            &environment,
+        )
+    {
+        match attach_controlling_terminal_input() {
+            Ok(terminal) => prepared.terminal = Some(terminal),
+            Err(_) if matches!(command, Some(Command::Pager { .. })) => {
+                // A pager with no controlling terminal must remain useful inside captured hosts.
+                // Its command handler will select the static renderer from this missing guard.
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
+}
+
+fn validate_review_watch_input(command: &Command) -> Result<()> {
+    let Some(review) = command.review_options() else {
+        return Ok(());
+    };
+    if !review.watch || review.no_watch {
+        return Ok(());
+    }
+    // Unlike the pinned Bun runtime, the Rust watcher has no version gate. Keep the replacement
+    // assertion at the same startup boundary so a future watcher backend cannot bypass it.
+    NativeWatchRuntime.assert_reliable();
+    let has_stdin_agent_context = review
+        .agent_context
+        .as_deref()
+        .is_some_and(|path| path == Path::new("-"));
+    let can_reload = !has_stdin_agent_context
+        && match command {
+            Command::Patch { file, .. } => {
+                file.as_deref().is_some_and(|path| path != Path::new("-"))
+            }
+            Command::Pager { .. } => false,
+            _ => true,
+        };
+    if !can_reload {
+        bail!(
+            "`--watch` requires a file- or VCS-backed input that Workdeck can reopen.\nUse a patch file path instead of stdin, and avoid `--agent-context -` for watched sessions."
+        );
+    }
+    Ok(())
+}
+
+fn should_open_controlling_terminal(
+    command: Option<&Command>,
+    piped_text: &str,
+    stdin_is_terminal: bool,
+    stdout_is_terminal: bool,
+) -> bool {
+    should_open_controlling_terminal_in_environment(
+        command,
+        piped_text,
+        stdin_is_terminal,
+        stdout_is_terminal,
+        &BTreeMap::new(),
+    )
+}
+
+fn should_open_controlling_terminal_in_environment(
+    command: Option<&Command>,
+    piped_text: &str,
+    stdin_is_terminal: bool,
+    stdout_is_terminal: bool,
+    environment: &BTreeMap<String, String>,
+) -> bool {
+    if stdin_is_terminal || !stdout_is_terminal {
+        return false;
+    }
+    match command {
+        None
+        | Some(
+            Command::Diff { .. }
+            | Command::Show { .. }
+            | Command::Stash { .. }
+            | Command::Patch { .. }
+            | Command::Difftool { .. },
+        ) => true,
+        Some(Command::Pager { .. }) => matches!(
+            workdeck_cli::pager::resolve_pager_startup_route(
+                piped_text,
+                environment,
+                stdout_is_terminal,
+                true,
+            ),
+            workdeck_cli::pager::PagerStartupRoute::InteractiveDiff
+        ),
+        _ => false,
+    }
+}
+
+fn handle_review_command(
+    cwd: &Path,
+    command: Command,
+    raw_review: ReviewCliOptions,
+    mut preloaded_extensions: Option<ExtensionLoadResult>,
+    discovery_catalog: Option<VcsCatalog>,
+    mut prepared_piped_input: Option<PreparedPipedInput>,
+) -> Result<()> {
+    match command {
+        Command::Diff {
+            revisions,
+            files,
+            staged,
+            exclude_untracked,
+            include_untracked,
+            pathspec,
+            mut review,
+        } => {
+            if validate_diff_file_arguments(&files, &revisions, staged, &pathspec)? {
+                let left = files[0].clone();
+                let right = files[1].clone();
+                let (prepared_extensions, changeset) = load_extensions_before_changeset(
+                    || {
+                        prepare_review_extensions(
+                            cwd,
+                            &mut review,
+                            &raw_review,
+                            preloaded_extensions.take(),
+                            discovery_catalog.as_ref(),
+                        )
+                    },
+                    || load_file_comparison(cwd, &left, &right).map_err(anyhow::Error::from),
+                )?;
+                let input = CliInput::Files(FileCommandInput {
+                    left: left.to_string_lossy().into_owned(),
+                    right: right.to_string_lossy().into_owned(),
+                    options: review.common_options(),
+                });
+                let initial_watch_signature =
+                    capture_initial_watch_signature(&review, &input, cwd, None);
+                let mut reload =
+                    || load_file_comparison(cwd, &left, &right).map_err(anyhow::Error::from);
+                return run_review_with_preloaded_extensions(
+                    cwd,
+                    LoadedReviewChangeset {
+                        source_capabilities: None,
+                        changeset,
+                        repo_root: None,
+                    },
+                    review,
+                    input,
+                    initial_watch_signature,
+                    Some(&mut reload),
+                    prepared_extensions,
+                );
+            }
+            let (from, target) = match revisions.as_slice() {
+                [] => (None, None),
+                [target] => (None, Some(target.clone())),
+                [from, to] => (Some(from.clone()), Some(to.clone())),
+                _ => unreachable!("clap limits revisions to two"),
+            };
+            let mut prepared_extensions = prepare_review_extensions(
+                cwd,
+                &mut review,
+                &raw_review,
+                preloaded_extensions.take(),
+                discovery_catalog.as_ref(),
+            )?;
+            let catalog = compose_review_vcs_catalog(&prepared_extensions.extensions);
+            prepared_extensions.vcs_catalog = Some(catalog.clone());
+            let mut input_options = review.common_options();
+            input_options.exclude_untracked =
+                Some(!include_untracked && (exclude_untracked || review.config_exclude_untracked));
+            let mut vcs_input = VcsReviewInput::Diff(VcsDiffCommandInput {
+                range: from.is_none().then(|| target.clone()).flatten(),
+                range_endpoints: from
+                    .clone()
+                    .zip(target.clone())
+                    .map(|(from, to)| VcsRangeEndpoints { from, to }),
+                staged,
+                pathspecs: pathspec,
+                options: input_options,
+            });
+            let selection = select_review_vcs_adapter(cwd, review.configured_vcs_id(), &catalog)?;
+            if let Some(notice) = selection.unknown_id_notice {
+                prepared_extensions.unknown_vcs_notices.push(notice);
+            }
+            let adapter = selection.adapter;
+            vcs_input_options_mut(&mut vcs_input).vcs = Some(adapter.id.clone());
+            let session_input = match &vcs_input {
+                VcsReviewInput::Diff(input) => CliInput::Vcs(input.clone()),
+                _ => unreachable!(),
+            };
+            let initial_watch_signature =
+                capture_initial_watch_signature(&review, &session_input, cwd, Some(&catalog));
+            let loaded = load_selected_vcs_changeset(cwd, &adapter, &catalog, &vcs_input)?;
+            let mut reload = || {
+                load_selected_vcs_changeset(cwd, &adapter, &catalog, &vcs_input)
+                    .map(|loaded| loaded.changeset)
+            };
+            run_review_with_preloaded_extensions(
+                cwd,
+                LoadedReviewChangeset {
+                    changeset: loaded.changeset,
+                    source_capabilities: Some(loaded.source_capabilities),
+                    repo_root: Some(loaded.repo_root),
+                },
+                review,
+                session_input,
+                initial_watch_signature,
+                Some(&mut reload),
+                prepared_extensions,
+            )
+        }
+        Command::Show {
+            target,
+            pathspec,
+            mut review,
+        } => {
+            let mut prepared_extensions = prepare_review_extensions(
+                cwd,
+                &mut review,
+                &raw_review,
+                preloaded_extensions.take(),
+                discovery_catalog.as_ref(),
+            )?;
+            let catalog = compose_review_vcs_catalog(&prepared_extensions.extensions);
+            prepared_extensions.vcs_catalog = Some(catalog.clone());
+            let mut vcs_input = VcsReviewInput::Show(VcsShowCommandInput {
+                reference: target.clone(),
+                pathspecs: pathspec.clone(),
+                options: review.common_options(),
+            });
+            let selection = select_review_vcs_adapter(cwd, review.configured_vcs_id(), &catalog)?;
+            if let Some(notice) = selection.unknown_id_notice {
+                prepared_extensions.unknown_vcs_notices.push(notice);
+            }
+            let adapter = selection.adapter;
+            vcs_input_options_mut(&mut vcs_input).vcs = Some(adapter.id.clone());
+            let session_input = match &vcs_input {
+                VcsReviewInput::Show(input) => CliInput::Show(input.clone()),
+                _ => unreachable!(),
+            };
+            let initial_watch_signature =
+                capture_initial_watch_signature(&review, &session_input, cwd, Some(&catalog));
+            let loaded = load_selected_vcs_changeset(cwd, &adapter, &catalog, &vcs_input)?;
+            let mut reload = || {
+                load_selected_vcs_changeset(cwd, &adapter, &catalog, &vcs_input)
+                    .map(|loaded| loaded.changeset)
+            };
+            run_review_with_preloaded_extensions(
+                cwd,
+                LoadedReviewChangeset {
+                    changeset: loaded.changeset,
+                    source_capabilities: Some(loaded.source_capabilities),
+                    repo_root: Some(loaded.repo_root),
+                },
+                review,
+                session_input,
+                initial_watch_signature,
+                Some(&mut reload),
+                prepared_extensions,
+            )
+        }
+        Command::Stash {
+            command:
+                Some(StashCommand::Show {
+                    reference,
+                    mut review,
+                }),
+        } => {
+            let mut prepared_extensions = prepare_review_extensions(
+                cwd,
+                &mut review,
+                &raw_review,
+                preloaded_extensions.take(),
+                discovery_catalog.as_ref(),
+            )?;
+            let catalog = compose_review_vcs_catalog(&prepared_extensions.extensions);
+            prepared_extensions.vcs_catalog = Some(catalog.clone());
+            let configured_id = review.configured_vcs_id().or(Some("git"));
+            let mut vcs_input = VcsReviewInput::StashShow(VcsStashShowCommandInput {
+                reference: reference.clone(),
+                options: review.common_options(),
+            });
+            let selection = select_review_vcs_adapter(cwd, configured_id, &catalog)?;
+            if let Some(notice) = selection.unknown_id_notice {
+                prepared_extensions.unknown_vcs_notices.push(notice);
+            }
+            let adapter = selection.adapter;
+            vcs_input_options_mut(&mut vcs_input).vcs = Some(adapter.id.clone());
+            let session_input = match &vcs_input {
+                VcsReviewInput::StashShow(input) => CliInput::StashShow(input.clone()),
+                _ => unreachable!(),
+            };
+            let initial_watch_signature =
+                capture_initial_watch_signature(&review, &session_input, cwd, Some(&catalog));
+            let loaded = load_selected_vcs_changeset(cwd, &adapter, &catalog, &vcs_input)?;
+            let mut reload = || {
+                load_selected_vcs_changeset(cwd, &adapter, &catalog, &vcs_input)
+                    .map(|loaded| loaded.changeset)
+            };
+            run_review_with_preloaded_extensions(
+                cwd,
+                LoadedReviewChangeset {
+                    changeset: loaded.changeset,
+                    source_capabilities: Some(loaded.source_capabilities),
+                    repo_root: Some(loaded.repo_root),
+                },
+                review,
+                session_input,
+                initial_watch_signature,
+                Some(&mut reload),
+                prepared_extensions,
+            )
+        }
+        Command::Patch { file, mut review } => {
+            let reload_path = file.clone().filter(|path| path != Path::new("-"));
+            let (prepared_extensions, (patch, label)) = load_extensions_before_changeset(
+                || {
+                    prepare_review_extensions(
+                        cwd,
+                        &mut review,
+                        &raw_review,
+                        preloaded_extensions.take(),
+                        discovery_catalog.as_ref(),
+                    )
+                },
+                || match file {
+                    Some(path) if path != Path::new("-") => {
+                        let patch = std::fs::read_to_string(&path)
+                            .with_context(|| format!("failed to read patch {}", path.display()))?;
+                        Ok((patch, path.display().to_string()))
+                    }
+                    _ => {
+                        let patch = if let Some(prepared) = prepared_piped_input.as_mut() {
+                            std::mem::take(&mut prepared.text)
+                        } else {
+                            let mut patch = String::new();
+                            std::io::stdin()
+                                .read_to_string(&mut patch)
+                                .context("failed to read patch from stdin")?;
+                            patch
+                        };
+                        Ok((patch, "stdin patch".to_owned()))
+                    }
+                },
+            )?;
+            let reload_input = reload_path.as_ref().map(|path| {
+                CliInput::Patch(PatchCommandInput {
+                    file: Some(path.to_string_lossy().into_owned()),
+                    text: None,
+                    options: review.common_options(),
+                })
+            });
+            let initial_watch_signature = reload_input
+                .as_ref()
+                .and_then(|input| capture_initial_watch_signature(&review, input, cwd, None));
+            let session_input = reload_input.clone().unwrap_or_else(|| {
+                CliInput::Patch(PatchCommandInput {
+                    file: None,
+                    text: Some(patch.clone()),
+                    options: review.common_options(),
+                })
+            });
+            let changeset = parse_patch_input(&patch, label).map_err(anyhow::Error::from)?;
+            if let Some(path) = reload_path {
+                let mut reload = || {
+                    let patch = std::fs::read_to_string(&path)
+                        .with_context(|| format!("failed to read patch {}", path.display()))?;
+                    parse_patch_input(&patch, path.display().to_string())
+                        .map_err(anyhow::Error::from)
+                };
+                run_review_with_preloaded_extensions(
+                    cwd,
+                    LoadedReviewChangeset {
+                        source_capabilities: None,
+                        changeset,
+                        repo_root: None,
+                    },
+                    review,
+                    session_input,
+                    initial_watch_signature,
+                    Some(&mut reload),
+                    prepared_extensions,
+                )
+            } else {
+                run_review_with_preloaded_extensions(
+                    cwd,
+                    LoadedReviewChangeset {
+                        source_capabilities: None,
+                        changeset,
+                        repo_root: None,
+                    },
+                    review,
+                    session_input,
+                    None,
+                    None,
+                    prepared_extensions,
+                )
+            }
+        }
+        Command::Difftool {
+            left,
+            right,
+            path,
+            mut review,
+        } => {
+            let (prepared_extensions, changeset) = load_extensions_before_changeset(
+                || {
+                    prepare_review_extensions(
+                        cwd,
+                        &mut review,
+                        &raw_review,
+                        preloaded_extensions.take(),
+                        discovery_catalog.as_ref(),
+                    )
+                },
+                || {
+                    load_difftool_comparison(cwd, &left, &right, path.as_deref())
+                        .map_err(anyhow::Error::from)
+                },
+            )?;
+            let input = CliInput::DiffTool(DiffToolCommandInput {
+                left: left.to_string_lossy().into_owned(),
+                right: right.to_string_lossy().into_owned(),
+                path: path
+                    .as_ref()
+                    .map(|path| path.to_string_lossy().into_owned()),
+                options: review.common_options(),
+            });
+            let initial_watch_signature =
+                capture_initial_watch_signature(&review, &input, cwd, None);
+            let display_path = path.clone();
+            let mut reload = || {
+                load_difftool_comparison(cwd, &left, &right, display_path.as_deref())
+                    .map_err(anyhow::Error::from)
+            };
+            run_review_with_preloaded_extensions(
+                cwd,
+                LoadedReviewChangeset {
+                    source_capabilities: None,
+                    changeset,
+                    repo_root: None,
+                },
+                review,
+                input,
+                initial_watch_signature,
+                Some(&mut reload),
+                prepared_extensions,
+            )
+        }
+        Command::Pager { mut review } => {
+            review.pager = true;
+            let input = if let Some(prepared) = prepared_piped_input.as_mut() {
+                std::mem::take(&mut prepared.text)
+            } else {
+                let mut input = String::new();
+                std::io::stdin()
+                    .read_to_string(&mut input)
+                    .context("failed to read pager input")?;
+                input
+            };
+            let environment = std::env::vars().collect::<BTreeMap<_, _>>();
+            let route = workdeck_cli::pager::resolve_pager_startup_route(
+                &input,
+                &environment,
+                std::io::stdout().is_terminal(),
+                prepared_piped_input
+                    .as_ref()
+                    .is_some_and(|prepared| prepared.terminal.is_some()),
+            );
+            match route {
+                workdeck_cli::pager::PagerStartupRoute::PlainText => {
+                    let context = workdeck_cli::pager::PlainTextPagerContext::current();
+                    workdeck_cli::pager::page_plain_text(&input, &context)
+                        .map_err(anyhow::Error::from)
+                }
+                workdeck_cli::pager::PagerStartupRoute::Passthrough { preserve_color } => {
+                    workdeck_cli::pager::write_passthrough(&input, preserve_color)
+                        .map_err(anyhow::Error::from)
+                }
+                workdeck_cli::pager::PagerStartupRoute::StaticDiff => {
+                    let output = workdeck_tui::render_static_diff_pager(
+                        &input,
+                        &review.common_options(),
+                        &review.custom_themes,
+                        crossterm::terminal::size()
+                            .ok()
+                            .map(|(columns, _)| usize::from(columns)),
+                    );
+                    if let Some(reason) = output.fallback_reason {
+                        eprintln!(
+                            "workdeck: static pager render failed; falling back to raw diff ({reason})."
+                        );
+                    }
+                    std::io::stdout()
+                        .lock()
+                        .write_all(output.text.as_bytes())
+                        .context("write static pager output")
+                }
+                workdeck_cli::pager::PagerStartupRoute::InteractiveDiff => {
+                    let (prepared_extensions, changeset) = load_extensions_before_changeset(
+                        || {
+                            prepare_review_extensions(
+                                cwd,
+                                &mut review,
+                                &raw_review,
+                                preloaded_extensions.take(),
+                                discovery_catalog.as_ref(),
+                            )
+                        },
+                        || parse_patch_input(&input, "pager").map_err(anyhow::Error::from),
+                    )?;
+                    let session_input = CliInput::Patch(PatchCommandInput {
+                        file: None,
+                        text: Some(input),
+                        options: review.common_options(),
+                    });
+                    run_review_with_preloaded_extensions(
+                        cwd,
+                        LoadedReviewChangeset {
+                            source_capabilities: None,
+                            changeset,
+                            repo_root: None,
+                        },
+                        review,
+                        session_input,
+                        None,
+                        None,
+                        prepared_extensions,
+                    )
+                }
+            }
+        }
+        _ => unreachable!("non-review command passed to review handler"),
+    }
+}
+
+fn validate_diff_file_arguments(
+    files: &[PathBuf],
+    revisions: &[String],
+    staged: bool,
+    pathspecs: &[String],
+) -> Result<bool> {
+    if files.is_empty() {
+        return Ok(false);
+    }
+    if files.len() != 2 || !revisions.is_empty() || staged || !pathspecs.is_empty() {
+        bail!(
+            "Use `workdeck diff --files <left> <right>` with exactly two file paths and no revision, staged, or pathspec arguments."
+        );
+    }
+    Ok(true)
+}
+
+fn attach_controlling_terminal_input() -> Result<workdeck_tui::ControllingTerminal<File>> {
+    let terminal = workdeck_tui::open_controlling_terminal().context(
+        "piped interactive review requires an attached controlling terminal for keyboard input",
+    )?;
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::Foundation::HANDLE;
+        use windows_sys::Win32::System::Console::{STD_INPUT_HANDLE, SetStdHandle};
+
+        // SAFETY: the File owns a valid CONIN$ handle and remains alive in the returned guard until
+        // the interactive review has completed.
+        let attached =
+            unsafe { SetStdHandle(STD_INPUT_HANDLE, terminal.input.as_raw_handle() as HANDLE) };
+        if attached == 0 {
+            return Err(std::io::Error::last_os_error())
+                .context("attach Windows console to piped review stdin");
+        }
+    }
+    Ok(terminal)
+}
+
+fn probe_initial_theme_mode<I: ThemeProbeInput, W: Write>(
+    theme: Option<&str>,
+    stdout_is_terminal: bool,
+    input: Option<&mut I>,
+    output: &mut W,
+    timeout: Duration,
+) -> std::io::Result<Option<TerminalThemeMode>> {
+    if !stdout_is_terminal || theme.is_some_and(|theme| theme != "auto") {
+        return Ok(None);
+    }
+    let Some(input) = input else {
+        return Ok(None);
+    };
+    let probe = workdeck_tui::detect_terminal_theme_mode_from_background(input, output, timeout)?;
+    // Keys typed while the probe held the input must not vanish with it.
+    workdeck_tui::stage_initial_terminal_input(&probe.replay);
+    Ok(probe.mode)
+}
+
+fn detect_initial_review_theme_mode(
+    review: &ReviewCliOptions,
+    terminal: Option<&mut workdeck_tui::ControllingTerminal<File>>,
+) -> Result<Option<TerminalThemeMode>> {
+    let stdout_is_terminal = std::io::stdout().is_terminal();
+    if !stdout_is_terminal || review.theme.as_deref().is_some_and(|theme| theme != "auto") {
+        return Ok(None);
+    }
+    let mut output = std::io::stdout();
+    if let Some(terminal) = terminal {
+        return probe_initial_theme_mode(
+            review.theme.as_deref(),
+            true,
+            Some(&mut terminal.input),
+            &mut output,
+            workdeck_tui::DEFAULT_THEME_PROBE_TIMEOUT,
+        )
+        .context("detect terminal background for automatic theme selection");
+    }
+    if std::io::stdin().is_terminal() {
+        let mut input = std::io::stdin();
+        return probe_initial_theme_mode(
+            review.theme.as_deref(),
+            true,
+            Some(&mut input),
+            &mut output,
+            workdeck_tui::DEFAULT_THEME_PROBE_TIMEOUT,
+        )
+        .context("detect terminal background for automatic theme selection");
+    }
+    Ok(None)
+}
+
+fn run_review_with_preloaded_extensions(
+    cwd: &Path,
+    loaded: LoadedReviewChangeset,
+    review: ReviewCliOptions,
+    input: CliInput,
+    initial_watch_signature: Option<String>,
+    reloader: Option<&mut dyn FnMut() -> Result<Changeset>>,
+    prepared_extensions: PreparedReviewExtensions,
+) -> Result<()> {
+    if review.watch && !review.no_watch && reloader.is_none() {
+        bail!("--watch requires a file- or VCS-backed review input");
+    }
+    let (bootstrap, source_capabilities) = prepare_app_bootstrap_with_sources(
+        cwd,
+        loaded,
+        &review,
+        input,
+        initial_watch_signature,
+        prepared_extensions,
+    )?;
+    run_app_bootstrap(bootstrap, review, reloader, source_capabilities)
+}
+
+#[cfg(test)]
+fn prepare_app_bootstrap(
+    cwd: &Path,
+    repo_root: Option<PathBuf>,
+    changeset: Changeset,
+    review: &ReviewCliOptions,
+    input: CliInput,
+    initial_watch_signature: Option<String>,
+    prepared_extensions: PreparedReviewExtensions,
+) -> Result<WorkdeckAppBootstrap> {
+    prepare_app_bootstrap_with_sources(
+        cwd,
+        LoadedReviewChangeset {
+            repo_root,
+            changeset,
+            source_capabilities: None,
+        },
+        review,
+        input,
+        initial_watch_signature,
+        prepared_extensions,
+    )
+    .map(|(bootstrap, _)| bootstrap)
+}
+
+fn prepare_app_bootstrap_with_sources(
+    cwd: &Path,
+    mut loaded: LoadedReviewChangeset,
+    review: &ReviewCliOptions,
+    input: CliInput,
+    initial_watch_signature: Option<String>,
+    mut prepared_extensions: PreparedReviewExtensions,
+) -> Result<(
+    WorkdeckAppBootstrap,
+    Option<workdeck_vcs::VcsSourceCapabilities>,
+)> {
+    apply_agent_context(cwd, review.agent_context.as_deref(), &mut loaded.changeset)?;
+    let changeset = apply_review_extensions(
+        loaded.changeset,
+        &mut prepared_extensions.extensions,
+        loaded.source_capabilities.as_mut(),
+    )?;
+    Ok((
+        build_app_bootstrap(
+            cwd,
+            loaded.repo_root,
+            changeset,
+            review,
+            input,
+            initial_watch_signature,
+            prepared_extensions,
+        ),
+        loaded.source_capabilities,
+    ))
+}
+
+fn build_app_bootstrap(
+    cwd: &Path,
+    repo_root: Option<PathBuf>,
+    changeset: Changeset,
+    review: &ReviewCliOptions,
+    input: CliInput,
+    initial_watch_signature: Option<String>,
+    mut prepared_extensions: PreparedReviewExtensions,
+) -> WorkdeckAppBootstrap {
+    let vcs_catalog = prepared_extensions.vcs_catalog.take();
+    let session_themes = collect_review_custom_themes(review, &prepared_extensions.extensions);
+    let startup_notices =
+        take_review_startup_notices(&mut prepared_extensions, session_themes.notices);
+
+    let mut bootstrap = AppBootstrap::new(
+        input,
+        ReloadContext {
+            cwd: cwd.to_owned(),
+            repo_root,
+            initial_watch_signature,
+            vcs_catalog,
+        },
+        changeset,
+    );
+    bootstrap.initial_theme_mode = review.initial_theme_mode;
+    bootstrap.custom_themes = session_themes.themes;
+    bootstrap.startup_notices = startup_notices;
+    bootstrap.view_preferences_config_path = review.view_preferences_config_path.clone();
+    bootstrap.view_preferences_write_policy = review.view_preferences_write_policy;
+    bootstrap.keybindings = review.keybindings.clone();
+    bootstrap.keybinding_notices = review.keybinding_notices.clone();
+    bootstrap.extensions = Some(prepared_extensions);
+    bootstrap
+}
+
+fn take_review_startup_notices(
+    prepared: &mut PreparedReviewExtensions,
+    theme_notices: Vec<StartupNotice>,
+) -> Vec<StartupNotice> {
+    let mut notices = std::mem::take(&mut prepared.configured_notices);
+    notices.extend(theme_notices);
+    notices.append(&mut prepared.application_notices);
+    notices.append(&mut prepared.unknown_vcs_notices);
+    notices.append(&mut prepared.load_notices);
+    notices
+}
+
+fn collect_review_custom_themes(
+    review: &ReviewCliOptions,
+    extensions: &[LoadedExtension],
+) -> workdeck_core::SessionCustomThemes {
+    let resolution = resolve_loaded_extension_registrations(extensions, bundled_vcs_catalog());
+    let registered = extensions
+        .iter()
+        .enumerate()
+        .flat_map(|(extension_index, extension)| {
+            let resolution = &resolution;
+            extension
+                .handshake
+                .registrations
+                .iter()
+                .enumerate()
+                .filter_map(move |(registration_index, registration)| {
+                    resolution
+                        .accepts(extension_index, registration_index)
+                        .then_some((extension, registration))
+                })
+        })
+        .filter_map(|(extension, registration)| {
+            let Registration::Theme(theme) = registration else {
+                return None;
+            };
+            Some(registered_custom_theme(&extension.manifest.id, theme))
+        })
+        .collect::<Vec<_>>();
+    collect_session_custom_themes(&review.custom_themes, &registered)
+}
+
+fn registered_custom_theme(
+    extension_id: &str,
+    theme: &workdeck_extension_api::ThemeRegistration,
+) -> RegisteredCustomTheme {
+    let mut value = serde_json::Map::new();
+    value.insert("id".into(), Value::String(theme.id.clone()));
+    if let Some(base) = &theme.base {
+        value.insert("base".into(), Value::String(base.clone()));
+    }
+    for (key, color) in &theme.colors {
+        value.insert(key.clone(), Value::String(color.clone()));
+    }
+    RegisteredCustomTheme {
+        extension_id: extension_id.into(),
+        theme: Value::Object(value),
+    }
+}
+
+fn run_app_bootstrap(
+    bootstrap: WorkdeckAppBootstrap,
+    review: ReviewCliOptions,
+    reloader: Option<&mut dyn FnMut() -> Result<Changeset>>,
+    source_capabilities: Option<workdeck_vcs::VcsSourceCapabilities>,
+) -> Result<()> {
+    let AppBootstrap {
+        input,
+        reload_context,
+        changeset,
+        initial_mode,
+        initial_theme,
+        initial_theme_mode,
+        custom_themes,
+        initial_show_line_numbers,
+        initial_tab_width,
+        initial_file_gap,
+        initial_hunk_gap,
+        initial_wrap_lines,
+        initial_show_hunk_headers,
+        initial_show_menu_bar,
+        initial_sidebar,
+        initial_show_agent_notes,
+        initial_copy_decorations,
+        initial_cursor_line,
+        startup_notices,
+        view_preferences_config_path,
+        view_preferences_write_policy,
+        keybindings,
+        keybinding_notices,
+        extensions,
+        ..
+    } = bootstrap;
+    let cwd = reload_context.cwd;
+    let initial_watch_signature = reload_context.initial_watch_signature;
+    let vcs_catalog = reload_context.vcs_catalog;
+    let prepared_extensions =
+        extensions.ok_or_else(|| anyhow::anyhow!("review bootstrap has no extension state"))?;
+    let PreparedReviewExtensions {
+        extensions,
+        notifications,
+        pending_trust_repo_root,
+        configured_notices: _,
+        application_notices: _,
+        unknown_vcs_notices: _,
+        load_notices: _,
+        vcs_catalog: _,
+    } = prepared_extensions;
+    let transient_view_preferences =
+        uses_transient_view_preferences(extensions.iter().map(|extension| &extension.handshake));
+    let mut options = review.tui_options();
+    options.source_capabilities = source_capabilities;
+    options.layout = match initial_mode {
+        InputLayoutMode::Auto => LayoutMode::Auto,
+        InputLayoutMode::Split => LayoutMode::Split,
+        InputLayoutMode::Stack => LayoutMode::Stack,
+    };
+    options.line_numbers = initial_show_line_numbers;
+    options.tab_width = initial_tab_width;
+    options.file_gap = initial_file_gap;
+    options.hunk_gap = initial_hunk_gap;
+    options.wrap_lines = initial_wrap_lines;
+    options.hunk_headers = initial_show_hunk_headers;
+    options.show_menu_bar = initial_show_menu_bar;
+    options.sidebar_visibility = initial_sidebar;
+    options.sidebar = initial_sidebar != SidebarVisibility::Hidden;
+    options.agent_notes = initial_show_agent_notes;
+    options.copy_decorations = initial_copy_decorations;
+    options.cursor_line = match initial_cursor_line {
+        InputCursorLine::Row => CursorLineMode::Row,
+        InputCursorLine::Number => CursorLineMode::Number,
+        InputCursorLine::Off => CursorLineMode::Off,
+    };
+    let theme = workdeck_tui::resolve_theme(
+        initial_theme.as_deref(),
+        initial_theme_mode.map(Into::into),
+        &custom_themes,
+    );
+    options.theme = if options.transparent_background {
+        workdeck_tui::with_transparent_surfaces(&theme)
+    } else {
+        theme
+    };
+    options.custom_themes = custom_themes;
+    options.keybindings = keybindings;
+    options.keybinding_notices = keybinding_notices;
+    options.review_input = Some(input.clone());
+    options.extension_notifications = Some(notifications.clone());
+    options.startup_notices = startup_notices;
+    options.startup_notice_lookup = Some(|| {
+        workdeck_cli::update_notice::StartupUpdateNoticeContext::current()
+            .ok()
+            .and_then(|context| {
+                workdeck_cli::update_notice::resolve_startup_update_notice(&context)
+            })
+    });
+    options.view_preferences_config_path = view_preferences_config_path;
+    options.view_preferences_write_policy = view_preferences_write_policy;
+    options.prompt_save_view_preferences =
+        input.options().prompt_save_view_preferences.unwrap_or(true);
+    options.transient_view_preferences = transient_view_preferences;
+    options.pending_extension_trust_directory = pending_trust_repo_root
+        .as_deref()
+        .map(workdeck_extension_host::repository_extension_directory);
+    options.pending_extension_trust_repo_root = pending_trust_repo_root;
+    options.extension_trust_handler = Some(review_extension_trust_handler());
+    options.command_cwd = Some(cwd.clone());
+    options.repo = Some(resolve_review_repo_root(
+        &cwd,
+        review.preference(),
+        reload_context.repo_root.as_deref(),
+    ));
+    let workbench_root = review
+        .workbench
+        .as_ref()
+        .map(|workbench| workbench.root.clone());
+    let workbench_panels = if let Some(root) = &workbench_root {
+        let config = Config::load(root)?;
+        let base = (!config.git.base_branch.is_empty()).then_some(config.git.base_branch);
+        let provider = Arc::new(
+            workdeck_cli::repository_panels::RepositoryPanels::new(
+                root,
+                base,
+                config.git.recent_commits,
+            )
+            .map_err(|error| anyhow::anyhow!(error.message))?
+            .with_git_base_key(Some(config.keys.base.clone())),
+        );
+        options.repository_panels = Some(provider.clone());
+        Some(provider)
+    } else {
+        None
+    };
+    let external_quit = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    options.external_quit_signal = Some(Arc::clone(&external_quit));
+    let foreground_run = Arc::new(workdeck_tui::workbench::ForegroundRunSignal::default());
+    options.foreground_run_signal = Some(Arc::clone(&foreground_run));
+    let mut signal_registration = register_process_signal_callback({
+        let external_quit = Arc::clone(&external_quit);
+        move || {
+            if foreground_run.interrupt_active() {
+                return;
+            }
+            if external_quit.swap(true, std::sync::atomic::Ordering::AcqRel) {
+                std::process::exit(130);
+            }
+        }
+    })
+    .map_err(anyhow::Error::msg)
+    .context("failed to install interactive review shutdown handler")?;
+    let result = if reloader.is_some() {
+        let dynamic_notifications = notifications.clone();
+        let mut dynamic_reload =
+            |next_input: &CliInput,
+             next_cwd: &Path,
+             reload_extensions: bool,
+             current_catalog: &VcsCatalog,
+             current_extensions: &[LoadedExtension]| {
+                load_dynamic_review_session_with_workbench(
+                    next_input,
+                    next_cwd,
+                    reload_extensions,
+                    current_catalog,
+                    current_extensions,
+                    &dynamic_notifications,
+                    workbench_panels.as_deref(),
+                )
+            };
+        workdeck_tui::run_review_with_dynamic_input_reload_with_signature(
+            changeset,
+            options,
+            extensions,
+            workdeck_tui::ReviewWatchInput {
+                input,
+                cwd: cwd.clone(),
+                initial_signature: initial_watch_signature,
+            },
+            vcs_catalog,
+            &mut dynamic_reload,
+        )
+    } else {
+        workdeck_tui::run_review_with_extensions(changeset, options, extensions)
+    };
+    signal_registration.retire();
+    result
+}
+
+/// Capture before sidecar or changeset I/O so mutations racing the initial load
+/// are still visible when the watch controller mounts.
+fn capture_initial_watch_signature(
+    review: &ReviewCliOptions,
+    input: &CliInput,
+    cwd: &Path,
+    vcs_catalog: Option<&VcsCatalog>,
+) -> Option<String> {
+    if !review.watch || review.no_watch {
+        return None;
+    }
+    compute_watch_signature(input, WatchSignatureContext { cwd, vcs_catalog }).ok()
+}
+
+fn resolve_review_repo_root(
+    cwd: &Path,
+    preference: ProviderPreference,
+    vcs_repo_root: Option<&Path>,
+) -> PathBuf {
+    vcs_repo_root.map_or_else(
+        || {
+            AnyProvider::discover(cwd, preference)
+                .ok()
+                .map_or_else(|| cwd.to_owned(), |provider| provider.root().to_owned())
+        },
+        Path::to_owned,
+    )
+}
+
+fn apply_review_extensions(
+    mut changeset: Changeset,
+    extensions: &mut [LoadedExtension],
+    mut source_capabilities: Option<&mut workdeck_vcs::VcsSourceCapabilities>,
+) -> Result<Changeset> {
+    let language_registry = build_review_language_registry(extensions);
+    for file in &mut changeset.files {
+        let language = language_registry.language_for_path(&file.path);
+        let language = (language != "text").then_some(language);
+        if file.language != language {
+            let original = file.clone();
+            file.language = language;
+            file.refresh_identity();
+            if let Some(capabilities) = &mut source_capabilities {
+                capabilities.rebind_file(&original, file);
+            }
+        }
+    }
+    for extension in extensions.iter_mut() {
+        changeset = extension
+            .apply_changeset_transforms_with_sources(changeset, source_capabilities.as_deref_mut());
+    }
+    changeset.refresh_review_identities();
+    Ok(changeset)
+}
+
+/// Build a session-local selector set so an aborted bootstrap cannot leak registrations into the
+/// active review. This is the native transaction boundary corresponding to Hunk's snapshot and
+/// restore pair around `loadConfiguredSessionBootstrap`.
+fn build_review_language_registry(extensions: &[LoadedExtension]) -> LanguageRegistry {
+    let resolution = resolve_loaded_extension_registrations(extensions, bundled_vcs_catalog());
+    let file_languages = extensions
+        .iter()
+        .enumerate()
+        .flat_map(|(extension_index, extension)| {
+            let resolution = &resolution;
+            extension
+                .handshake
+                .registrations
+                .iter()
+                .enumerate()
+                .filter_map(move |(registration_index, registration)| {
+                    resolution
+                        .accepts(extension_index, registration_index)
+                        .then_some(registration)
+                })
+        })
+        .filter_map(|registration| match registration {
+            Registration::FileLanguage(registration) => Some(LanguageRegistration {
+                matcher: match &registration.matcher {
+                    FileLanguageMatcher::Extension { value } => {
+                        LanguageMatcher::Extension(value.clone())
+                    }
+                    FileLanguageMatcher::Filename { value } => {
+                        LanguageMatcher::Filename(value.clone())
+                    }
+                    FileLanguageMatcher::Glob { value, target } => LanguageMatcher::Glob {
+                        value: value.clone(),
+                        target_path: *target == FileLanguageGlobTarget::Path,
+                    },
+                },
+                language: registration.language.clone(),
+                reserved: false,
+            }),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let mut language_registry = LanguageRegistry::default();
+    language_registry.replace_extensions(file_languages);
+    language_registry
+}
+
+fn apply_agent_context(cwd: &Path, path: Option<&Path>, changeset: &mut Changeset) -> Result<()> {
+    let Some(path) = path else {
+        return Ok(());
+    };
+    let source = if path == Path::new("-") {
+        let mut source = String::new();
+        std::io::stdin()
+            .read_to_string(&mut source)
+            .context("failed to read agent context from stdin")?;
+        source
+    } else {
+        let path = if path.is_absolute() {
+            path.to_owned()
+        } else {
+            cwd.join(path)
+        };
+        std::fs::read_to_string(&path)
+            .with_context(|| format!("failed to read agent context {}", path.display()))?
+    };
+    AgentContext::from_json(&source)?.apply_to(changeset);
+    Ok(())
+}
+
+fn load_review_extensions(
+    cwd: &Path,
+    review: &mut ReviewCliOptions,
+    raw_review: &ReviewCliOptions,
+    previous_load: Option<ExtensionLoadResult>,
+    discovery_catalog: Option<&VcsCatalog>,
+) -> Result<PreparedReviewExtensions> {
+    let notifications = previous_load
+        .as_ref()
+        .map(|previous| previous.notifications.clone())
+        .unwrap_or_default();
+    load_review_extensions_with_notifications(
+        cwd,
+        review,
+        raw_review,
+        notifications,
+        previous_load,
+        discovery_catalog,
+    )
+}
+
+fn load_review_extensions_with_notifications(
+    cwd: &Path,
+    review: &mut ReviewCliOptions,
+    raw_review: &ReviewCliOptions,
+    notifications: ExtensionNotificationHub,
+    previous_load: Option<ExtensionLoadResult>,
+    discovery_catalog: Option<&VcsCatalog>,
+) -> Result<PreparedReviewExtensions> {
+    let command_section = review.config_command_section;
+    let pager = review.pager;
+    load_review_extensions_with_config_loader(
+        cwd,
+        review,
+        raw_review,
+        notifications,
+        previous_load,
+        discovery_catalog,
+        move |repo_root| Config::load_for_review(repo_root, command_section, pager),
+    )
+}
+
+fn load_review_extensions_with_config_loader(
+    cwd: &Path,
+    review: &mut ReviewCliOptions,
+    raw_review: &ReviewCliOptions,
+    notifications: ExtensionNotificationHub,
+    previous_load: Option<ExtensionLoadResult>,
+    discovery_catalog: Option<&VcsCatalog>,
+    load_config: impl Fn(&Path) -> Result<Config>,
+) -> Result<PreparedReviewExtensions> {
+    let initial_repo = find_project_root_candidate_with_catalog(
+        cwd,
+        Some(discovery_catalog.unwrap_or_else(|| bundled_vcs_catalog())),
+    );
+    let first = load_review_extension_pass(
+        cwd,
+        review,
+        notifications.clone(),
+        initial_repo.as_deref(),
+        previous_load,
+        true,
+    )?;
+    let mut provisional = ProvisionalReviewExtensionLoad::new(first);
+    let provisional_resolution = resolve_loaded_extension_registrations(
+        &provisional.result().extensions,
+        bundled_vcs_catalog(),
+    );
+    let provisional_adapters =
+        resolved_native_vcs_adapters(&provisional.result().extensions, &provisional_resolution);
+    let has_extension_vcs = !provisional_adapters.is_empty();
+    let provisional_catalog = extend_vcs_catalog(bundled_vcs_catalog(), provisional_adapters);
+    let extension_repo = find_project_root_candidate_with_catalog(cwd, Some(&provisional_catalog));
+
+    if has_extension_vcs && extension_repo != initial_repo {
+        let config = load_config(extension_repo.as_deref().unwrap_or(cwd))?;
+        let initial_theme_mode = review.initial_theme_mode;
+        let mut final_review = raw_review.clone();
+        final_review.apply_config_defaults(&config);
+        final_review.initial_theme_mode = initial_theme_mode;
+        *review = final_review;
+
+        let previous = provisional.take();
+        let final_result = load_review_extension_pass(
+            cwd,
+            review,
+            notifications.clone(),
+            extension_repo.as_deref(),
+            Some(previous),
+            false,
+        )?;
+        provisional = ProvisionalReviewExtensionLoad::new(final_result);
+    }
+
+    let result = provisional.take();
+    let _ = result.bind_event_bus();
+    let resolution =
+        resolve_loaded_extension_registrations(&result.extensions, bundled_vcs_catalog());
+    Ok(PreparedReviewExtensions {
+        extensions: result.extensions,
+        notifications,
+        pending_trust_repo_root: result.pending_trust_repo_root,
+        configured_notices: review.startup_notices.clone(),
+        application_notices: create_extension_apply_notices(&resolution.issues),
+        unknown_vcs_notices: Vec::new(),
+        load_notices: create_extension_load_notices(&result.issues),
+        vcs_catalog: None,
+    })
+}
+
+fn load_review_extension_pass(
+    cwd: &Path,
+    review: &ReviewCliOptions,
+    notifications: ExtensionNotificationHub,
+    repo_root: Option<&Path>,
+    mut previous_load: Option<ExtensionLoadResult>,
+    defer_event_bus_binding: bool,
+) -> Result<ExtensionLoadResult> {
+    if review.no_extensions {
+        if let Some(previous) = &mut previous_load {
+            previous.retire();
+        }
+        return Ok(create_empty_extension_load_result(cwd, notifications));
+    }
+    let config = user_config_root().map(|root| root.join("workdeck"));
+    let trust = load_extension_trust_store();
+    let global_extensions = config.as_ref().map(|config| config.join("extensions"));
+    load_startup_extensions(LoadStartupExtensionsOptions {
+        enabled: true,
+        cwd,
+        global_directory: global_extensions.as_deref(),
+        repo_root,
+        trust: &trust,
+        explicit_paths: &review.extension,
+        user_config_paths: &review.user_extension_paths,
+        repo_config_paths: &review.repo_extension_paths,
+        host_version: env!("CARGO_PKG_VERSION"),
+        extension_configs: &review.extension_config,
+        notifications: Some(notifications),
+        previous_load,
+        defer_event_bus_binding,
+    })
+    .map_err(anyhow::Error::from)
+}
+
+fn review_extension_trust_handler() -> ExtensionTrustHandler {
+    ExtensionTrustHandler::new(move |repo_root, decision| {
+        let state_path = resolve_app_state_path().ok_or_else(|| {
+            ExtensionTrustHostError::Write(ExtensionTrustWriteError::Message(
+                "could not resolve the Workdeck app-state path".into(),
+            ))
+        })?;
+        let mut trust = load_extension_trust_store();
+        trust.grant(repo_root, decision);
+        workdeck_store::update_app_state_record(&state_path, trust.app_state_patch()).map_err(
+            |error| {
+                ExtensionTrustHostError::Write(ExtensionTrustWriteError::Message(error.to_string()))
+            },
+        )?;
+        Ok(())
+    })
+}
+
+fn load_cli_extensions(
+    cwd: &Path,
+    explicit: &[PathBuf],
+    disabled: bool,
+) -> Result<PreloadedExtensionBootstrap> {
+    let initial_repo = find_project_root_candidate_with_catalog(cwd, Some(bundled_vcs_catalog()));
+    let mut configured = Config::load_extension_bootstrap(initial_repo.as_deref().unwrap_or(cwd))?;
+    let notifications = ExtensionNotificationHub::new();
+    let first = load_cli_extension_pass(
+        cwd,
+        explicit,
+        disabled,
+        &configured,
+        initial_repo.as_deref(),
+        notifications.clone(),
+        None,
+    )?;
+    let mut provisional = ProvisionalReviewExtensionLoad::new(first);
+    let resolution = resolve_loaded_extension_registrations(
+        &provisional.result().extensions,
+        bundled_vcs_catalog(),
+    );
+    let adapters = resolved_native_vcs_adapters(&provisional.result().extensions, &resolution);
+    let has_extension_vcs = !adapters.is_empty();
+    let discovery_catalog = extend_vcs_catalog(bundled_vcs_catalog(), adapters);
+    let extension_repo = find_project_root_candidate_with_catalog(cwd, Some(&discovery_catalog));
+    if has_extension_vcs && extension_repo != initial_repo {
+        configured = Config::load_extension_bootstrap(extension_repo.as_deref().unwrap_or(cwd))?;
+        let previous = provisional.take();
+        let final_result = load_cli_extension_pass(
+            cwd,
+            explicit,
+            disabled,
+            &configured,
+            extension_repo.as_deref(),
+            notifications,
+            Some(previous),
+        )?;
+        provisional = ProvisionalReviewExtensionLoad::new(final_result);
+    }
+    let result = provisional.take();
+    Ok(PreloadedExtensionBootstrap {
+        load: Some(result),
+        discovery_catalog,
+        configured_notices: configured.startup_notices,
+    })
+}
+
+fn load_cli_extension_pass(
+    cwd: &Path,
+    explicit: &[PathBuf],
+    disabled: bool,
+    configured: &Config,
+    repo_root: Option<&Path>,
+    notifications: ExtensionNotificationHub,
+    mut previous_load: Option<ExtensionLoadResult>,
+) -> Result<ExtensionLoadResult> {
+    if disabled || !configured.resolved_extensions.enabled {
+        if let Some(previous) = &mut previous_load {
+            previous.retire();
+        }
+        return Ok(create_empty_extension_load_result(cwd, notifications));
+    }
+    let config_root = user_config_root().map(|root| root.join("workdeck"));
+    let trust = load_extension_trust_store();
+    let global_extensions = config_root.as_ref().map(|config| config.join("extensions"));
+    load_startup_extensions(LoadStartupExtensionsOptions {
+        enabled: true,
+        cwd,
+        global_directory: global_extensions.as_deref(),
+        repo_root,
+        trust: &trust,
+        explicit_paths: explicit,
+        user_config_paths: &configured.resolved_extensions.paths,
+        repo_config_paths: &configured.resolved_extensions.repo_paths,
+        host_version: env!("CARGO_PKG_VERSION"),
+        extension_configs: configured.extension_configs(),
+        notifications: Some(notifications),
+        previous_load,
+        defer_event_bus_binding: true,
+    })
+    .map_err(anyhow::Error::from)
+}
+
+fn registered_extension_cli_commands(
+    extensions: &[LoadedExtension],
+) -> Vec<RegisteredExtensionCliCommand> {
+    extensions
+        .iter()
+        .enumerate()
+        .flat_map(|(extension_index, extension)| {
+            extension
+                .handshake
+                .registrations
+                .iter()
+                .filter_map(move |registration| {
+                    let Registration::CliCommand(command) = registration else {
+                        return None;
+                    };
+                    Some(RegisteredExtensionCliCommand {
+                        extension_index,
+                        extension_id: extension.manifest.id.clone(),
+                        source_path: extension.manifest_path.clone(),
+                        origin: extension.origin.label().into(),
+                        command: extension_cli_commands::copy_extension_cli_command(command),
+                    })
+                })
+        })
+        .collect()
+}
+
+fn parse_delegated_args(
+    cwd: &Path,
+    extension_paths: &[PathBuf],
+    extensions_disabled: bool,
+    argv: Vec<String>,
+) -> Result<Option<Args>> {
+    let mut delegated = Vec::<std::ffi::OsString>::new();
+    delegated.push("workdeck".into());
+    delegated.push("--cwd".into());
+    delegated.push(cwd.as_os_str().to_owned());
+    for path in extension_paths {
+        delegated.push("--extension".into());
+        delegated.push(path.as_os_str().to_owned());
+    }
+    if extensions_disabled {
+        delegated.push("--no-extensions".into());
+    }
+    delegated.extend(argv.into_iter().map(Into::into));
+    match Args::try_parse_from(delegated) {
+        Ok(args) => Ok(Some(args)),
+        Err(error) => {
+            let exit_code = error.exit_code();
+            let _ = error.print();
+            if exit_code == 0 {
+                Ok(None)
+            } else {
+                Err(CommandExit(exit_code).into())
+            }
+        }
+    }
+}
+
+fn unknown_extension_cli_command_message(
+    command_name: &str,
+    resolved: &extension_cli_commands::ResolvedExtensionCliCommands,
+    load: &ExtensionLoadResult,
+) -> String {
+    let mut message = format!("Unknown command: {command_name}");
+    let descriptions = describe_extension_cli_commands(resolved);
+    if !descriptions.is_empty() {
+        message.push_str("\nExtension commands available here:");
+        for description in descriptions {
+            message.push('\n');
+            message.push_str(&description);
+        }
+    }
+    if let Some(repo_root) = &load.pending_trust_repo_root {
+        message.push_str(&format!(
+            "\nOpen a normal review in {} to decide whether to trust its extensions, then retry.",
+            repo_root.display()
+        ));
+    }
+    if !load.issues.is_empty() {
+        message.push_str(
+            "\nOne or more extensions failed to load; rerun with WORKDECK_DEBUG=1 or open a review to inspect startup notices.",
+        );
+    }
+    message
+}
+
+fn handle_extension_cli_command(
+    cwd: &Path,
+    extension_paths: &[PathBuf],
+    extensions_disabled: bool,
+    command_name: &str,
+    command_args: &[String],
+) -> Result<()> {
+    if extensions_disabled {
+        bail!("Unknown command: {command_name}");
+    }
+    let mut extension_bootstrap = load_cli_extensions(cwd, extension_paths, extensions_disabled)?;
+    let registered = registered_extension_cli_commands(&extension_bootstrap.load().extensions);
+    let resolved = resolve_extension_cli_commands(&registered);
+    let collision_issues = create_extension_cli_collision_issues(&registered, &resolved.collisions);
+
+    let Some(extension_index) =
+        find_extension_cli_command(command_name, &resolved).map(|owner| owner.extension_index)
+    else {
+        let message = unknown_extension_cli_command_message(
+            command_name,
+            &resolved,
+            extension_bootstrap.load(),
+        );
+        bail!(message);
+    };
+
+    for notice in &extension_bootstrap.configured_notices {
+        eprintln!("workdeck: warning: {}", notice.message);
+    }
+    for issue in collision_issues {
+        eprintln!("workdeck: warning: {}", issue.message);
+    }
+    let _ = extension_bootstrap.load().bind_event_bus();
+
+    let command_cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_owned());
+    let signal_lease = Arc::new(ExtensionCliSignalLease::new());
+    let mut signal_registration = register_process_signal_callback({
+        let signal_lease = Arc::clone(&signal_lease);
+        move || {
+            if signal_lease.interrupt() == ExtensionCliInterruptAction::Exit {
+                std::process::exit(130);
+            }
+        }
+    })
+    .map_err(anyhow::Error::msg)
+    .context("failed to install extension CLI cancellation handler")?;
+    let execution = {
+        let mut stdin = ProcessExtensionCliStdin::current();
+        let mut stdout = std::io::stdout().lock();
+        let mut stderr = std::io::stderr().lock();
+        extension_bootstrap.load_mut().extensions[extension_index]
+            .invoke_cli_command_cancellable_with_stdin(
+                command_name,
+                command_args.to_vec(),
+                &command_cwd,
+                std::time::Duration::from_millis(
+                    workdeck_extension_api::DEFAULT_CLI_REQUEST_TIMEOUT_MS,
+                ),
+                signal_lease.cancellation_flag(),
+                &mut stdin,
+                &mut stdout,
+                &mut stderr,
+            )
+    };
+    signal_lease.retire();
+    signal_registration.retire();
+    let execution = execution?;
+
+    match execution.result {
+        CliCommandResult::Exit { code: 0 } => Ok(()),
+        CliCommandResult::Exit { code } => Err(CommandExit(i32::from(code)).into()),
+        CliCommandResult::Delegate { argv } => {
+            let Some(delegated) =
+                parse_delegated_args(cwd, extension_paths, extensions_disabled, argv)?
+            else {
+                return Ok(());
+            };
+            if matches!(delegated.command, Some(Command::External(_))) {
+                bail!("Extension CLI commands may delegate only to built-in Workdeck commands.");
+            }
+            // Transfer complete ownership into built-in startup. The configured resolver can
+            // extend this exact prefix without executing an unchanged extension factory twice.
+            run_with_preloaded_extensions(delegated, Some(extension_bootstrap))
+        }
+    }
+}
+
+fn handle_global_command(cwd: &Path, command: Command) -> Result<()> {
+    match command {
+        Command::Stash { command: None } => {
+            print!("{STASH_OVERVIEW}");
+            Ok(())
+        }
+        Command::Daemon { command } => handle_daemon_command(command),
+        Command::Session { command } => handle_live_session_command(command),
+        Command::Extension { command } => handle_extension_command(cwd, command),
+        Command::Migrate { command } => handle_migrate_command(cwd, command),
+        Command::Markup { command } => handle_markup_command(command),
+        Command::Skill { command } => handle_skill_command(command),
+        Command::Install {
+            version,
+            destination,
+            force,
+            no_modify_path,
+        } => {
+            let destination = destination.map_or_else(
+                || {
+                    let home = std::env::var_os("HOME")
+                        .filter(|value| !value.is_empty())
+                        .or_else(|| {
+                            std::env::var_os("USERPROFILE").filter(|value| !value.is_empty())
+                        })
+                        .context("no home directory is available; supply --destination")?;
+                    Ok::<_, anyhow::Error>(PathBuf::from(home).join(".workdeck"))
+                },
+                Ok,
+            )?;
+            let version = version.or_else(|| {
+                std::env::var("WORKDECK_VERSION")
+                    .ok()
+                    .filter(|value| !value.is_empty())
+            });
+            let (version, path_outcome) = workdeck_cli::install::install_requested_on_host(
+                version.as_deref(),
+                &destination,
+                force || std::env::var("WORKDECK_ALLOW_CONFLICTING_INSTALLS").as_deref() == Ok("1"),
+                no_modify_path || std::env::var("WORKDECK_NO_MODIFY_PATH").as_deref() == Ok("1"),
+            )?;
+            println!(
+                "Installed Workdeck {version} to {}. {path_outcome}",
+                destination.display()
+            );
+            Ok(())
+        }
+        Command::Update {
+            version,
+            method,
+            check,
+        } => handle_update_command(version, method, check),
+        _ => unreachable!("non-global command passed to global handler"),
+    }
+}
+
+const STASH_OVERVIEW: &str = concat!(
+    "Usage: workdeck stash show [ref] [options]\n\n",
+    "Review a Git stash entry as a full Workdeck changeset.\n\n",
+    "Example:\n  workdeck stash show stash@{1}\n",
+);
+
+const DAEMON_OVERVIEW: &str = concat!(
+    "Usage: workdeck daemon <subcommand>\n",
+    "\n",
+    "Subcommands:\n",
+    "  workdeck daemon serve                  run the local Workdeck session daemon and websocket session broker\n",
+    "  workdeck daemon status [--json]        report the daemon's build, uptime, and attached windows\n",
+    "  workdeck daemon restart [--yes]        replace the daemon with one from this Workdeck build\n",
+    "\n",
+    "Environment:\n",
+    "  WORKDECK_MCP_HOST                  bind host (default 127.0.0.1; loopback only unless explicitly overridden)\n",
+    "  WORKDECK_MCP_PORT                  bind port (default 47657)\n",
+    "  WORKDECK_MCP_UNSAFE_ALLOW_REMOTE   set to 1 to allow non-loopback binding (unsafe)\n",
+);
+
+/// Terminal-bound stdout/stderr/confirm IO for the daemon control commands.
+struct ProcessDaemonCommandIo {
+    can_confirm: bool,
+}
+
+impl workdeck_session::DaemonCommandIo for ProcessDaemonCommandIo {
+    fn stdout(&mut self, text: &str) {
+        print!("{text}");
+    }
+
+    fn stderr(&mut self, text: &str) {
+        eprint!("{text}");
+    }
+
+    fn confirm(&mut self, question: &str) -> Option<bool> {
+        if !self.can_confirm {
+            return None;
+        }
+        use std::io::BufRead;
+        print!("{question}");
+        use std::io::Write;
+        let _ = std::io::stdout().flush();
+        let mut answer = String::new();
+        std::io::stdin()
+            .lock()
+            .read_line(&mut answer)
+            .ok()
+            .map(|_| matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes"))
+    }
+}
+
+fn handle_daemon_command(command: Option<DaemonCommand>) -> Result<()> {
+    let Some(command) = command else {
+        print!("{DAEMON_OVERVIEW}");
+        return Ok(());
+    };
+    let (input, can_confirm) = match command {
+        DaemonCommand::Serve => return run_daemon_serve(),
+        DaemonCommand::Status { json } => (
+            workdeck_session::DaemonControlCommandInput::Status {
+                output: session_output(json),
+            },
+            false,
+        ),
+        DaemonCommand::Restart { yes, json } => (
+            workdeck_session::DaemonControlCommandInput::Restart {
+                output: session_output(json),
+                yes,
+            },
+            std::io::IsTerminal::is_terminal(&std::io::stdin())
+                && std::io::IsTerminal::is_terminal(&std::io::stdout()),
+        ),
+    };
+    let deps = workdeck_session::create_daemon_command_dependencies(&std::env::vars().collect())
+        .map_err(anyhow::Error::msg)?;
+    let mut io = ProcessDaemonCommandIo { can_confirm };
+    let code =
+        workdeck_session::run_daemon_control_command(input, &mut io, &deps).map_err(|error| {
+            let mut message = error.message;
+            for hint in error.hints {
+                message.push_str(&format!("\n{hint}"));
+            }
+            anyhow::Error::msg(message)
+        })?;
+    if code != 0 {
+        std::process::exit(code);
+    }
+    Ok(())
+}
+
+fn run_daemon_serve() -> Result<()> {
+    let daemon = workdeck_session::serve_workdeck_session_broker_daemon(
+        workdeck_session::ServeWorkdeckSessionBrokerDaemonOptions::default(),
+    )
+    .map_err(anyhow::Error::msg)?;
+    let stop_requested = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let mut signal_registration = register_process_signal_callback({
+        let stop_requested = Arc::clone(&stop_requested);
+        move || {
+            if stop_requested.swap(true, std::sync::atomic::Ordering::AcqRel) {
+                std::process::exit(130);
+            }
+        }
+    })
+    .map_err(anyhow::Error::msg)
+    .context("failed to install session daemon shutdown handler")?;
+
+    while !daemon.wait_stopped(Duration::from_millis(100)) {
+        if stop_requested.load(std::sync::atomic::Ordering::Acquire) {
+            daemon.stop();
+        }
+    }
+    signal_registration.retire();
+    Ok(())
+}
+
+fn handle_update_command(
+    version: Option<String>,
+    method: Option<String>,
+    check: bool,
+) -> Result<()> {
+    let version = version
+        .as_deref()
+        .map(workdeck_cli::update::parse_update_version)
+        .transpose()
+        .map_err(format_update_error)?;
+    let method = method
+        .as_deref()
+        .map(workdeck_cli::update::parse_update_method)
+        .transpose()
+        .map_err(format_update_error)?;
+    let context =
+        workdeck_cli::update::SelfUpdateContext::current().map_err(format_update_error)?;
+    let result = workdeck_cli::update::run_self_update(
+        &SelfUpdateCommandInput {
+            version,
+            method,
+            check,
+        },
+        &context,
+    )
+    .map_err(format_update_error)?;
+    if result.exit_code != 0 {
+        return Err(CommandExit(result.exit_code).into());
+    }
+    Ok(())
+}
+
+fn format_update_error(error: workdeck_cli::update::UpdateError) -> anyhow::Error {
+    let mut message = error.message;
+    for suggestion in error.suggestions {
+        message.push('\n');
+        message.push_str(&suggestion);
+    }
+    anyhow::anyhow!(message)
+}
+
+const MARKUP_OVERVIEW: &str = concat!(
+    "Usage:\n",
+    "  workdeck markup render (<file> | -) [--width <n>] [--color <auto|always|never>] [--theme <id>] [--json]\n",
+    "  workdeck markup guide\n\n",
+    "Experimental STML authoring tools.\n",
+);
+
+fn handle_markup_command(command: Option<MarkupCommand>) -> Result<()> {
+    let Some(command) = command else {
+        print!("{MARKUP_OVERVIEW}");
+        return Ok(());
+    };
+    match command {
+        MarkupCommand::Guide => {
+            print!("{}", workdeck_markup::GUIDE);
+            Ok(())
+        }
+        MarkupCommand::Render {
+            file,
+            width,
+            color,
+            theme,
+            json,
+        } => {
+            if width == 0 || width > 4096 {
+                bail!("--width must be between 1 and 4096");
+            }
+            let mut source = String::new();
+            if file == Path::new("-") {
+                std::io::stdin()
+                    .read_to_string(&mut source)
+                    .context("failed to read STML from stdin")?;
+            } else {
+                source = std::fs::read_to_string(&file)
+                    .with_context(|| format!("failed to read STML {}", file.display()))?;
+            }
+            let use_color = matches!(color, MarkupColor::Always)
+                || matches!(color, MarkupColor::Auto) && std::io::stdout().is_terminal() && !json;
+            let rendered = if use_color {
+                let theme = workdeck_tui::resolve_theme(
+                    Some(theme.as_deref().unwrap_or("github-dark-default")),
+                    None,
+                    &[],
+                );
+                workdeck_markup::render_stml_to_ansi(
+                    &source,
+                    width,
+                    &workdeck_markup::StmlThemeColors {
+                        accent: theme.accent,
+                        accent_muted: theme.accent_muted,
+                        added_sign_color: theme.added_sign_color,
+                        removed_sign_color: theme.removed_sign_color,
+                        file_modified: theme.file_modified,
+                        muted: theme.muted,
+                        panel_alt: theme.panel_alt,
+                        text: theme.text,
+                        panel: theme.panel,
+                        note_border: theme.note_border,
+                        background: theme.background,
+                    },
+                )
+            } else {
+                workdeck_markup::render_stml_to_text(&source, width)
+            };
+            if json {
+                #[derive(serde::Serialize)]
+                struct MarkupRenderJson<'a> {
+                    width: usize,
+                    lines: &'a [String],
+                    notes: &'a [String],
+                }
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&MarkupRenderJson {
+                        width,
+                        lines: &rendered.lines,
+                        notes: &rendered.errors,
+                    })?
+                );
+                return Ok(());
+            }
+            println!("{}", rendered.lines.join("\n"));
+            for note in &rendered.errors {
+                eprintln!("note: {note}");
+            }
+            Ok(())
+        }
+    }
+}
+
+const SKILL_OVERVIEW: &str = concat!(
+    "Usage: workdeck skill path [name]\n\n",
+    "Print or materialize a bundled Workdeck skill path.\n",
+    "Load or symlink that file in your coding agent to keep it in sync across Workdeck upgrades.\n\n",
+    "Skills:\n",
+    "  workdeck-pm (\"pm\")                    manage source-bound planning and task context\n",
+    "  workdeck-review (default, \"review\")       review a live Workdeck session\n",
+    "  workdeck-extensions (\"extensions\")        build native Workdeck extensions\n",
+    "  workdeck-release (\"release\")              prepare native release artifacts\n",
+    "  workdeck-launch-video (\"launch-video\")    capture terminal launch media\n",
+);
+
+fn handle_skill_command(command: Option<SkillCommand>) -> Result<()> {
+    let Some(command) = command else {
+        print!("{SKILL_OVERVIEW}");
+        return Ok(());
+    };
+    let SkillCommand::Path { name, json } = command;
+    let pm_skill = matches!(name.trim(), "pm" | "workdeck-pm");
+    let name = if pm_skill {
+        name
+    } else {
+        workdeck_cli::skills::canonical_name(&name)?.to_owned()
+    };
+    if !pm_skill
+        && let Some(destination) =
+            workdeck_cli::skills::find_path(&name, &[std::env::current_exe()?])?
+    {
+        if json {
+            json_success(
+                "skill_path",
+                Some("path"),
+                json!({ "name": name, "path": destination }),
+            )?;
+        } else {
+            println!("{}", destination.display());
+        }
+        return Ok(());
+    }
+    let generated_pm;
+    let source = match name.as_str() {
+        "workdeck-pm" | "pm" => {
+            generated_pm = pm_catalog::render_pm_skill();
+            generated_pm.as_str()
+        }
+        "workdeck-review" | "review" => include_str!("../../../skills/workdeck-review/SKILL.md"),
+        "workdeck-extensions" | "extensions" => {
+            include_str!("../../../skills/workdeck-extensions/SKILL.md")
+        }
+        "workdeck-release" | "release" => {
+            include_str!("../../../skills/workdeck-release/SKILL.md")
+        }
+        "workdeck-launch-video" | "launch-video" => {
+            include_str!("../../../skills/workdeck-launch-video/SKILL.md")
+        }
+        _ => bail!(
+            "unknown bundled skill {name:?}; expected workdeck-pm, workdeck-review, workdeck-extensions, workdeck-release, or workdeck-launch-video"
+        ),
+    };
+    let canonical_name = source
+        .lines()
+        .find_map(|line| line.strip_prefix("name: "))
+        .context("bundled skill is missing its name")?;
+    let root = user_config_root()
+        .context("could not resolve the Workdeck user config directory")?
+        .join("workdeck")
+        .join("skills")
+        .join(canonical_name);
+    std::fs::create_dir_all(&root)
+        .with_context(|| format!("failed to create {}", root.display()))?;
+    let destination = root.join("SKILL.md");
+    if std::fs::read_to_string(&destination).ok().as_deref() != Some(source) {
+        let temporary = root.join("SKILL.md.tmp");
+        std::fs::write(&temporary, source)
+            .with_context(|| format!("failed to write {}", temporary.display()))?;
+        std::fs::rename(&temporary, &destination)
+            .with_context(|| format!("failed to install {}", destination.display()))?;
+    }
+    if json {
+        json_success(
+            "skill_path",
+            Some("path"),
+            json!({ "name": canonical_name, "path": destination }),
+        )?;
+    } else {
+        println!("{}", destination.display());
+    }
+    Ok(())
+}
+
+fn handle_live_session_command(command: Option<LiveSessionCommand>) -> Result<()> {
+    let Some(command) = command else {
+        print!("{}", session_overview());
+        return Ok(());
+    };
+    match command {
+        LiveSessionCommand::List { json } => emit_session_command(SessionCommandInput::List {
+            output: session_output(json),
+        }),
+        LiveSessionCommand::Get { id, repo, json } => {
+            emit_session_command(SessionCommandInput::Get {
+                context: false,
+                output: session_output(json),
+                selector: explicit_session_selector(id, repo)?,
+            })
+        }
+        LiveSessionCommand::Context { id, repo, json } => {
+            emit_session_command(SessionCommandInput::Get {
+                context: true,
+                output: session_output(json),
+                selector: explicit_session_selector(id, repo)?,
+            })
+        }
+        LiveSessionCommand::Review {
+            id,
+            repo,
+            include_patch,
+            include_source,
+            include_notes,
+            json,
+        } => {
+            if include_source {
+                return handle_legacy_source_review(id, repo, include_patch, include_notes, json);
+            }
+            emit_session_command(SessionCommandInput::Review {
+                output: session_output(json),
+                selector: explicit_session_selector(id, repo)?,
+                include_patch,
+                include_notes: Some(include_notes),
+            })
+        }
+        LiveSessionCommand::Reload {
+            id,
+            repo,
+            session_path,
+            source,
+            json,
+            next_command,
+        } => emit_session_command(SessionCommandInput::Reload {
+            output: session_output(json),
+            selector: reload_session_selector(id, repo, session_path)?,
+            next_input: Box::new(parse_reload_review_input(&next_command)?),
+            source_path: source.map(absolute_cli_path).transpose()?,
+        }),
+        LiveSessionCommand::Navigate {
+            id,
+            repo,
+            file,
+            hunk,
+            old_line,
+            new_line,
+            comment,
+            next_comment,
+            prev_comment,
+            json,
+        } => {
+            let selector_mode_count = usize::from(comment.is_some())
+                + usize::from(next_comment || prev_comment)
+                + usize::from(file.is_some());
+            if selector_mode_count != 1 {
+                bail!(
+                    "Specify exactly one navigation selector: --comment, --next-comment / --prev-comment, or --file with a navigation target."
+                );
+            }
+            let line_target_count = usize::from(hunk.is_some())
+                + usize::from(old_line.is_some())
+                + usize::from(new_line.is_some());
+            if file.is_some() && line_target_count != 1 {
+                bail!("Specify exactly one of --hunk, --old-line, or --new-line with --file.");
+            }
+            if file.is_none() && line_target_count != 0 {
+                bail!("--hunk, --old-line, and --new-line require --file <path>.");
+            }
+            emit_session_command(SessionCommandInput::Navigate {
+                output: session_output(json),
+                selector: explicit_session_selector(id, repo)?,
+                file_path: file.map(|path| path.to_string_lossy().into_owned()),
+                hunk_number: hunk,
+                side: old_line
+                    .map(|_| ReviewSide::Old)
+                    .or_else(|| new_line.map(|_| ReviewSide::New)),
+                line: old_line.or(new_line),
+                comment_direction: if next_comment {
+                    Some(NavigationDirection::Next)
+                } else if prev_comment {
+                    Some(NavigationDirection::Previous)
+                } else {
+                    None
+                },
+                comment_id: comment,
+            })
+        }
+        LiveSessionCommand::Comment { command: None } => {
+            print!("{}", session_comment_overview());
+            Ok(())
+        }
+        LiveSessionCommand::Comment {
+            command: Some(command),
+        } => handle_live_comment_command(command),
+        LiveSessionCommand::Highlight { command: None } => {
+            print!("{}", session_highlight_overview());
+            Ok(())
+        }
+        LiveSessionCommand::Highlight {
+            command: Some(command),
+        } => handle_live_highlight_command(command),
+        LiveSessionCommand::Quit { id, repo, json } => {
+            let selector = explicit_session_selector(id, repo)?;
+            let result = workdeck_session::SessionCommandRunner::from_process_environment()
+                .quit(selector)?;
+            emit_live_value("live_session", "quit", serde_json::to_value(result)?, json)
+        }
+    }
+}
+
+fn session_overview() -> String {
+    let mut output = concat!(
+        "Usage: workdeck session <subcommand> [options]\n\n",
+        "Inspect and control live Workdeck review sessions through the local daemon.\n\n",
+        "Commands:\n",
+    )
+    .to_owned();
+    for spec in workdeck_session::SESSION_AGENT_COMMAND_LIST.iter() {
+        for synopsis in &spec.synopsis {
+            output.push_str("  ");
+            output.push_str(synopsis);
+            output.push('\n');
+        }
+    }
+    output.push_str("  workdeck session quit (<session-id> | --repo <path>) [--json]\n");
+    output
+}
+
+fn session_comment_overview() -> String {
+    session_namespace_overview(&workdeck_session::SESSION_COMMENT_COMMAND_LIST)
+}
+
+fn session_highlight_overview() -> String {
+    session_namespace_overview(&workdeck_session::SESSION_HIGHLIGHT_COMMAND_LIST)
+}
+
+fn session_namespace_overview(specs: &[workdeck_session::AgentCommandSpec]) -> String {
+    let mut output = "Usage:\n".to_owned();
+    for spec in specs {
+        for synopsis in &spec.synopsis {
+            output.push_str("  ");
+            output.push_str(synopsis);
+            output.push('\n');
+        }
+    }
+    output
+}
+
+fn handle_live_comment_command(command: LiveCommentCommand) -> Result<()> {
+    match command {
+        LiveCommentCommand::Add {
+            id,
+            repo,
+            file,
+            old_line,
+            new_line,
+            hunk_index: Some(hunk_index),
+            summary,
+            rationale,
+            markup,
+            author,
+            focus,
+            json,
+        } => handle_legacy_hunk_comment_add(
+            id, repo, file, old_line, new_line, hunk_index, summary, rationale, markup, author,
+            focus, json,
+        ),
+        LiveCommentCommand::Add {
+            id,
+            repo,
+            file,
+            old_line,
+            new_line,
+            hunk_index: None,
+            summary,
+            rationale,
+            markup,
+            author,
+            focus,
+            json,
+        } => {
+            let (side, line) = exactly_one_line_target(old_line, new_line, "comment add")?;
+            emit_session_command(SessionCommandInput::CommentAdd {
+                output: session_output(json),
+                selector: explicit_session_selector(id, repo)?,
+                file_path: file.to_string_lossy().into_owned(),
+                side,
+                line,
+                summary,
+                rationale,
+                markup,
+                author,
+                reveal: focus,
+            })
+        }
+        LiveCommentCommand::Apply {
+            id,
+            repo,
+            stdin,
+            focus,
+            json,
+        } => {
+            if !stdin {
+                bail!("Session comment apply reads its batch payload only from --stdin.");
+            }
+            let mut raw = String::new();
+            std::io::stdin()
+                .read_to_string(&mut raw)
+                .context("failed to read session comment batch from stdin")?;
+            let comments = parse_session_comment_apply_payload(&raw)?;
+            emit_session_command(SessionCommandInput::CommentApply {
+                output: session_output(json),
+                selector: explicit_session_selector(id, repo)?,
+                comments,
+                reveal_mode: if focus {
+                    RevealMode::First
+                } else {
+                    RevealMode::None
+                },
+            })
+        }
+        LiveCommentCommand::List {
+            id,
+            repo,
+            file,
+            list_type,
+            json,
+        } => emit_session_command(SessionCommandInput::CommentList {
+            output: session_output(json),
+            selector: explicit_session_selector(id, repo)?,
+            file_path: file.map(|path| path.to_string_lossy().into_owned()),
+            list_type: list_type.map(LiveCommentListTypeArg::into_core),
+        }),
+        LiveCommentCommand::Remove {
+            targets,
+            repo,
+            json,
+        } => {
+            let expected = if repo.is_some() { 1 } else { 2 };
+            if targets.len() != expected {
+                if repo.is_some() {
+                    bail!("Specify exactly one comment id with --repo <path>.");
+                }
+                bail!(
+                    "Specify a session id and comment id, or pass --repo <path> with one comment id."
+                );
+            }
+            let (id, comment_id) = if repo.is_some() {
+                (None, targets[0].clone())
+            } else {
+                (Some(targets[0].clone()), targets[1].clone())
+            };
+            emit_session_command(SessionCommandInput::CommentRemove {
+                output: session_output(json),
+                selector: explicit_session_selector(id, repo)?,
+                comment_id,
+            })
+        }
+        LiveCommentCommand::Clear {
+            id,
+            repo,
+            file,
+            include_user,
+            all,
+            yes,
+            json,
+        } => {
+            if !yes {
+                bail!("Pass --yes to clear comments.");
+            }
+            emit_session_command(SessionCommandInput::CommentClear {
+                output: session_output(json),
+                selector: explicit_session_selector(id, repo)?,
+                file_path: file.map(|path| path.to_string_lossy().into_owned()),
+                include_user: (include_user || all).then_some(true),
+                confirmed: true,
+            })
+        }
+    }
+}
+
+fn handle_live_highlight_command(command: LiveHighlightCommand) -> Result<()> {
+    match command {
+        LiveHighlightCommand::Add {
+            id,
+            repo,
+            file,
+            old_line,
+            new_line,
+            start,
+            end,
+            tone,
+            focus,
+            json,
+        } => {
+            let (side, line) = exactly_one_line_target(old_line, new_line, "highlight add")?;
+            if end <= start {
+                bail!("Highlight --end must be greater than --start.");
+            }
+            emit_session_command(SessionCommandInput::HighlightAdd {
+                output: session_output(json),
+                selector: explicit_session_selector(id, repo)?,
+                file_path: file.to_string_lossy().into_owned(),
+                side,
+                line,
+                start,
+                end,
+                tone: tone.map(LiveHighlightToneArg::into_core),
+                reveal: focus,
+            })
+        }
+        LiveHighlightCommand::Clear {
+            id,
+            repo,
+            file,
+            json,
+        } => emit_session_command(SessionCommandInput::HighlightClear {
+            output: session_output(json),
+            selector: explicit_session_selector(id, repo)?,
+            file_path: file.map(|path| path.to_string_lossy().into_owned()),
+        }),
+    }
+}
+
+impl LiveCommentListTypeArg {
+    const fn into_core(self) -> SessionCommentListType {
+        match self {
+            Self::Live => SessionCommentListType::Live,
+            Self::All => SessionCommentListType::All,
+            Self::Ai => SessionCommentListType::Source(ReviewNoteSource::Ai),
+            Self::Agent => SessionCommentListType::Source(ReviewNoteSource::Agent),
+            Self::User => SessionCommentListType::Source(ReviewNoteSource::User),
+        }
+    }
+}
+
+impl LiveHighlightToneArg {
+    const fn into_core(self) -> HighlightTone {
+        match self {
+            Self::Match => HighlightTone::Match,
+            Self::Current => HighlightTone::Current,
+            Self::Info => HighlightTone::Info,
+            Self::Warning => HighlightTone::Warning,
+            Self::Error => HighlightTone::Error,
+            Self::Dim => HighlightTone::Dim,
+        }
+    }
+}
+
+const fn session_output(json: bool) -> SessionCommandOutput {
+    if json {
+        SessionCommandOutput::Json
+    } else {
+        SessionCommandOutput::Text
+    }
+}
+
+fn emit_session_command(input: SessionCommandInput) -> Result<()> {
+    let json = workdeck_session::session_command_output(&input)
+        == workdeck_core::SessionCommandOutput::Json;
+    match run_session_command(input) {
+        Ok(output) => {
+            print!("{output}");
+            Ok(())
+        }
+        // Agents parse `--json` output; a build mismatch is a decision point for them, so it
+        // is returned in-band as a structured error rather than only as text on stderr.
+        Err(workdeck_session::SessionCommandError::DaemonBuildMismatch(error)) if json => {
+            let body = serde_json::to_string_pretty(&serde_json::json!({
+                "error": error.to_json()
+            }))
+            .unwrap_or_else(|_| r#"{"error":{}}"#.into());
+            println!("{body}");
+            std::process::exit(1);
+        }
+        Err(workdeck_session::SessionCommandError::DaemonBuildMismatch(error)) => {
+            let mut message = error.to_string();
+            for hint in error.suggestions() {
+                message.push_str(&format!("\n{hint}"));
+            }
+            Err(anyhow::Error::msg(message))
+        }
+        Err(error) => Err(anyhow::Error::new(error)),
+    }
+}
+
+fn explicit_session_selector(
+    id: Option<String>,
+    repo: Option<PathBuf>,
+) -> Result<SessionSelectorInput> {
+    if id.is_some() && repo.is_some() {
+        bail!("Specify either <session-id> or --repo <path>, not both.");
+    }
+    if id.is_none() && repo.is_none() {
+        bail!("Specify one live Workdeck session with <session-id> or --repo <path>.");
+    }
+    Ok(SessionSelectorInput {
+        session_id: id,
+        repo_root: repo.map(repo_selector_path).transpose()?,
+        ..SessionSelectorInput::default()
+    })
+}
+
+fn reload_session_selector(
+    id: Option<String>,
+    repo: Option<PathBuf>,
+    session_path: Option<PathBuf>,
+) -> Result<SessionSelectorInput> {
+    let selector_count = usize::from(id.is_some())
+        + usize::from(repo.is_some())
+        + usize::from(session_path.is_some());
+    if selector_count != 1 {
+        bail!(
+            "Specify one live Workdeck session with <session-id>, --repo <path>, or --session-path <path>."
+        );
+    }
+    Ok(SessionSelectorInput {
+        session_id: id,
+        session_path: session_path.map(absolute_cli_path).transpose()?,
+        repo_root: repo.map(repo_selector_path).transpose()?,
+        repo_boundary: None,
+    })
+}
+
+fn repo_selector_path(path: PathBuf) -> Result<String> {
+    let absolute = PathBuf::from(absolute_cli_path(path)?);
+    Ok(std::fs::canonicalize(&absolute)
+        .unwrap_or(absolute)
+        .to_string_lossy()
+        .into_owned())
+}
+
+fn absolute_cli_path(path: PathBuf) -> Result<String> {
+    let path = if path.is_absolute() {
+        path
+    } else {
+        std::env::current_dir()
+            .context("could not resolve the current directory")?
+            .join(path)
+    };
+    Ok(path.to_string_lossy().into_owned())
+}
+
+fn exactly_one_line_target(
+    old_line: Option<u64>,
+    new_line: Option<u64>,
+    command: &str,
+) -> Result<(ReviewSide, u64)> {
+    match (old_line, new_line) {
+        (Some(line), None) if line > 0 => Ok((ReviewSide::Old, line)),
+        (None, Some(line)) if line > 0 => Ok((ReviewSide::New, line)),
+        _ => bail!("{command} requires exactly one positive --old-line or --new-line target."),
+    }
+}
+
+const MAX_SAFE_CLI_INTEGER: u64 = 9_007_199_254_740_991;
+
+fn parse_positive_safe_integer(value: &str) -> std::result::Result<u64, String> {
+    if value.is_empty()
+        || value.as_bytes()[0] == b'0'
+        || !value.as_bytes()[0].is_ascii_digit()
+        || !value.as_bytes()[1..].iter().all(u8::is_ascii_digit)
+    {
+        return Err(format!("Invalid positive integer: {value}"));
+    }
+    value
+        .parse::<u64>()
+        .ok()
+        .filter(|parsed| *parsed <= MAX_SAFE_CLI_INTEGER)
+        .ok_or_else(|| format!("Invalid positive integer: {value}"))
+}
+
+fn parse_non_negative_safe_integer(value: &str) -> std::result::Result<u64, String> {
+    if value == "0" {
+        return Ok(0);
+    }
+    parse_positive_safe_integer(value).map_err(|_| format!("Invalid non-negative integer: {value}"))
+}
+
+fn parse_reload_review_input(tokens: &[String]) -> Result<CliInput> {
+    if tokens.is_empty() {
+        bail!("Pass the replacement Workdeck command after `--`, such as `diff` or `show`.");
+    }
+    let mut argv = vec!["workdeck".to_owned()];
+    argv.extend(tokens.iter().cloned());
+    let mut parsed =
+        parse_args_with_fast_shorthand(argv).map_err(|error| anyhow::anyhow!(error.to_string()))?;
+    if parsed.init || parsed.status_json {
+        bail!(
+            "Session reload requires a Workdeck review command after --, such as `diff` or `show`."
+        );
+    }
+    if let Some(review) = parsed
+        .command
+        .as_mut()
+        .and_then(Command::review_options_mut)
+    {
+        review.experimental = parsed.experimental;
+        review.fast = parsed.fast;
+        review.extension.clone_from(&parsed.extension);
+        review.no_extensions = parsed.no_extensions && !parsed.extensions;
+    }
+    let mut input = review_command_input(parsed.command)?;
+    input.options_mut().extensions = if parsed.no_extensions {
+        Some(false)
+    } else if parsed.extensions {
+        Some(true)
+    } else {
+        None
+    };
+    Ok(input)
+}
+
+fn review_command_input(command: Option<Command>) -> Result<CliInput> {
+    match command {
+        None => Ok(CliInput::Vcs(VcsDiffCommandInput {
+            range: None,
+            range_endpoints: None,
+            staged: false,
+            pathspecs: Vec::new(),
+            options: CommonOptions::default(),
+        })),
+        Some(Command::Diff {
+            revisions,
+            files,
+            staged,
+            exclude_untracked,
+            include_untracked,
+            pathspec,
+            review,
+        }) => {
+            let mut options = review.parsed_common_options();
+            options.exclude_untracked = if exclude_untracked {
+                Some(true)
+            } else if include_untracked {
+                Some(false)
+            } else {
+                None
+            };
+            if validate_diff_file_arguments(&files, &revisions, staged, &pathspec)? {
+                return Ok(CliInput::Files(FileCommandInput {
+                    left: files[0].to_string_lossy().into_owned(),
+                    right: files[1].to_string_lossy().into_owned(),
+                    options,
+                }));
+            }
+            let (range, range_endpoints) = match revisions.as_slice() {
+                [] => (None, None),
+                [target] => (Some(target.clone()), None),
+                [from, to] if !staged => (
+                    None,
+                    Some(VcsRangeEndpoints {
+                        from: from.clone(),
+                        to: to.clone(),
+                    }),
+                ),
+                _ => bail!(
+                    "Use `workdeck diff [target] [-- pathspec...]`, `workdeck diff <from> <to>`, or `workdeck diff --files <left> <right>`."
+                ),
+            };
+            Ok(CliInput::Vcs(VcsDiffCommandInput {
+                range,
+                range_endpoints,
+                staged,
+                pathspecs: pathspec,
+                options,
+            }))
+        }
+        Some(Command::Show {
+            target,
+            pathspec,
+            review,
+        }) => Ok(CliInput::Show(VcsShowCommandInput {
+            reference: target,
+            pathspecs: pathspec,
+            options: review.parsed_common_options(),
+        })),
+        Some(Command::Stash {
+            command: Some(StashCommand::Show { reference, review }),
+        }) => Ok(CliInput::StashShow(VcsStashShowCommandInput {
+            reference,
+            options: review.parsed_common_options(),
+        })),
+        Some(Command::Patch { file, review }) => {
+            let file = file.filter(|path| path != Path::new("-")).context(
+                "Session reload does not support `patch -` or stdin-backed patch input.",
+            )?;
+            Ok(CliInput::Patch(PatchCommandInput {
+                file: Some(file.to_string_lossy().into_owned()),
+                text: None,
+                options: review.parsed_common_options(),
+            }))
+        }
+        Some(Command::Difftool {
+            left,
+            right,
+            path,
+            review,
+        }) => Ok(CliInput::DiffTool(DiffToolCommandInput {
+            left: left.to_string_lossy().into_owned(),
+            right: right.to_string_lossy().into_owned(),
+            path: path.map(|path| path.to_string_lossy().into_owned()),
+            options: review.parsed_common_options(),
+        })),
+        Some(Command::Pager { .. })
+        | Some(Command::Stash { command: None })
+        | Some(Command::Daemon { .. })
+        | Some(Command::Session { .. })
+        | Some(Command::Extension { .. })
+        | Some(Command::Migrate { .. })
+        | Some(Command::Markup { .. })
+        | Some(Command::Skill { .. })
+        | Some(Command::Install { .. })
+        | Some(Command::Update { .. })
+        | Some(Command::Status { .. })
+        | Some(Command::Files { .. })
+        | Some(Command::Changes { .. })
+        | Some(Command::Search { .. })
+        | Some(Command::Config { .. })
+        | Some(Command::Events { .. })
+        | Some(Command::Import { .. })
+        | Some(Command::Init { .. })
+        | Some(Command::Protocol { .. })
+        | Some(Command::Capabilities { .. })
+        | Some(Command::Schema { .. })
+        | Some(Command::View { .. })
+        | Some(Command::Wiki { .. })
+        | Some(Command::Time { .. })
+        | Some(Command::Question { .. })
+        | Some(Command::Handoff { .. })
+        | Some(Command::Context { .. })
+        | Some(Command::Recipe { .. })
+        | Some(Command::Hooks { .. })
+        | Some(Command::Claim { .. })
+        | Some(Command::Source { .. })
+        | Some(Command::Repository { .. })
+        | Some(Command::Index { .. })
+        | Some(Command::Check { .. })
+        | Some(Command::Next { .. })
+        | Some(Command::Feature { .. })
+        | Some(Command::Gate { .. })
+        | Some(Command::Evidence { .. })
+        | Some(Command::User { .. })
+        | Some(Command::Organization { .. })
+        | Some(Command::Operation { .. })
+        | Some(Command::Ci { .. })
+        | Some(Command::Doctor { .. })
+        | Some(Command::Export { .. })
+        | Some(Command::Issue { .. })
+        | Some(Command::Agent { .. })
+        | Some(Command::Project { .. })
+        | Some(Command::Initiative { .. })
+        | Some(Command::Milestone { .. })
+        | Some(Command::Target { .. })
+        | Some(Command::Cycle { .. })
+        | Some(Command::Label { .. })
+        | Some(Command::External(_)) => bail!(
+            "Session reload requires a Workdeck review command after --, such as `diff` or `show`."
+        ),
+    }
+}
+
+fn parse_session_comment_apply_payload(raw: &str) -> Result<Vec<SessionCommentApplyItemInput>> {
+    if raw.trim().is_empty() {
+        bail!("Session comment apply expected one JSON object on stdin.");
+    }
+    let parsed: Value = serde_json::from_str(raw)
+        .map_err(|_| anyhow::anyhow!("Session comment apply expected valid JSON on stdin."))?;
+    if !parsed.is_object() && !parsed.is_array() {
+        bail!("Session comment apply expected one JSON object with a comments array.");
+    }
+    let comments = parsed
+        .get("comments")
+        .and_then(Value::as_array)
+        .context("Session comment apply expected a top-level `comments` array.")?;
+    if comments.is_empty() {
+        bail!("Session comment apply expected at least one comment.");
+    }
+    comments
+        .iter()
+        .enumerate()
+        .map(|(index, comment)| parse_session_comment_apply_item(comment, index + 1))
+        .collect()
+}
+
+fn parse_session_comment_apply_item(
+    comment: &Value,
+    item_number: usize,
+) -> Result<SessionCommentApplyItemInput> {
+    let item = comment
+        .as_object()
+        .with_context(|| format!("Comment {item_number} must be a JSON object."))?;
+    let required_string = |field: &str| -> Result<String> {
+        item.get(field)
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+            .with_context(|| format!("Comment {item_number} requires a non-empty `{field}`."))
+    };
+    let positive_int = |field: &str| -> Result<Option<u64>> {
+        let Some(value) = item.get(field) else {
+            return Ok(None);
+        };
+        let parsed = value.as_u64().filter(|value| *value > 0).or_else(|| {
+            value.as_f64().and_then(|value| {
+                (value.is_finite()
+                    && value > 0.0
+                    && value.fract() == 0.0
+                    && value <= u64::MAX as f64)
+                    .then_some(value as u64)
+            })
+        });
+        let parsed = parsed.with_context(|| {
+            format!("Comment {item_number} field `{field}` must be a positive integer.")
+        })?;
+        Ok(Some(parsed))
+    };
+    let hunk = positive_int("hunk")?;
+    let hunk_number = positive_int("hunkNumber")?;
+    if hunk.is_some() && hunk_number.is_some() {
+        bail!("Comment {item_number} must not specify both `hunk` and `hunkNumber`.");
+    }
+    let hunk_number = hunk.or(hunk_number);
+    let old_line = positive_int("oldLine")?;
+    let new_line = positive_int("newLine")?;
+    let target_count = usize::from(hunk_number.is_some())
+        + usize::from(old_line.is_some())
+        + usize::from(new_line.is_some());
+    if target_count != 1 {
+        bail!(
+            "Comment {item_number} must specify exactly one of `hunk`, `hunkNumber`, `oldLine`, or `newLine`."
+        );
+    }
+    let optional_string = |field: &str| item.get(field).and_then(Value::as_str).map(str::to_owned);
+    Ok(SessionCommentApplyItemInput {
+        file_path: required_string("filePath")?,
+        hunk_number,
+        side: old_line
+            .map(|_| ReviewSide::Old)
+            .or_else(|| new_line.map(|_| ReviewSide::New)),
+        line: old_line.or(new_line),
+        summary: required_string("summary")?,
+        rationale: optional_string("rationale"),
+        markup: optional_string("markup").filter(|value| !value.is_empty()),
+        author: optional_string("author"),
+    })
+}
+
+fn handle_legacy_source_review(
+    id: Option<String>,
+    repo: Option<PathBuf>,
+    include_patch: bool,
+    include_notes: bool,
+    json: bool,
+) -> Result<()> {
+    let directory = default_discovery_directory()
+        .context("could not resolve the Workdeck live-session directory")?;
+    let session = resolve_live_session(&directory, id.as_deref(), repo.as_deref())?;
+    let snapshot = decode_snapshot(SessionClient::request(
+        &session,
+        SessionAction::Review {
+            include_patch,
+            include_source: true,
+            include_agent_context: include_notes,
+        },
+    )?)?;
+    let notes = if include_notes {
+        SessionClient::request(&session, SessionAction::CommentList)?
+    } else {
+        Value::Null
+    };
+    emit_live_value(
+        "live_session_review",
+        "review",
+        json!({
+            "session": safe_session_payload(&session),
+            "review": snapshot,
+            "notes": notes,
+        }),
+        json,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn handle_legacy_hunk_comment_add(
+    id: Option<String>,
+    repo: Option<PathBuf>,
+    file: PathBuf,
+    old_line: Option<u64>,
+    new_line: Option<u64>,
+    hunk_index: usize,
+    summary: String,
+    rationale: Option<String>,
+    markup: Option<String>,
+    author: Option<String>,
+    focus: bool,
+    json: bool,
+) -> Result<()> {
+    if old_line.is_some() || new_line.is_some() {
+        bail!("comment add requires --hunk-index or exactly one of --old-line/--new-line");
+    }
+    let directory = default_discovery_directory()
+        .context("could not resolve the Workdeck live-session directory")?;
+    let session = resolve_live_session(&directory, id.as_deref(), repo.as_deref())?;
+    let snapshot = decode_snapshot(SessionClient::request(&session, SessionAction::Snapshot)?)?;
+    let file_path = file.to_string_lossy();
+    let file_index = snapshot
+        .changeset
+        .files
+        .iter()
+        .position(|candidate| {
+            candidate.path == file_path
+                || candidate.previous_path.as_deref() == Some(file_path.as_ref())
+        })
+        .with_context(|| format!("diff file {file_path:?} is not in the live review"))?;
+    let target_file = find_diff_file_by_path(&snapshot.changeset.files, &file_path)
+        .with_context(|| format!("diff file {file_path:?} is not in the live review"))?;
+    let input = CommentTargetInput {
+        file_path: file_path.into_owned(),
+        hunk_index: Some(hunk_index),
+        side: None,
+        line: None,
+        summary,
+        rationale,
+        markup,
+        author,
+    };
+    let target = resolve_comment_target(target_file, &input)?;
+    let comment = build_live_comment(
+        target_file,
+        input,
+        live_comment_id(),
+        Utc::now().to_rfc3339(),
+        target,
+    );
+    let result = SessionClient::request(
+        &session,
+        SessionAction::CommentAdd {
+            comment: Box::new(comment.clone()),
+        },
+    )?;
+    if focus {
+        SessionClient::request(
+            &session,
+            SessionAction::NavigateHunk {
+                file_index,
+                hunk_index,
+            },
+        )?;
+    }
+    emit_live_value(
+        "live_comment",
+        "add",
+        json!({ "comment": comment, "result": result }),
+        json,
+    )
+}
+
+fn resolve_live_session(
+    directory: &Path,
+    id: Option<&str>,
+    repo: Option<&Path>,
+) -> Result<SessionDescriptor> {
+    if id.is_some() && repo.is_some() {
+        bail!("choose a session id or --repo, not both");
+    }
+    let sessions = SessionClient::discover(directory);
+    let matches = if let Some(id) = id {
+        sessions
+            .into_iter()
+            .filter(|session| session.id == id)
+            .collect::<Vec<_>>()
+    } else if let Some(repo) = repo {
+        let selector = normalize_session_selector(&SessionSelector {
+            repo_root: Some(repo.to_owned()),
+            ..SessionSelector::default()
+        })?;
+        let requested = selector
+            .repo_root
+            .as_deref()
+            .expect("repo selector retains its path");
+        let requested = std::fs::canonicalize(requested).unwrap_or_else(|_| requested.to_owned());
+        let mut matches = sessions
+            .into_iter()
+            .filter_map(|session| {
+                let root =
+                    std::fs::canonicalize(&session.repo).unwrap_or_else(|_| session.repo.clone());
+                let selectable = SelectableSession {
+                    session_id: session.id.clone(),
+                    cwd: root.clone(),
+                    repo_root: Some(root),
+                };
+                repo_selector_distance(&selectable, &requested, None)
+                    .map(|distance| (distance, session))
+            })
+            .collect::<Vec<_>>();
+        let closest = matches.iter().map(|(distance, _)| *distance).min();
+        matches
+            .drain(..)
+            .filter(|(distance, _)| Some(*distance) == closest)
+            .map(|(_, session)| session)
+            .collect::<Vec<_>>()
+    } else {
+        sessions
+    };
+    match matches.as_slice() {
+        [session] => Ok(session.clone()),
+        [] => bail!("no matching live Workdeck review session"),
+        _ => bail!("multiple live sessions match; pass a session id or --repo"),
+    }
+}
+
+fn safe_session_payload(session: &SessionDescriptor) -> Value {
+    json!({
+        "protocol_version": session.protocol_version,
+        "id": session.id,
+        "repo": session.repo,
+        "title": session.title,
+        "process_id": session.process_id,
+        "started_at_unix_ms": session.started_at_unix_ms,
+    })
+}
+
+fn emit_live_value(kind: &str, action: &str, value: Value, json: bool) -> Result<()> {
+    if json {
+        json_success(kind, Some(action), value)
+    } else {
+        println!("{}", serde_json::to_string_pretty(&value)?);
+        Ok(())
+    }
+}
+
+fn live_comment_id() -> String {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    format!("comment-{}-{nanos}", std::process::id())
+}
+
+const EXTENSION_OVERVIEW: &str = concat!(
+    "Usage:\n",
+    "  workdeck extension install <source> [--yes]\n",
+    "  workdeck extension list\n",
+    "  workdeck extension update [name]\n",
+    "  workdeck extension remove <name>\n",
+    "  workdeck extension validate <manifest>\n",
+    "  workdeck extension trust [--repo <path>] (--allow | --deny) --yes\n\n",
+    "Install and manage trusted native extensions. `workdeck ext` is an alias.\n",
+    "Installed extensions run with your full user permissions; only install repositories you trust.\n\n",
+    "Commands: install, list, update, remove (or uninstall), validate, trust\n",
+);
+
+fn handle_extension_command(cwd: &Path, command: Option<ExtensionCommand>) -> Result<()> {
+    let Some(command) = command else {
+        print!("{EXTENSION_OVERVIEW}");
+        return Ok(());
+    };
+    let config_root = user_config_root().context("could not resolve the user config directory")?;
+    let extensions_root = config_root.join("workdeck/extensions");
+    let manager = ExtensionManager::from_config_root(&config_root);
+    match command {
+        ExtensionCommand::Install { source, yes, json } => {
+            let source = parse_extension_install_source(&source, cwd)?;
+            if !yes {
+                if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+                    bail!(
+                        "installing an extension needs confirmation and no terminal is available; re-run with --yes after reviewing {}",
+                        source.clone_url
+                    );
+                }
+                println!(
+                    "Install {}{}?\nNative extensions run with your full user permissions. Only install repositories you trust.",
+                    source.clone_url,
+                    source
+                        .reference
+                        .as_ref()
+                        .map_or_else(String::new, |reference| format!(" @ {reference}"))
+                );
+                print!("Proceed? [y/N] ");
+                std::io::stdout()
+                    .flush()
+                    .context("flush confirmation prompt")?;
+                let mut answer = String::new();
+                std::io::stdin()
+                    .read_line(&mut answer)
+                    .context("read extension install confirmation")?;
+                if !matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes") {
+                    println!("Install cancelled.");
+                    return Err(CommandExit(1).into());
+                }
+            }
+            if !json {
+                eprintln!(
+                    "cloning {}{}…",
+                    source.clone_url,
+                    source
+                        .reference
+                        .as_ref()
+                        .map_or_else(String::new, |reference| format!(" @ {reference}"))
+                );
+            }
+            let outcome = manager.install(&source)?;
+            if json {
+                json_success("extension_install", Some("install"), &outcome)?;
+            } else {
+                println!(
+                    "Installed {}{} at {} into {}.\nNew Workdeck sessions will load it automatically.",
+                    outcome.name,
+                    outcome
+                        .version
+                        .as_ref()
+                        .map_or_else(String::new, |version| format!(" v{version}")),
+                    short_commit(&outcome.commit),
+                    outcome.directory.display()
+                );
+            }
+            Ok(())
+        }
+        ExtensionCommand::List { json } => {
+            let trust = load_extension_trust_store();
+            let repo = AnyProvider::discover(cwd, ProviderPreference::Auto)
+                .ok()
+                .map(|provider| provider.root().to_owned())
+                .or_else(|| find_project_root_candidate(cwd));
+            let config = Config::load(repo.as_deref().unwrap_or(cwd))?;
+            let manifests = discover_manifests_with_config(
+                Some(&extensions_root),
+                repo.as_deref(),
+                &trust,
+                &[],
+                &config.resolved_extensions.paths,
+                &config.resolved_extensions.repo_paths,
+                cwd,
+            )?
+            .manifests;
+            let managed = manager.list();
+            let mut seen_managed = BTreeSet::new();
+            let mut payload = manifests
+                .iter()
+                .map(|path| {
+                    let manifest = ExtensionManifest::load(path);
+                    let managed_entry = managed.iter().find(|entry| {
+                        path.strip_prefix(manager.installed_root())
+                            .ok()
+                            .and_then(|relative| relative.components().next())
+                            .is_some_and(|component| component.as_os_str() == entry.name.as_str())
+                    });
+                    if let Some(entry) = managed_entry {
+                        seen_managed.insert(entry.name.clone());
+                    }
+                    json!({
+                        "path": path,
+                        "valid": manifest.is_ok(),
+                        "id": manifest.as_ref().ok().map(|manifest| &manifest.id),
+                        "version": manifest.as_ref().ok().map(|manifest| &manifest.version),
+                        "error": manifest.err().map(|error| error.to_string()),
+                        "managed": managed_entry.is_some(),
+                        "managed_name": managed_entry.map(|entry| &entry.name),
+                        "source": managed_entry.map(|entry| &entry.record.clone_url),
+                        "ref": managed_entry.and_then(|entry| entry.record.reference.as_deref()),
+                        "commit": managed_entry.map(|entry| &entry.record.commit),
+                    })
+                })
+                .collect::<Vec<_>>();
+            payload.extend(
+                managed
+                    .iter()
+                    .filter(|entry| !seen_managed.contains(&entry.name))
+                    .map(|entry| {
+                        json!({
+                            "path": entry.directory,
+                            "valid": false,
+                            "id": entry.name,
+                            "version": entry.version,
+                            "error": "managed extension is missing on disk",
+                            "managed": true,
+                            "managed_name": entry.name,
+                            "source": entry.record.clone_url,
+                            "ref": entry.record.reference,
+                            "commit": entry.record.commit,
+                        })
+                    }),
+            );
+            if json {
+                json_success("extension_list", Some("list"), payload)?;
+            } else if payload.is_empty() {
+                println!(
+                    "No native Workdeck extensions discovered.\nInstall one with `workdeck extension install <owner>/<repo>`."
+                );
+            } else {
+                for extension in payload {
+                    let missing = extension["error"]
+                        .as_str()
+                        .filter(|error| *error == "managed extension is missing on disk")
+                        .map_or("", |_| "  (missing on disk — reinstall or remove)");
+                    println!(
+                        "{:<24} {}{}",
+                        extension["id"].as_str().unwrap_or("invalid"),
+                        extension["path"].as_str().unwrap_or_default(),
+                        missing
+                    );
+                }
+            }
+            Ok(())
+        }
+        ExtensionCommand::Update { name, json } => {
+            let outcomes = if let Some(name) = name {
+                if !json {
+                    eprintln!("checking {name}…");
+                }
+                vec![manager.update(&name)?]
+            } else {
+                let entries = manager.list();
+                if entries.is_empty() {
+                    if json {
+                        json_success("extension_update", Some("update"), Vec::<Value>::new())?;
+                    } else {
+                        println!("No managed native extensions to update.");
+                    }
+                    return Ok(());
+                }
+                if !json {
+                    for entry in &entries {
+                        eprintln!("checking {}…", entry.name);
+                    }
+                }
+                manager.update_all()?
+            };
+            if json {
+                json_success("extension_update", Some("update"), &outcomes)?;
+            } else {
+                for outcome in outcomes {
+                    if outcome.changed {
+                        println!(
+                            "Updated {}{}: {} -> {}.",
+                            outcome.install.name,
+                            outcome
+                                .install
+                                .version
+                                .as_ref()
+                                .map_or_else(String::new, |version| format!(" to v{version}")),
+                            short_commit(&outcome.previous_commit),
+                            short_commit(&outcome.install.commit)
+                        );
+                    } else {
+                        println!(
+                            "{} is already up to date ({}).",
+                            outcome.install.name,
+                            short_commit(&outcome.install.commit)
+                        );
+                    }
+                }
+            }
+            Ok(())
+        }
+        ExtensionCommand::Remove { name, json } => {
+            let record = manager.remove(&name)?;
+            if json {
+                json_success(
+                    "extension_remove",
+                    Some("remove"),
+                    json!({ "name": name, "record": record }),
+                )?;
+            } else {
+                println!("Removed {name}.");
+            }
+            Ok(())
+        }
+        ExtensionCommand::Validate { path, json } => {
+            let path = if path.is_dir() {
+                path.join("workdeck-extension.toml")
+            } else {
+                path
+            };
+            let manifest = ExtensionManifest::load(&path)?;
+            if json {
+                json_success(
+                    "extension_manifest",
+                    Some("validate"),
+                    json!({ "path": path, "manifest": manifest }),
+                )?;
+            } else {
+                println!(
+                    "valid native extension {} {} (API {})",
+                    manifest.id, manifest.version, manifest.api_version
+                );
+            }
+            Ok(())
+        }
+        ExtensionCommand::Trust {
+            mut repo,
+            allow,
+            deny,
+            yes,
+            json,
+        } => {
+            if allow == deny {
+                bail!("extension trust requires exactly one of --allow or --deny");
+            }
+            if !yes {
+                bail!("native extensions run with your user permissions; pass --yes to confirm");
+            }
+            let state_path = resolve_app_state_path()
+                .context("could not resolve the Workdeck app-state path")?;
+            if !repo.is_absolute() {
+                repo = cwd.join(repo);
+            }
+            let mut trust = load_extension_trust_store();
+            let decision = if allow {
+                TrustDecision::Trusted
+            } else {
+                TrustDecision::Denied
+            };
+            trust.grant(&repo, decision);
+            workdeck_store::update_app_state_record(&state_path, trust.app_state_patch())?;
+            if json {
+                json_success(
+                    "extension_trust",
+                    Some("set"),
+                    json!({ "repo": repo, "decision": decision }),
+                )?;
+            } else {
+                println!(
+                    "recorded {decision:?} extension trust for {}",
+                    repo.display()
+                );
+            }
+            Ok(())
+        }
+    }
+}
+
+fn short_commit(commit: &str) -> &str {
+    commit.get(..7).unwrap_or(commit)
+}
+
+fn handle_migrate_command(cwd: &Path, command: MigrateCommand) -> Result<()> {
+    match command {
+        MigrateCommand::Legacy { .. } => {
+            unreachable!("native migration is handled before discovery")
+        }
+        MigrateCommand::Hunk {
+            dry_run: _,
+            apply,
+            json,
+        } => {
+            let plan = workdeck_migration::plan(cwd)?;
+            if !apply {
+                if json {
+                    json_success("hunk_migration", Some("dry_run"), &plan)?;
+                } else {
+                    println!("Hunk migration dry run");
+                    if let Some(global) = &plan.global {
+                        println!(
+                            "  global: {} -> {}",
+                            global.source.display(),
+                            global.destination.display()
+                        );
+                    }
+                    if let Some(repository) = &plan.repository {
+                        println!(
+                            "  repository: {} -> {}",
+                            repository.source.display(),
+                            repository.destination.display()
+                        );
+                    }
+                    println!("  legacy extensions: {}", plan.legacy_extensions.len());
+                    for warning in &plan.warnings {
+                        println!("  warning: {warning}");
+                    }
+                    println!("Run `workdeck migrate hunk --apply` to write the migration.");
+                }
+                return Ok(());
+            }
+            let result = workdeck_migration::apply(&plan)?;
+            if json {
+                json_success("hunk_migration", Some("apply"), result)?;
+            } else if result.changed.is_empty() {
+                println!("Hunk migration already applied; no files changed");
+            } else {
+                for path in result.changed {
+                    println!("migrated {}", path.display());
+                }
+                for backup in result.backups {
+                    println!("backup {}", backup.display());
+                }
+            }
+            Ok(())
+        }
+    }
+}
+
+fn user_config_root() -> Option<PathBuf> {
+    workdeck_core::resolve_user_config_dir()
+}
+
+fn load_extension_trust_store() -> TrustStore {
+    let mut trust = user_config_root()
+        .map(|root| TrustStore::load_legacy_toml(&root.join("workdeck/extension-trust.toml")))
+        .unwrap_or_default();
+    if let Some(state_path) = resolve_app_state_path() {
+        trust.merge_app_state_record(&workdeck_store::read_app_state_record(state_path));
+    }
+    trust
 }
 
 impl FilesCommand {
@@ -792,14 +10845,29 @@ impl EventsCommand {
 impl IssueCommand {
     fn wants_json(&self) -> bool {
         match self {
+            IssueCommand::Next { options } => options.json || options.output.machine(),
+            IssueCommand::Graph(command) => command.wants_json(),
             IssueCommand::List { json, .. }
+            | IssueCommand::Templates { json }
             | IssueCommand::Create { json, .. }
+            | IssueCommand::Custom { json, .. }
+            | IssueCommand::Estimate { json, .. }
             | IssueCommand::Update { json, .. }
+            | IssueCommand::Edit { json, .. }
             | IssueCommand::Link { json, .. }
             | IssueCommand::LinkFile { json, .. }
             | IssueCommand::UnlinkFile { json, .. }
             | IssueCommand::LinkCommit { json, .. }
             | IssueCommand::UnlinkCommit { json, .. }
+            | IssueCommand::LinkDocument { json, .. }
+            | IssueCommand::UnlinkDocument { json, .. }
+            | IssueCommand::Cancel { json, .. }
+            | IssueCommand::Done { json, .. }
+            | IssueCommand::Comment { json, .. }
+            | IssueCommand::Comments { json, .. }
+            | IssueCommand::Attach { json, .. }
+            | IssueCommand::Attachments { json, .. }
+            | IssueCommand::Archive { json, .. }
             | IssueCommand::Close { json, .. }
             | IssueCommand::Reopen { json, .. }
             | IssueCommand::Move { json, .. }
@@ -807,7 +10875,7 @@ impl IssueCommand {
             | IssueCommand::Unassign { json, .. }
             | IssueCommand::Delete { json, .. }
             | IssueCommand::Show { json, .. } => *json,
-            IssueCommand::Label { command } => command.wants_json(),
+            IssueCommand::Label { command, .. } => command.wants_json(),
         }
     }
 }
@@ -842,9 +10910,15 @@ impl AgentCommand {
 impl ProjectCommand {
     fn wants_json(&self) -> bool {
         match self {
-            ProjectCommand::List { json, .. }
+            ProjectCommand::Create { json, .. }
+            | ProjectCommand::Update { json, .. }
+            | ProjectCommand::Archive { json, .. }
+            | ProjectCommand::List { json, .. }
             | ProjectCommand::Save { json, .. }
             | ProjectCommand::Show { json, .. }
+            | ProjectCommand::Custom { json, .. }
+            | ProjectCommand::Assess { json, .. }
+            | ProjectCommand::Complete { json, .. }
             | ProjectCommand::Delete { json, .. } => *json,
         }
     }
@@ -853,9 +10927,14 @@ impl ProjectCommand {
 impl CycleCommand {
     fn wants_json(&self) -> bool {
         match self {
-            CycleCommand::List { json, .. }
+            CycleCommand::Carryover { json, .. }
+            | CycleCommand::Create { json, .. }
+            | CycleCommand::Update { json, .. }
+            | CycleCommand::Archive { json, .. }
+            | CycleCommand::List { json, .. }
             | CycleCommand::Save { json, .. }
             | CycleCommand::Show { json, .. }
+            | CycleCommand::Custom { json, .. }
             | CycleCommand::Delete { json, .. } => *json,
         }
     }
@@ -864,15 +10943,25 @@ impl CycleCommand {
 impl LabelCommand {
     fn wants_json(&self) -> bool {
         match self {
-            LabelCommand::List { json, .. }
+            LabelCommand::Create { json, .. }
+            | LabelCommand::Update { json, .. }
+            | LabelCommand::Archive { json, .. }
+            | LabelCommand::List { json, .. }
             | LabelCommand::Save { json, .. }
             | LabelCommand::Show { json, .. }
+            | LabelCommand::Custom { json, .. }
             | LabelCommand::Delete { json, .. } => *json,
         }
     }
 }
 
 fn classify_exit_code(error: &anyhow::Error) -> u8 {
+    if let Some(failure) = error.downcast_ref::<pm_cli::CommandFailure>() {
+        return failure.error.code.exit_code();
+    }
+    if let Some(exit) = error.downcast_ref::<CommandExit>() {
+        return u8::try_from(exit.0).unwrap_or(1).max(1);
+    }
     let message = format!("{error:#}").to_ascii_lowercase();
     if message.contains("__json_error_printed__") {
         1
@@ -942,58 +11031,77 @@ fn handle_export(
     json_output: bool,
     jsonl: bool,
 ) -> Result<()> {
-    let issues = store.load_issues()?;
-    let reference_data = store.load_reference_data()?;
-    let sessions = store.load_agent_sessions()?;
-    let events = store.load_events()?;
-
+    let mut payload = store.legacy_export_document()?;
+    payload["repo_root"] = json!(repo_root);
     if jsonl {
         print_jsonl_record("repo", json!({ "root": repo_root }))?;
-        for issue in issues {
-            print_jsonl_record("issue", serde_json::to_value(issue)?)?;
+        for (collection, kind) in [
+            ("issues", "issue"),
+            ("projects", "project"),
+            ("cycles", "cycle"),
+            ("labels", "label"),
+            ("agent_sessions", "agent_session"),
+            ("events", "event"),
+        ] {
+            for record in payload[collection]
+                .as_array()
+                .expect("validated collection")
+            {
+                print_jsonl_record(kind, record.clone())?;
+            }
         }
-        for project in reference_data.projects {
-            print_jsonl_record("project", serde_json::to_value(project)?)?;
-        }
-        for cycle in reference_data.cycles {
-            print_jsonl_record("cycle", serde_json::to_value(cycle)?)?;
-        }
-        for label in reference_data.labels {
-            print_jsonl_record("label", serde_json::to_value(label)?)?;
-        }
-        for session in sessions {
-            print_jsonl_record("agent_session", serde_json::to_value(session)?)?;
-        }
-        for event in events {
-            print_event_jsonl_record(event)?;
-        }
+    } else if json_output {
+        json_success("export", None, payload)?;
     } else {
-        let payload = json!({
-            "repo_root": repo_root,
-            "issues": issues,
-            "projects": reference_data.projects,
-            "cycles": reference_data.cycles,
-            "labels": reference_data.labels,
-            "agent_sessions": sessions,
-            "events": events,
-        });
-        if json_output {
-            json_success("export", None, payload)?;
-        } else {
-            println!("{}", serde_json::to_string_pretty(&payload)?);
-        }
+        println!("{}", serde_json::to_string_pretty(&payload)?);
     }
-
     Ok(())
 }
 
 fn print_status(repo_root: &Path, json_output: bool) -> Result<()> {
-    let snapshot = git::scan_repo(repo_root)?;
-    let payload = status_payload(&snapshot);
+    use workdeck_tui::workbench::RepositoryPanelProvider;
+    let provider = workdeck_cli::repository_panels::RepositoryPanels::new(repo_root, None, 1)
+        .map_err(|failure| anyhow::anyhow!(failure.message))?;
+    let read = provider
+        .change_snapshot()
+        .map_err(|failure| anyhow::anyhow!(failure.message))?;
+    let snapshot = read.snapshot;
+    let mut payload = status_payload(&snapshot);
+    payload["truncated"] = json!(read.truncated);
+    let source = provider.source();
+    payload["source"] = json!({"root":source.root,"identity":source.identity});
+    let qualify = |change: &mut Value| {
+        if let Some(path) = change["path"].as_str()
+            && let Some(old_path) = read.old_paths.get(Path::new(path))
+        {
+            change["old_path"] = json!(old_path);
+        }
+    };
+    if let Some(changes) = payload["changes"].as_array_mut() {
+        for change in changes {
+            qualify(change);
+        }
+    }
+    if let Some(groups) = payload["groups"].as_array_mut() {
+        for group in groups {
+            if let Some(changes) = group["changes"].as_array_mut() {
+                for change in changes {
+                    qualify(change);
+                }
+            }
+        }
+    }
     if json_output {
         json_success("status", None, payload)?;
     } else if snapshot.changes.is_empty() {
-        println!("clean worktree");
+        println!(
+            "{}",
+            if read.truncated {
+                "change inspection reached its coverage limit"
+            } else {
+                "clean worktree"
+            }
+        );
     } else {
         for change in &snapshot.changes {
             println!(
@@ -1002,20 +11110,62 @@ fn print_status(repo_root: &Path, json_output: bool) -> Result<()> {
                 change.stage_label(),
                 format!("+{}", change.additions),
                 format!("-{}", change.deletions),
-                change.path.display()
+                sanitize_terminal_line(&change.path.display().to_string())
             );
         }
+    }
+    if !json_output && read.truncated {
+        eprintln!("Change rows or line statistics reached their read limit.");
     }
     Ok(())
 }
 
 fn handle_files_command(repo_root: &Path, command: FilesCommand) -> Result<()> {
+    use workdeck_tui::workbench::{PanelPage, PanelRequest, PanelTarget, RepositoryPanelProvider};
+    let provider = workdeck_cli::repository_panels::RepositoryPanels::new(repo_root, None, 1)
+        .map_err(|failure| anyhow::anyhow!(failure.message))?;
     match command {
         FilesCommand::List { path, json } => {
-            let files = git::list_repo_files(repo_root, 20_000)?;
-            let entries = file_entries_for_path(&files, path.as_deref().unwrap_or(Path::new("")));
+            let selected = path.as_deref().unwrap_or(Path::new(""));
+            let selected = selected.strip_prefix(".").unwrap_or(selected);
+            let selected = if selected.is_absolute() {
+                selected.strip_prefix(&provider.source().root)?.to_owned()
+            } else {
+                selected.to_owned()
+            };
+            let snapshot = provider
+                .load(&PanelRequest {
+                    page: PanelPage::Files,
+                    directory: selected
+                        .to_str()
+                        .context("file browser path must be UTF-8")?
+                        .into(),
+                    query: String::new(),
+                    limit: 10_000,
+                })
+                .map_err(|failure| anyhow::anyhow!(failure.message))?;
+            let entries = snapshot
+                .entries
+                .into_iter()
+                .filter_map(|entry| match entry.target {
+                    PanelTarget::Directory { path } => {
+                        Some(json!({"kind":"directory","path":path,"name":entry.label}))
+                    }
+                    PanelTarget::File { path, .. } => {
+                        Some(json!({"kind":"file","path":path,"name":entry.label}))
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
             if json {
-                json_success("file_list", None, entries)?;
+                let source = provider.source();
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "ok":true,"kind":"file_list","data":entries,"truncated":snapshot.truncated,
+                        "source":{"root":source.root,"identity":source.identity}
+                    }))?
+                );
             } else if entries.is_empty() {
                 println!("no files");
             } else {
@@ -1023,70 +11173,50 @@ fn handle_files_command(repo_root: &Path, command: FilesCommand) -> Result<()> {
                     println!(
                         "{:<9} {}",
                         entry["kind"].as_str().unwrap_or("unknown"),
-                        entry["path"].as_str().unwrap_or("")
+                        sanitize_terminal_line(entry["path"].as_str().unwrap_or_default())
                     );
                 }
             }
+            if !json && snapshot.truncated {
+                eprintln!("File listing reached its scan or result limit.");
+            }
         }
         FilesCommand::Show { path, json } => {
-            let preview = git::read_file_preview(repo_root, &path, 80_000)?;
+            // Keep the established 80,000-byte content window; the marker is
+            // additional presentation text and truncated is always explicit.
+            let preview = provider
+                .file_preview(&path, 80_000)
+                .map_err(|failure| anyhow::anyhow!(failure.message))?;
             if json {
                 json_success("file_preview", None, file_preview_payload(&preview))?;
             } else {
-                print!("{}", preview.content);
+                print!(
+                    "{}",
+                    workdeck_diff::sanitize_terminal_text(
+                        &preview.content,
+                        workdeck_diff::SanitizeOptions::default()
+                    )
+                );
             }
         }
     }
     Ok(())
 }
 
-fn file_entries_for_path(files: &[PathBuf], cwd: &Path) -> Vec<Value> {
-    let mut dirs = BTreeSet::<PathBuf>::new();
-    let mut direct_files = Vec::<PathBuf>::new();
-    for path in files {
-        let relative = if cwd.as_os_str().is_empty() {
-            path.as_path()
-        } else {
-            match path.strip_prefix(cwd) {
-                Ok(relative) if !relative.as_os_str().is_empty() => relative,
-                _ => continue,
-            }
-        };
-        let mut components = relative.components();
-        let Some(first) = components.next() else {
-            continue;
-        };
-        let child = cwd.join(first.as_os_str());
-        if components.next().is_some() {
-            dirs.insert(child);
-        } else {
-            direct_files.push(child);
-        }
-    }
-    direct_files.sort();
-
-    dirs.into_iter()
-        .map(|path| json!({ "kind": "directory", "path": path, "name": file_name(&path) }))
-        .chain(
-            direct_files
-                .into_iter()
-                .map(|path| json!({ "kind": "file", "path": path, "name": file_name(&path) })),
-        )
-        .collect()
-}
-
-fn file_name(path: &Path) -> String {
-    path.file_name()
-        .map(|name| name.to_string_lossy().to_string())
-        .unwrap_or_else(|| path.to_string_lossy().to_string())
-}
-
 fn handle_changes_command(repo_root: &Path, command: ChangesCommand) -> Result<()> {
+    let provider = workdeck_cli::repository_panels::RepositoryPanels::new(repo_root, None, 1)
+        .map_err(|failure| anyhow::anyhow!(failure.message))?;
     match command {
         ChangesCommand::List { group, json } => {
-            let snapshot = git::scan_repo(repo_root)?;
+            if !matches!(group.as_str(), "directory" | "dir" | "status") {
+                bail!("unknown change group {group}");
+            }
+            let read = provider
+                .change_snapshot()
+                .map_err(|failure| anyhow::anyhow!(failure.message))?;
+            let snapshot = read.snapshot;
             if json {
-                let payload = match group.as_str() {
+                let mut payload = match group.as_str() {
                     "directory" | "dir" => status_payload(&snapshot),
                     "status" => json!({
                         "repo_root": snapshot.root,
@@ -1094,22 +11224,57 @@ fn handle_changes_command(repo_root: &Path, command: ChangesCommand) -> Result<(
                     }),
                     value => bail!("unknown change group {value}"),
                 };
+                payload["truncated"] = json!(read.truncated);
+                // Existing row fields remain unchanged; rename origins are an
+                // additive field attached to each corresponding projection.
+                let qualify = |change: &mut Value| {
+                    if let Some(path) = change["path"].as_str()
+                        && let Some(old_path) = read.old_paths.get(Path::new(path))
+                    {
+                        change["old_path"] = json!(old_path);
+                    }
+                };
+                if let Some(changes) = payload["changes"].as_array_mut() {
+                    for change in changes {
+                        qualify(change);
+                    }
+                }
+                if let Some(groups) = payload["groups"].as_array_mut() {
+                    for group in groups {
+                        if let Some(changes) = group["changes"].as_array_mut() {
+                            for change in changes {
+                                qualify(change);
+                            }
+                        }
+                    }
+                }
                 json_success("change_list", None, payload)?;
             } else if snapshot.changes.is_empty() {
-                println!("clean worktree");
+                println!(
+                    "{}",
+                    if read.truncated {
+                        "change inspection reached its coverage limit"
+                    } else {
+                        "clean worktree"
+                    }
+                );
             } else {
                 match group.as_str() {
                     "directory" | "dir" => {
                         for group in snapshot.groups {
                             println!(
                                 "{} {} +{} -{}",
-                                group.path.display(),
+                                sanitize_terminal_line(&group.path.display().to_string()),
                                 group.files.len(),
                                 group.total_additions,
                                 group.total_deletions
                             );
                             for change in group.files {
-                                println!("  {:<10} {}", change.kind.label(), change.path.display());
+                                println!(
+                                    "  {:<10} {}",
+                                    change.kind.label(),
+                                    sanitize_terminal_line(&change.path.display().to_string())
+                                );
                             }
                         }
                     }
@@ -1117,20 +11282,36 @@ fn handle_changes_command(repo_root: &Path, command: ChangesCommand) -> Result<(
                         for group in changes_grouped_by_status(&snapshot.changes) {
                             println!("{}", group["status"].as_str().unwrap_or("unknown"));
                             for change in group["changes"].as_array().into_iter().flatten() {
-                                println!("  {}", change["path"].as_str().unwrap_or_default());
+                                println!(
+                                    "  {}",
+                                    sanitize_terminal_line(
+                                        change["path"].as_str().unwrap_or_default()
+                                    )
+                                );
                             }
                         }
                     }
                     value => bail!("unknown change group {value}"),
                 }
             }
+            if !json && read.truncated {
+                eprintln!("Change rows or line statistics reached their read limit.");
+            }
         }
         ChangesCommand::Diff { path, json } => {
-            let preview = git::diff_for_path(repo_root, &path)?;
+            let preview = provider
+                .change_preview(&path)
+                .map_err(|failure| anyhow::anyhow!(failure.message))?;
             if json {
                 json_success("change_diff", None, file_preview_payload(&preview))?;
             } else {
-                print!("{}", preview.content);
+                print!(
+                    "{}",
+                    workdeck_diff::sanitize_terminal_text(
+                        &preview.content,
+                        workdeck_diff::SanitizeOptions::default()
+                    )
+                );
             }
         }
     }
@@ -1140,54 +11321,54 @@ fn handle_changes_command(repo_root: &Path, command: ChangesCommand) -> Result<(
 fn handle_search_command(
     repo_root: &Path,
     config: &Config,
-    store: &WorkdeckStore,
+    _store: &WorkdeckStore,
     query: String,
     targets: Vec<String>,
     json_output: bool,
 ) -> Result<()> {
-    let snapshot = git::scan_repo(repo_root)?;
-    let git_overview = git::scan_git_overview(
-        repo_root,
-        Some(&config.git.base_branch),
-        config.git.recent_commits,
-    )?;
-    let files = git::list_repo_files(repo_root, 20_000)?;
-    let issues = store.load_issues()?;
-    let sessions = store.load_agent_sessions()?;
-    let references = store.load_reference_data()?;
-    let symbols = workdeck_cli::search::extract_symbols(repo_root, &files);
-    let index = workdeck_cli::search::SearchIndex::rebuild(
-        &files,
-        &snapshot.changes,
-        &issues,
-        &sessions,
-        &references,
-        &symbols,
-        Some(&git_overview),
-    );
+    use workdeck_tui::workbench::RepositoryPanelProvider;
     let target_filter = targets
         .into_iter()
         .map(|target| target.to_ascii_lowercase())
         .collect::<BTreeSet<_>>();
-    let results = index
-        .query(&query, 100)
-        .into_iter()
-        .filter(|result| {
-            target_filter.is_empty()
-                || target_filter.contains(search_target_group(&result.record.target))
+    if let Some(target) = target_filter.iter().find(|target| {
+        !matches!(
+            target.as_str(),
+            "files" | "changes" | "issues" | "agents" | "git"
+        )
+    }) {
+        bail!("unknown search target {target:?}; expected files, changes, issues, agents, or git");
+    }
+    let base = (!config.git.base_branch.is_empty()).then(|| config.git.base_branch.clone());
+    let provider = workdeck_cli::repository_panels::RepositoryPanels::new(
+        repo_root,
+        base,
+        config.git.recent_commits,
+    )
+    .map_err(|failure| anyhow::anyhow!(failure.message))?;
+    let (results, truncated) = provider
+        .search_matching(&query, 100, |target| {
+            target_filter.is_empty() || target_filter.contains(search_target_group(target))
         })
+        .map_err(|failure| anyhow::anyhow!(failure.message))?;
+    let results = results
+        .into_iter()
         .map(|result| {
             json!({
-                "score": result.score,
-                "label": result.record.label,
-                "detail": result.record.detail,
-                "target": search_target_payload(&result.record.target),
+                "score":result.score,"label":result.record.label,"detail":result.record.detail,
+                "target":search_target_payload(&result.record.target)
             })
         })
         .collect::<Vec<_>>();
-
     if json_output {
-        json_success("search_results", None, results)?;
+        let source = provider.source();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "ok":true,"kind":"search_results","data":results,"truncated":truncated,
+                "source":{"root":source.root,"identity":source.identity}
+            }))?
+        );
     } else if results.is_empty() {
         println!("no results");
     } else {
@@ -1196,9 +11377,12 @@ fn handle_search_command(
                 "{:<6} {:<10} {}",
                 result["score"].as_i64().unwrap_or_default(),
                 result["target"]["kind"].as_str().unwrap_or("unknown"),
-                result["label"].as_str().unwrap_or_default()
+                sanitize_terminal_line(result["label"].as_str().unwrap_or_default())
             );
         }
+    }
+    if !json_output && truncated {
+        eprintln!("Search reached its scan or result limit.");
     }
     Ok(())
 }
@@ -1214,27 +11398,8 @@ fn print_jsonl_record(kind: &str, payload: Value) -> Result<()> {
     Ok(())
 }
 
-fn print_event_jsonl_record(event: StoreEvent) -> Result<()> {
-    println!(
-        "{}",
-        serde_json::to_string(&json!({
-            "kind": "event",
-            "payload": {
-                "kind": event.kind,
-                "payload": event.payload,
-                "created_at": event.created_at,
-            },
-        }))?
-    );
-    Ok(())
-}
-
-fn handle_config_command(
-    repo_root: &Path,
-    store: &WorkdeckStore,
-    command: ConfigCommand,
-) -> Result<()> {
-    let path = repo_root.join(".agents/workdeck/config.toml");
+fn handle_config_command(repo_root: &Path, command: ConfigCommand) -> Result<()> {
+    let path = workdeck_cli::config::resolve_repo_config_path(repo_root)?;
     match command {
         ConfigCommand::Path { json } => {
             if json {
@@ -1252,15 +11417,15 @@ fn handle_config_command(
             }
         }
         ConfigCommand::Init { json } => {
-            store.init()?;
+            let path = workdeck_cli::config_edit::initialize(repo_root)?;
             if json {
                 json_success(
                     "config",
                     Some("init"),
-                    json!({ "initialized": true, "path": store.root() }),
+                    json!({ "initialized": true, "path": path }),
                 )?;
             } else {
-                println!("initialized {}", store.root().display());
+                println!("initialized {}", path.display());
             }
         }
         ConfigCommand::Validate { json } => {
@@ -1283,15 +11448,8 @@ fn handle_config_command(
             }
         }
         ConfigCommand::Set { key, value, json } => {
-            let mut root = load_repo_config_value(&path)?;
             let storage_key = config_storage_key(&key);
-            set_toml_path(&mut root, &storage_key, parse_config_value(&value))?;
-            let raw = toml::to_string_pretty(&root)?;
-            if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            std::fs::write(&path, raw)?;
-            Config::load(repo_root)?;
+            workdeck_cli::config_edit::set(repo_root, &storage_key, &value)?;
             if json {
                 json_success(
                     "config",
@@ -1307,12 +11465,7 @@ fn handle_config_command(
 }
 
 fn load_repo_config_value(path: &Path) -> Result<toml::Value> {
-    if !path.exists() {
-        return Ok(toml::Value::Table(Default::default()));
-    }
-    let raw = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
-    toml::from_str(&raw).with_context(|| format!("failed to parse {}", path.display()))
+    workdeck_cli::config::read_repository_config_value(path)
 }
 
 fn get_toml_path<'a>(value: &'a toml::Value, key: &str) -> Option<&'a toml::Value> {
@@ -1341,38 +11494,6 @@ fn config_storage_key(key: &str) -> String {
     }
 }
 
-fn set_toml_path(root: &mut toml::Value, key: &str, value: toml::Value) -> Result<()> {
-    let parts = key
-        .split('.')
-        .filter(|part| !part.trim().is_empty())
-        .collect::<Vec<_>>();
-    if parts.is_empty() {
-        bail!("config key cannot be empty");
-    }
-    let mut current = root;
-    for part in &parts[..parts.len() - 1] {
-        let table = current
-            .as_table_mut()
-            .with_context(|| format!("config path {key} is not a table"))?;
-        current = table
-            .entry((*part).to_string())
-            .or_insert_with(|| toml::Value::Table(Default::default()));
-    }
-    current
-        .as_table_mut()
-        .with_context(|| format!("config path {key} is not a table"))?
-        .insert(parts[parts.len() - 1].to_string(), value);
-    Ok(())
-}
-
-fn parse_config_value(value: &str) -> toml::Value {
-    match value {
-        "true" => toml::Value::Boolean(true),
-        "false" => toml::Value::Boolean(false),
-        _ => toml::Value::String(value.to_string()),
-    }
-}
-
 fn handle_events_command(store: &WorkdeckStore, command: EventsCommand) -> Result<()> {
     match command {
         EventsCommand::List { json } => {
@@ -1392,6 +11513,7 @@ fn handle_events_command(store: &WorkdeckStore, command: EventsCommand) -> Resul
 }
 
 fn handle_import_command(
+    repo_root: &Path,
     store: &WorkdeckStore,
     path: PathBuf,
     _merge: bool,
@@ -1399,98 +11521,17 @@ fn handle_import_command(
     dry_run: bool,
     json_output: bool,
 ) -> Result<()> {
-    let file = File::open(&path).with_context(|| format!("failed to open {}", path.display()))?;
-    let value: Value = serde_json::from_reader(file)
-        .with_context(|| format!("failed to parse JSON {}", path.display()))?;
-    let issues: Vec<Issue> = serde_json::from_value(
-        value
-            .get("issues")
-            .cloned()
-            .unwrap_or_else(|| Value::Array(Vec::new())),
-    )
-    .with_context(|| "failed to parse issues")?;
-    let projects: Vec<Project> = serde_json::from_value(
-        value
-            .get("projects")
-            .cloned()
-            .unwrap_or_else(|| Value::Array(Vec::new())),
-    )
-    .with_context(|| "failed to parse projects")?;
-    let cycles: Vec<Cycle> = serde_json::from_value(
-        value
-            .get("cycles")
-            .cloned()
-            .unwrap_or_else(|| Value::Array(Vec::new())),
-    )
-    .with_context(|| "failed to parse cycles")?;
-    let labels: Vec<Label> = serde_json::from_value(
-        value
-            .get("labels")
-            .cloned()
-            .unwrap_or_else(|| Value::Array(Vec::new())),
-    )
-    .with_context(|| "failed to parse labels")?;
-    let sessions: Vec<AgentSession> = serde_json::from_value(
-        value
-            .get("agent_sessions")
-            .cloned()
-            .unwrap_or_else(|| Value::Array(Vec::new())),
-    )
-    .with_context(|| "failed to parse agent sessions")?;
-
     if !dry_run {
-        if replace && store.root().exists() {
-            std::fs::remove_dir_all(store.root())
-                .with_context(|| format!("failed to replace {}", store.root().display()))?;
-        }
-        store.init()?;
-        for issue in &issues {
-            store.save_issue(issue)?;
-        }
-        for project in &projects {
-            store.upsert_project(
-                Some(project.id.clone()),
-                project.name.clone(),
-                Some(project.description.clone()),
-                Some(project.status.clone()),
-            )?;
-        }
-        for cycle in &cycles {
-            store.upsert_cycle(
-                Some(cycle.id.clone()),
-                cycle.name.clone(),
-                Some(cycle.starts_at.clone()),
-                Some(cycle.ends_at.clone()),
-                Some(cycle.status.clone()),
-            )?;
-        }
-        for label in &labels {
-            store.upsert_label(
-                Some(label.id.clone()),
-                label.name.clone(),
-                Some(label.color.clone()),
-            )?;
-        }
-        for session in &sessions {
-            store.save_agent_session(session)?;
-        }
-        store.append_event(
-            "import_completed",
-            json!({
-                "path": path,
-                "replace": replace,
-            }),
-        )?;
+        return Err(pm_cli::legacy_mutation_failure(store.root()));
     }
-
-    let payload = json!({
-        "dry_run": dry_run,
-        "issues": issues.len(),
-        "projects": projects.len(),
-        "cycles": cycles.len(),
-        "labels": labels.len(),
-        "agent_sessions": sessions.len(),
-    });
+    let input = pm_transfer::read_input(repo_root, &path)?;
+    let value = match workdeck_pm::decode_transfer(&input)? {
+        workdeck_pm::ImportSource::Legacy(export) => export.canonical_document(),
+        workdeck_pm::ImportSource::Native(_) => bail!(
+            "a native snapshot cannot be imported into a legacy planning source; explicitly migrate or select a native destination"
+        ),
+    };
+    let payload = serde_json::to_value(store.preview_legacy_import(&value, replace)?)?;
     if json_output {
         json_success(
             "import",
@@ -1637,21 +11678,12 @@ fn handle_project_command(store: &WorkdeckStore, command: ProjectCommand) -> Res
                 }
             }
         }
-        ProjectCommand::Save {
-            name,
+        ProjectCommand::Show {
             id,
-            description,
-            status,
             json,
+            membership,
         } => {
-            let project = store.upsert_project(id, name, description, status)?;
-            if json {
-                json_success("project", Some("save"), project)?;
-            } else {
-                println!("{} {}", project.id, project.name);
-            }
-        }
-        ProjectCommand::Show { id, json } => {
+            membership.reject_legacy(store.root())?;
             let project = store
                 .load_reference_data()?
                 .projects
@@ -1664,22 +11696,7 @@ fn handle_project_command(store: &WorkdeckStore, command: ProjectCommand) -> Res
                 println!("{} {}", project.id, project.name);
             }
         }
-        ProjectCommand::Delete {
-            id,
-            yes,
-            force,
-            json,
-        } => {
-            if !yes {
-                bail!("delete requires --yes");
-            }
-            let project = store.delete_project(&id, force)?;
-            if json {
-                json_success("project", Some("delete"), project)?;
-            } else {
-                println!("deleted {}", project.id);
-            }
-        }
+        _ => return Err(pm_cli::legacy_mutation_failure(store.root())),
     }
     Ok(())
 }
@@ -1701,22 +11718,12 @@ fn handle_cycle_command(store: &WorkdeckStore, command: CycleCommand) -> Result<
                 }
             }
         }
-        CycleCommand::Save {
-            name,
+        CycleCommand::Show {
             id,
-            starts_at,
-            ends_at,
-            status,
             json,
+            membership,
         } => {
-            let cycle = store.upsert_cycle(id, name, starts_at, ends_at, status)?;
-            if json {
-                json_success("cycle", Some("save"), cycle)?;
-            } else {
-                println!("{} {}", cycle.id, cycle.name);
-            }
-        }
-        CycleCommand::Show { id, json } => {
+            membership.reject_legacy(store.root())?;
             let cycle = store
                 .load_reference_data()?
                 .cycles
@@ -1729,22 +11736,7 @@ fn handle_cycle_command(store: &WorkdeckStore, command: CycleCommand) -> Result<
                 println!("{} {}", cycle.id, cycle.name);
             }
         }
-        CycleCommand::Delete {
-            id,
-            yes,
-            force,
-            json,
-        } => {
-            if !yes {
-                bail!("delete requires --yes");
-            }
-            let cycle = store.delete_cycle(&id, force)?;
-            if json {
-                json_success("cycle", Some("delete"), cycle)?;
-            } else {
-                println!("deleted {}", cycle.id);
-            }
-        }
+        _ => return Err(pm_cli::legacy_mutation_failure(store.root())),
     }
     Ok(())
 }
@@ -1766,20 +11758,12 @@ fn handle_label_command(store: &WorkdeckStore, command: LabelCommand) -> Result<
                 }
             }
         }
-        LabelCommand::Save {
-            name,
+        LabelCommand::Show {
             id,
-            color,
             json,
+            membership,
         } => {
-            let label = store.upsert_label(id, name, color)?;
-            if json {
-                json_success("label", Some("save"), label)?;
-            } else {
-                println!("{} {}", label.id, label.name);
-            }
-        }
-        LabelCommand::Show { id, json } => {
+            membership.reject_legacy(store.root())?;
             let label = store
                 .load_reference_data()?
                 .labels
@@ -1792,22 +11776,7 @@ fn handle_label_command(store: &WorkdeckStore, command: LabelCommand) -> Result<
                 println!("{} {}", label.id, label.name);
             }
         }
-        LabelCommand::Delete {
-            id,
-            yes,
-            force,
-            json,
-        } => {
-            if !yes {
-                bail!("delete requires --yes");
-            }
-            let label = store.delete_label(&id, force)?;
-            if json {
-                json_success("label", Some("delete"), label)?;
-            } else {
-                println!("deleted {}", label.id);
-            }
-        }
+        _ => return Err(pm_cli::legacy_mutation_failure(store.root())),
     }
     Ok(())
 }
@@ -1838,173 +11807,11 @@ fn handle_agent_command(store: &WorkdeckStore, command: AgentCommand) -> Result<
                 }
             }
         }
-        AgentCommand::Record {
-            title,
-            id,
-            agent,
-            status,
-            goal,
-            summary,
-            cwd,
-            plan_item,
-            touched_file,
-            command_run,
-            test_run,
-            handoff_note,
-            json,
-        } => {
-            let mut session = AgentSession::new(title);
-            if let Some(id) = id {
-                session.id = id;
-            }
-            if let Some(agent) = agent {
-                session.agent = agent;
-            }
-            if let Some(status) = status {
-                session.status = status;
-            }
-            if let Some(goal) = goal {
-                session.goal = goal;
-            }
-            if let Some(summary) = summary {
-                session.summary = summary;
-            }
-            if let Some(cwd) = cwd {
-                session.cwd = cwd.display().to_string();
-            }
-            session.plan = plan_item;
-            session.touched_files = touched_file
-                .into_iter()
-                .map(|path| AgentTouchedFile {
-                    path,
-                    change_type: String::new(),
-                })
-                .collect();
-            session.commands_run = command_run;
-            session.tests_run = test_run;
-            session.handoff_notes = handoff_note;
-            store.save_agent_session(&session)?;
-            print_agent_session_action(session, json, Some("record"))?;
-        }
         AgentCommand::Show { id, json } => {
             let session = load_agent_session(store, &id)?;
             print_agent_session(session, json)?;
         }
-        AgentCommand::Update {
-            id,
-            title,
-            agent,
-            status,
-            goal,
-            summary,
-            cwd,
-            json,
-        } => {
-            let mut session = load_agent_session(store, &id)?;
-            if let Some(title) = title {
-                session.title = title;
-            }
-            if let Some(agent) = agent {
-                session.agent = agent;
-            }
-            if let Some(status) = status {
-                session.status = status;
-            }
-            if let Some(goal) = goal {
-                session.goal = goal;
-            }
-            if let Some(summary) = summary {
-                session.summary = summary;
-            }
-            if let Some(cwd) = cwd {
-                session.cwd = cwd.display().to_string();
-            }
-            store.save_agent_session(&session)?;
-            print_agent_session_action(session, json, Some("update"))?;
-        }
-        AgentCommand::Finish { id, summary, json } => {
-            let mut session = load_agent_session(store, &id)?;
-            session.status = "done".to_string();
-            session.ended_at = Utc::now().to_rfc3339();
-            if let Some(summary) = summary {
-                session.summary = summary;
-            }
-            store.save_agent_session(&session)?;
-            print_agent_session_action(session, json, Some("finish"))?;
-        }
-        AgentCommand::AppendPlan { id, text, json } => {
-            let mut session = load_agent_session(store, &id)?;
-            session.plan.push(text);
-            store.save_agent_session(&session)?;
-            print_agent_session_action(session, json, Some("append-plan"))?;
-        }
-        AgentCommand::AddFile {
-            id,
-            path,
-            change_type,
-            json,
-        } => {
-            let mut session = load_agent_session(store, &id)?;
-            session
-                .touched_files
-                .push(AgentTouchedFile { path, change_type });
-            store.save_agent_session(&session)?;
-            print_agent_session_action(session, json, Some("add-file"))?;
-        }
-        AgentCommand::AddCommand { id, text, json } => {
-            let mut session = load_agent_session(store, &id)?;
-            session.commands_run.push(text);
-            store.save_agent_session(&session)?;
-            print_agent_session_action(session, json, Some("add-command"))?;
-        }
-        AgentCommand::AddTest { id, text, json } => {
-            let mut session = load_agent_session(store, &id)?;
-            session.tests_run.push(text);
-            store.save_agent_session(&session)?;
-            print_agent_session_action(session, json, Some("add-test"))?;
-        }
-        AgentCommand::AddNote { id, text, json } => {
-            let mut session = load_agent_session(store, &id)?;
-            session.handoff_notes.push(text);
-            store.save_agent_session(&session)?;
-            print_agent_session_action(session, json, Some("add-note"))?;
-        }
-        AgentCommand::Delete { id, yes, json } => {
-            if !yes {
-                bail!("delete requires --yes");
-            }
-            let path = store.agent_session_file_path(&id);
-            if !path.exists() {
-                bail!("agent session {id} does not exist");
-            }
-            std::fs::remove_file(&path)
-                .with_context(|| format!("failed to delete {}", path.display()))?;
-            store.append_event("agent_session_deleted", json!({ "id": id }))?;
-            if json {
-                json_success(
-                    "agent_session",
-                    Some("delete"),
-                    json!({ "deleted": true, "id": id }),
-                )?;
-            } else {
-                println!("deleted {id}");
-            }
-        }
-        AgentCommand::Import { path, json } => {
-            let sessions = read_agent_sessions(&path)?;
-            let imported = sessions
-                .into_iter()
-                .map(|session| {
-                    store.save_agent_session(&session)?;
-                    Ok(session)
-                })
-                .collect::<Result<Vec<_>>>()?;
-            if json {
-                json_success("agent_session_list", Some("import"), imported)?;
-            } else {
-                println!("imported {} agent session(s)", imported.len());
-            }
-        }
+        _ => return Err(pm_cli::legacy_mutation_failure(store.root())),
     }
     Ok(())
 }
@@ -2015,62 +11822,6 @@ fn load_agent_session(store: &WorkdeckStore, id: &str) -> Result<AgentSession> {
         .into_iter()
         .find(|session| session.id == id)
         .with_context(|| format!("agent session {id} does not exist"))
-}
-
-fn read_agent_sessions(path: &Path) -> Result<Vec<AgentSession>> {
-    let extension = path.extension().and_then(|value| value.to_str());
-    let sessions = if extension == Some("jsonl") {
-        let file =
-            File::open(path).with_context(|| format!("failed to open {}", path.display()))?;
-        let mut sessions = Vec::new();
-        for (index, line) in BufReader::new(file).lines().enumerate() {
-            let line = line.with_context(|| format!("failed to read line {}", index + 1))?;
-            if line.trim().is_empty() {
-                continue;
-            }
-            let value: Value = serde_json::from_str(&line)
-                .with_context(|| format!("failed to parse JSONL line {}", index + 1))?;
-            sessions.push(agent_session_from_json_value(value).with_context(|| {
-                format!("line {} does not contain an agent session", index + 1)
-            })?);
-        }
-        sessions
-    } else {
-        let file =
-            File::open(path).with_context(|| format!("failed to open {}", path.display()))?;
-        let value: Value = serde_json::from_reader(file)
-            .with_context(|| format!("failed to parse JSON {}", path.display()))?;
-        match value {
-            Value::Array(values) => values
-                .into_iter()
-                .enumerate()
-                .map(|(index, value)| {
-                    agent_session_from_json_value(value).with_context(|| {
-                        format!("item {} does not contain an agent session", index + 1)
-                    })
-                })
-                .collect::<Result<Vec<_>>>()?,
-            value => vec![
-                agent_session_from_json_value(value)
-                    .with_context(|| "JSON file does not contain an agent session")?,
-            ],
-        }
-    };
-
-    if sessions.is_empty() {
-        bail!("no agent sessions found in {}", path.display());
-    }
-    Ok(sessions)
-}
-
-fn agent_session_from_json_value(value: Value) -> Result<AgentSession> {
-    if let Some(session) = value.get("session") {
-        return serde_json::from_value(session.clone()).map_err(Into::into);
-    }
-    if let Some(session) = value.pointer("/payload/session") {
-        return serde_json::from_value(session.clone()).map_err(Into::into);
-    }
-    serde_json::from_value(value).map_err(Into::into)
 }
 
 fn handle_issue_command(store: &WorkdeckStore, command: IssueCommand) -> Result<()> {
@@ -2084,7 +11835,9 @@ fn handle_issue_command(store: &WorkdeckStore, command: IssueCommand) -> Result<
             assignee,
             due_at,
             json,
+            query_options,
         } => {
+            query_options.reject_legacy(store.root())?;
             let issues = filter_issues(
                 store.load_issues()?,
                 status,
@@ -2111,215 +11864,6 @@ fn handle_issue_command(store: &WorkdeckStore, command: IssueCommand) -> Result<
                 }
             }
         }
-        IssueCommand::Create {
-            title,
-            from_json,
-            description,
-            status,
-            priority,
-            project,
-            cycle,
-            assignee,
-            due_at,
-            label,
-            linked_commit,
-            linked_file,
-            json,
-        } => {
-            let input = issue_create_input(
-                title,
-                from_json,
-                description,
-                status,
-                priority,
-                project,
-                cycle,
-                assignee,
-                due_at,
-                label,
-                linked_commit,
-                linked_file,
-            )?;
-            let mut issue = store.create_issue(input.title)?;
-            let update = issue_update(
-                None,
-                input.description,
-                input.status,
-                input.priority,
-                input.project,
-                input.cycle,
-                input.assignee,
-                input.due_at,
-                input.labels,
-                input.linked_commits,
-            )?;
-            issue = store.update_issue(&issue.key, update)?;
-            for path in input.linked_files {
-                issue = store.link_issue_file(&issue.key, &path)?;
-            }
-            print_issue_action(issue, json, Some("create"))?;
-        }
-        IssueCommand::Update {
-            key,
-            title,
-            description,
-            status,
-            priority,
-            project,
-            cycle,
-            assignee,
-            due_at,
-            label,
-            linked_commit,
-            json,
-        } => {
-            let issue = store.update_issue(
-                &key,
-                issue_update(
-                    title,
-                    description,
-                    status,
-                    priority,
-                    project,
-                    cycle,
-                    assignee,
-                    due_at,
-                    label,
-                    linked_commit,
-                )?,
-            )?;
-            print_issue_action(issue, json, Some("update"))?;
-        }
-        IssueCommand::Link { key, path, json } => {
-            let issue = store.link_issue_file(&key, &path)?;
-            print_issue_action(issue, json, Some("link-file"))?;
-        }
-        IssueCommand::LinkFile { key, path, json } => {
-            let issue = store.link_issue_file(&key, &path)?;
-            print_issue_action(issue, json, Some("link-file"))?;
-        }
-        IssueCommand::UnlinkFile { key, path, json } => {
-            let mut issue = load_issue(store, &key)?;
-            issue.linked_files.retain(|linked| linked != &path);
-            issue.touch();
-            store.save_issue(&issue)?;
-            store.append_event("issue_file_unlinked", json!({ "key": key, "path": path }))?;
-            print_issue_action(issue, json, Some("unlink-file"))?;
-        }
-        IssueCommand::LinkCommit { key, sha, json } => {
-            let issue = store.update_issue(
-                &key,
-                IssueUpdate {
-                    linked_commits: Some(vec![sha]),
-                    ..IssueUpdate::default()
-                },
-            )?;
-            print_issue_action(issue, json, Some("link-commit"))?;
-        }
-        IssueCommand::UnlinkCommit { key, sha, json } => {
-            let mut issue = load_issue(store, &key)?;
-            issue.linked_commits.retain(|linked| linked != &sha);
-            issue.touch();
-            store.save_issue(&issue)?;
-            store.append_event("issue_commit_unlinked", json!({ "key": key, "sha": sha }))?;
-            print_issue_action(issue, json, Some("unlink-commit"))?;
-        }
-        IssueCommand::Close { key, json } => {
-            let issue = store.update_issue(
-                &key,
-                IssueUpdate {
-                    status: Some(IssueStatus::Done),
-                    ..IssueUpdate::default()
-                },
-            )?;
-            print_issue_action(issue, json, Some("close"))?;
-        }
-        IssueCommand::Reopen { key, json } => {
-            let issue = store.update_issue(
-                &key,
-                IssueUpdate {
-                    status: Some(IssueStatus::Todo),
-                    ..IssueUpdate::default()
-                },
-            )?;
-            print_issue_action(issue, json, Some("reopen"))?;
-        }
-        IssueCommand::Move { key, status, json } => {
-            let issue = store.update_issue(
-                &key,
-                IssueUpdate {
-                    status: Some(status.parse().map_err(anyhow::Error::msg)?),
-                    ..IssueUpdate::default()
-                },
-            )?;
-            print_issue_action(issue, json, Some("move"))?;
-        }
-        IssueCommand::Assign {
-            key,
-            assignee,
-            json,
-        } => {
-            let issue = store.update_issue(
-                &key,
-                IssueUpdate {
-                    assignee: Some(assignee),
-                    ..IssueUpdate::default()
-                },
-            )?;
-            print_issue_action(issue, json, Some("assign"))?;
-        }
-        IssueCommand::Unassign { key, json } => {
-            let issue = store.update_issue(
-                &key,
-                IssueUpdate {
-                    assignee: Some(String::new()),
-                    ..IssueUpdate::default()
-                },
-            )?;
-            print_issue_action(issue, json, Some("unassign"))?;
-        }
-        IssueCommand::Label { command } => match command {
-            IssueLabelCommand::Add { key, label, json } => {
-                let mut issue = load_issue(store, &key)?;
-                if !issue.labels.iter().any(|value| value == &label) {
-                    issue.labels.push(label);
-                    issue.labels.sort();
-                    issue.touch();
-                    store.save_issue(&issue)?;
-                    store.append_event("issue_label_added", json!({ "key": key }))?;
-                }
-                print_issue_action(issue, json, Some("label-add"))?;
-            }
-            IssueLabelCommand::Remove { key, label, json } => {
-                let mut issue = load_issue(store, &key)?;
-                issue.labels.retain(|value| value != &label);
-                issue.touch();
-                store.save_issue(&issue)?;
-                store.append_event("issue_label_removed", json!({ "key": key, "label": label }))?;
-                print_issue_action(issue, json, Some("label-remove"))?;
-            }
-        },
-        IssueCommand::Delete { key, yes, json } => {
-            if !yes {
-                bail!("delete requires --yes");
-            }
-            let path = store.issue_file_path(&key);
-            if !path.exists() {
-                bail!("issue {key} does not exist");
-            }
-            std::fs::remove_file(&path)
-                .with_context(|| format!("failed to delete {}", path.display()))?;
-            store.append_event("issue_deleted", json!({ "key": key }))?;
-            if json {
-                json_success(
-                    "issue",
-                    Some("delete"),
-                    json!({ "deleted": true, "key": key }),
-                )?;
-            } else {
-                println!("deleted {key}");
-            }
-        }
         IssueCommand::Show { key, json } => {
             let issue = store
                 .load_issues()?
@@ -2328,6 +11872,7 @@ fn handle_issue_command(store: &WorkdeckStore, command: IssueCommand) -> Result<
                 .with_context(|| format!("issue {key} does not exist"))?;
             print_issue(issue, json)?;
         }
+        _ => return Err(pm_cli::legacy_mutation_failure(store.root())),
     }
     Ok(())
 }
@@ -2373,168 +11918,6 @@ fn filter_issues(
         })
         .filter(|issue| due_at.as_ref().is_none_or(|due_at| &issue.due_at == due_at))
         .collect())
-}
-
-fn load_issue(store: &WorkdeckStore, key: &str) -> Result<workdeck_cli::store::Issue> {
-    store
-        .load_issues()?
-        .into_iter()
-        .find(|issue| issue.key == key)
-        .with_context(|| format!("issue {key} does not exist"))
-}
-
-#[derive(Debug)]
-struct IssueCreateInput {
-    title: String,
-    description: Option<String>,
-    status: Option<String>,
-    priority: Option<String>,
-    project: Option<String>,
-    cycle: Option<String>,
-    assignee: Option<String>,
-    due_at: Option<String>,
-    labels: Vec<String>,
-    linked_commits: Vec<String>,
-    linked_files: Vec<String>,
-}
-
-#[allow(clippy::too_many_arguments)]
-fn issue_create_input(
-    title: Option<String>,
-    from_json: Option<PathBuf>,
-    description: Option<String>,
-    status: Option<String>,
-    priority: Option<String>,
-    project: Option<String>,
-    cycle: Option<String>,
-    assignee: Option<String>,
-    due_at: Option<String>,
-    labels: Vec<String>,
-    linked_commits: Vec<String>,
-    linked_files: Vec<String>,
-) -> Result<IssueCreateInput> {
-    let mut input = if let Some(path) = from_json {
-        issue_create_input_from_json(&path)?
-    } else {
-        IssueCreateInput {
-            title: title
-                .clone()
-                .with_context(|| "issue title is required unless --from-json is used")?,
-            description: None,
-            status: None,
-            priority: None,
-            project: None,
-            cycle: None,
-            assignee: None,
-            due_at: None,
-            labels: Vec::new(),
-            linked_commits: Vec::new(),
-            linked_files: Vec::new(),
-        }
-    };
-
-    if let Some(title) = title {
-        input.title = title;
-    }
-    input.description = description.or(input.description);
-    input.status = status.or(input.status);
-    input.priority = priority.or(input.priority);
-    input.project = project.or(input.project);
-    input.cycle = cycle.or(input.cycle);
-    input.assignee = assignee.or(input.assignee);
-    input.due_at = due_at.or(input.due_at);
-    if !labels.is_empty() {
-        input.labels = labels;
-    }
-    if !linked_commits.is_empty() {
-        input.linked_commits = linked_commits;
-    }
-    if !linked_files.is_empty() {
-        input.linked_files = linked_files;
-    }
-    Ok(input)
-}
-
-fn issue_create_input_from_json(path: &Path) -> Result<IssueCreateInput> {
-    let mut raw = String::new();
-    if path == Path::new("-") {
-        std::io::stdin()
-            .read_to_string(&mut raw)
-            .with_context(|| "failed to read issue JSON from stdin")?;
-    } else {
-        raw = std::fs::read_to_string(path)
-            .with_context(|| format!("failed to read {}", path.display()))?;
-    }
-    let value: Value = serde_json::from_str(&raw).with_context(|| "failed to parse issue JSON")?;
-    let title = value
-        .get("title")
-        .and_then(Value::as_str)
-        .with_context(|| "issue JSON requires title")?
-        .to_string();
-    Ok(IssueCreateInput {
-        title,
-        description: json_string(&value, "description"),
-        status: json_string(&value, "status"),
-        priority: json_string(&value, "priority"),
-        project: json_string(&value, "project"),
-        cycle: json_string(&value, "cycle"),
-        assignee: json_string(&value, "assignee"),
-        due_at: json_string(&value, "due_at"),
-        labels: json_string_array(&value, "labels"),
-        linked_commits: json_string_array(&value, "linked_commits"),
-        linked_files: json_string_array(&value, "linked_files"),
-    })
-}
-
-fn json_string(value: &Value, key: &str) -> Option<String> {
-    value
-        .get(key)
-        .and_then(Value::as_str)
-        .map(ToString::to_string)
-}
-
-fn json_string_array(value: &Value, key: &str) -> Vec<String> {
-    value
-        .get(key)
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .map(ToString::to_string)
-        .collect()
-}
-
-#[allow(clippy::too_many_arguments)]
-fn issue_update(
-    title: Option<String>,
-    description: Option<String>,
-    status: Option<String>,
-    priority: Option<String>,
-    project: Option<String>,
-    cycle: Option<String>,
-    assignee: Option<String>,
-    due_at: Option<String>,
-    labels: Vec<String>,
-    linked_commits: Vec<String>,
-) -> Result<IssueUpdate> {
-    Ok(IssueUpdate {
-        title,
-        description,
-        status: status
-            .map(|value| value.parse())
-            .transpose()
-            .map_err(anyhow::Error::msg)?,
-        priority: priority
-            .map(|value| value.parse::<Priority>())
-            .transpose()
-            .map_err(anyhow::Error::msg)?,
-        project,
-        cycle,
-        assignee,
-        due_at,
-        labels: (!labels.is_empty()).then_some(labels),
-        linked_commits: (!linked_commits.is_empty()).then_some(linked_commits),
-    })
 }
 
 fn print_issue(issue: workdeck_cli::store::Issue, json: bool) -> Result<()> {

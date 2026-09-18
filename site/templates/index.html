@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block content %}
+{% set latest = load_data(path="data/latest-release.json") %}
+<section class="hero">
+  <p class="eyebrow">Rust · Ratatui · one executable</p>
+  <h1>Review first. Keep the whole workbench.</h1>
+  <p>Workdeck combines a continuous Hunk-style review canvas with files, Git, issues, agents, projects, cycles, labels, events, search, and structured automation.</p>
+  <section id="install" class="install-picker" aria-label="Install Workdeck">
+    <h2>Install Workdeck</h2>
+    <nav class="install-tabs" aria-label="Install method">
+      <a href="#install-cargo">Cargo</a>
+      <a href="#install-homebrew">Homebrew</a>
+      <a href="#install-nix">Nix</a>
+      <a href="#install-source">Source checkout</a>
+    </nav>
+    <div id="install-cargo" class="install-panel">
+      <h3>Cargo</h3>
+      <pre><code>cargo install --git https://github.com/ruttydm/workdeck --package workdeck-cli --locked
+workdeck</code></pre>
+    </div>
+    <div id="install-homebrew" class="install-panel">
+      <h3>Homebrew</h3>
+      <pre><code>brew tap ruttydm/workdeck https://github.com/ruttydm/workdeck
+brew install --HEAD ruttydm/workdeck/workdeck</code></pre>
+    </div>
+    <div id="install-nix" class="install-panel">
+      <h3>Nix</h3>
+      <pre><code>nix run github:ruttydm/workdeck -- --help</code></pre>
+    </div>
+    <div id="install-source" class="install-panel">
+      <h3>Source checkout</h3>
+      <pre><code>cargo install --path crates/workdeck-cli --locked
+workdeck</code></pre>
+    </div>
+    <p class="install-note">Release-channel installers and updates are verified separately; see the <a href="/docs/start/install/">installation guide</a>.</p>
+  </section>
+  <a class="release-ribbon" href="/changelog/{{ latest.minor }}/" aria-label="Read Workdeck {{ latest.version }} release notes">
+    <span class="rv">v{{ latest.version }}</span>
+    <span class="rs">{{ latest.summary }}</span>
+    <span class="ra" aria-hidden="true">→</span>
+  </a>
+</section>
+<section class="theme-showcase" aria-labelledby="theme-showcase-title">
+  <p class="eyebrow">Review in your language</p>
+  <h2 id="theme-showcase-title">One canvas. Every theme.</h2>
+  <figure class="theme-frame">
+    <div class="paper-bar" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="pt">workdeck diff — split view</span></div>
+    <input id="theme-shot-0" type="radio" name="theme-shot" checked>
+    <input id="theme-shot-1" type="radio" name="theme-shot">
+    <input id="theme-shot-2" type="radio" name="theme-shot">
+    <input id="theme-shot-3" type="radio" name="theme-shot">
+    <input id="theme-shot-4" type="radio" name="theme-shot">
+    <input id="theme-shot-5" type="radio" name="theme-shot">
+    <div class="theme-shots">
+      <img class="theme-shot theme-shot-0" src="/shots/shot-github-dark.webp" alt="Workdeck split-view diff in the GitHub Dark theme" width="2202" height="1400">
+      <img class="theme-shot theme-shot-1" src="/shots/shot-tokyo-night.webp" alt="Workdeck split-view diff in the Tokyo Night theme" width="2202" height="1400" loading="lazy">
+      <img class="theme-shot theme-shot-2" src="/shots/shot-catppuccin-mocha.webp" alt="Workdeck split-view diff in the Catppuccin Mocha theme" width="2202" height="1400" loading="lazy">
+      <img class="theme-shot theme-shot-3" src="/shots/shot-gruvbox.webp" alt="Workdeck split-view diff in the Gruvbox theme" width="2202" height="1400" loading="lazy">
+      <img class="theme-shot theme-shot-4" src="/shots/shot-nord.webp" alt="Workdeck split-view diff in the Nord theme" width="2202" height="1400" loading="lazy">
+      <img class="theme-shot theme-shot-5" src="/shots/shot-github-light.webp" alt="Workdeck split-view diff in the GitHub Light theme" width="2202" height="1400" loading="lazy">
+    </div>
+    <div class="themes" role="group" aria-label="Preview theme">
+      <label class="tpill" for="theme-shot-0">GitHub Dark</label>
+      <label class="tpill" for="theme-shot-1">Tokyo Night</label>
+      <label class="tpill" for="theme-shot-2">Catppuccin Mocha</label>
+      <label class="tpill" for="theme-shot-3">Gruvbox</label>
+      <label class="tpill" for="theme-shot-4">Nord</label>
+      <label class="tpill" for="theme-shot-5">GitHub Light</label>
+      <a class="tmore" href="/docs/configure/themes/">and 61 more</a>
+    </div>
+  </figure>
+</section>
+<section class="community-videos" aria-labelledby="community-videos-title">
+  <p class="eyebrow">From the community</p>
+  <h2 id="community-videos-title">See Workdeck in the wild.</h2>
+  <div class="vgrid">
+    <a class="vcard" href="https://www.youtube.com/watch?v=FFfz81XM57k" target="_blank" rel="noopener noreferrer">
+      <span class="vplayer"><img src="/videos/video-jilles.webp" alt="" width="900" height="506" loading="lazy" draggable="false"><span class="vscrim"><span class="vavatar" style="background:#8a5a2b" aria-hidden="true">J</span><span class="vtitle">Workdeck changed the way I write and review code with my agent</span></span><span class="vplay" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"></path></svg></span><span class="vlength">5:14</span></span>
+      <span class="vcaption">Jilles · watch on YouTube</span>
+    </a>
+    <a class="vcard" href="https://www.youtube.com/watch?v=-4fJbIF8WAs" target="_blank" rel="noopener noreferrer">
+      <span class="vplayer"><img src="/videos/video-devops-toolbox.webp" alt="" width="900" height="506" loading="lazy" draggable="false"><span class="vscrim"><span class="vavatar" style="background:#3b5bdb" aria-hidden="true">D</span><span class="vtitle">I Was Definitely Using The Wrong Terminal Code Reviewer</span></span><span class="vplay" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"></path></svg></span><span class="vlength">13:33</span></span>
+      <span class="vcaption">DevOps Toolbox · watch on YouTube</span>
+    </a>
+  </div>
+</section>
+<section class="feature-showcase" aria-labelledby="feature-showcase-title">
+  <p class="eyebrow">Inside the review canvas</p>
+  <h2 id="feature-showcase-title">See the workbench in motion.</h2>
+  <div class="show">
+    <article class="show-item"><div class="show-copy"><h3>One stream, every file.</h3><p>The whole changeset reads top to bottom in sidebar order—no flipping between single-file views. File counts stay visible, hunk jumps remain quick, and the sidebar takes you straight to any file.</p><a class="more" href="/docs/workflows/working-trees-and-commits/">How reviews work →</a></div><figure class="show-media"><img src="/features/feature-stream.webp" width="2084" height="1280" alt="Workdeck's multi-file review stream with a sidebar and consecutive file diffs" loading="lazy" decoding="async" draggable="false"></figure></article>
+    <article class="show-item"><div class="show-copy"><h3>Your agent's reasoning, beside the code it explains.</h3><p>Agents leave notes in a sidecar; Workdeck renders each one inside the diff, right above the hunk it annotates—summary, rationale, and author.</p><a class="more" href="/docs/agents/comments-and-annotations/">Agent annotations, in depth →</a></div><figure class="show-media"><video width="1480" height="960" loop muted playsinline preload="metadata" controls aria-label="Agent notes rendered inline in a Workdeck review"><source src="/features/feature-agent.webm" type="video/webm"><source src="/features/feature-agent.mp4" type="video/mp4"></video></figure></article>
+    <figure class="show-quote"><span class="qmark" aria-hidden="true">“</span><blockquote>Workdeck is very good. It has replaced any other local diff viewer for me.</blockquote><figcaption><a href="https://x.com/mitchellh/status/2052128048288567617" target="_blank" rel="noopener noreferrer">Mitchell Hashimoto, creator of Ghostty &amp; Vagrant</a></figcaption></figure>
+    <article class="show-item"><div class="show-copy"><h3>Keys when you're fast, mouse when you're browsing.</h3><p>Click a file in the sidebar to jump, wheel-scroll the stream, hover a row to leave a note—or never leave the keyboard. Pipe patches straight in and Workdeck is your pager, too.</p><a class="more" href="/docs/start/keyboard-and-mouse/">Keyboard &amp; mouse reference →</a></div><figure class="show-media"><video width="1984" height="1200" loop muted playsinline preload="metadata" controls aria-label="Mouse support in Workdeck: sidebar navigation, wheel scrolling, and row note affordances"><source src="/features/feature-mouse.webm" type="video/webm"><source src="/features/feature-mouse.mp4" type="video/mp4"></video></figure></article>
+    <article class="show-item"><div class="show-copy"><h3>Split or stack—or let auto decide.</h3><p>Side-by-side when your terminal is wide, stacked when it's narrow. Auto picks for you; change layouts at any time, with wrapping and line numbers toggled live.</p><a class="more" href="/docs/configure/layout-and-display/">Layout &amp; display options →</a></div><figure class="show-media"><video width="1816" height="1200" loop muted playsinline preload="metadata" controls aria-label="The same diff switching between Workdeck split and stacked layouts"><source src="/features/feature-layout.webm" type="video/webm"><source src="/features/feature-layout.mp4" type="video/mp4"></video></figure></article>
+    <figure class="show-quote"><span class="qmark" aria-hidden="true">“</span><blockquote>Love Workdeck.</blockquote><figcaption><a href="https://x.com/dhh/status/2062919431680852164" target="_blank" rel="noopener noreferrer">DHH, creator of Omarchy and Ruby on Rails</a></figcaption></figure>
+    <article class="show-item"><div class="show-copy"><h3>Real syntax highlighting. Dozens of themes.</h3><p>Understand structure, not just added and removed lines. Workdeck ships readable palettes—Catppuccin, Dracula, Gruvbox, GitHub, and more—or you can roll your own.</p><a class="more" href="/docs/configure/themes/">Theme gallery &amp; config →</a></div><figure class="show-media"><video width="1816" height="1200" loop muted playsinline preload="metadata" controls aria-label="A split diff moving through Workdeck themes including Catppuccin Mocha, Gruvbox, and GitHub Light"><source src="/features/feature-themes.webm" type="video/webm"><source src="/features/feature-themes.mp4" type="video/mp4"></video></figure></article>
+    <article class="show-item"><div class="show-copy"><h3>Extend it however you want.</h3><p>Add a theme, command, file preview, docked pane, or version-control backend. Extensions are native Rust subprocesses with a bounded JSON-RPC contract.</p><a class="more" href="/docs/extend/extensions/">Writing extensions →</a></div><figure class="show-media show-code"><div class="paper-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="pt">examples/extensions/hello/src/main.rs</span></div><pre tabindex="0" aria-label="A complete Workdeck Rust extension"><code>use workdeck_extension_api::{Extension, Registration};
+
+fn main() -&gt; anyhow::Result&lt;()&gt; {
+    Extension::new("hello")
+        .register(Registration::command("hello", "Say hello"))
+        .run()
+}</code></pre></figure></article>
+  </div>
+</section>
+<section>
+  <h2>No JavaScript runtime</h2>
+  <p>The application, review model, syntax pipeline, sessions, extension host, packaging tools, and site pipeline are Rust-native. User extensions are explicit native subprocesses speaking bounded JSON-RPC over stdio.</p>
+</section>
+<section>
+  <h2>Auditable semantic port</h2>
+  <p>Every pinned Hunk blob is tracked in a byte-exact ledger until its Rust implementation, translated tests, content, asset, or generated replacement is verified.</p>
+</section>
+<section class="feature-links" aria-labelledby="feature-links-title">
+  <p class="eyebrow">Native review workbench</p>
+  <h2 id="feature-links-title">The whole review, in one stream.</h2>
+  <div class="feature-grid">
+    <a href="/docs/workflows/working-trees-and-commits/"><strong>Every file, top to bottom.</strong><span>Sidebar navigation and continuous diff rows keep the changeset in context.</span></a>
+    <a href="/docs/agents/comments-and-annotations/"><strong>Notes beside the code.</strong><span>Agent and reviewer annotations follow their owning hunk.</span></a>
+    <a href="/docs/start/keyboard-and-mouse/"><strong>Keyboard or mouse.</strong><span>Navigate, select, scroll, and add notes through the same semantic actions.</span></a>
+    <a href="/docs/configure/layout-and-display/"><strong>Split, stack, or auto.</strong><span>Responsive layouts, wrapping, line numbers, and gap controls adapt to the terminal.</span></a>
+    <a href="/docs/configure/themes/"><strong>Syntax and themes.</strong><span>Rust-native highlighting and configurable palettes preserve readable diffs.</span></a>
+    <a href="/docs/extend/extensions/"><strong>Native extensions.</strong><span>Trusted Rust subprocesses add panes, commands, transforms, and VCS adapters.</span></a>
+  </div>
+</section>
+<section class="feature-links" aria-labelledby="more-features-title">
+  <p class="eyebrow">And the rest</p>
+  <h2 id="more-features-title">A workbench that stays with the repository.</h2>
+  <div class="more-features">
+    <a href="/docs/workflows/watch-mode/"><strong>Watch mode</strong><span>reloads as the tree changes</span></a>
+    <a href="/docs/agents/live-session-control/"><strong>Live sessions</strong><span>agents steer a running review</span></a>
+    <a href="/docs/workflows/jujutsu-and-sapling/"><strong>Jujutsu &amp; Sapling</strong><span>first-class, like Git</span></a>
+    <a href="/docs/workflows/git-pager-and-difftool/"><strong>Pager &amp; difftool</strong><span>pipe any patch in</span></a>
+    <a href="/docs/start/install/"><strong>Cross-platform</strong><span>macOS, Linux, Windows</span></a>
+    <a href="/docs/configure/themes/"><strong>Your own themes</strong><span>roll a palette in config</span></a>
+  </div>
+</section>
+<section class="last" aria-labelledby="try-title">
+  <h2 id="try-title">Try Workdeck on your next changeset.</h2>
+  <div class="cta">
+    <a class="ghost" href="#install">Install Workdeck</a>
+    <a class="plain" href="/docs/start/quick-start/">Read the quick start</a>
+  </div>
+</section>
+{% endblock content %}

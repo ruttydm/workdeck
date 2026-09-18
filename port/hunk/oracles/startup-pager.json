@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "runtime": {
+    "name": "Bun",
+    "version": "1.3.5",
+    "execution": "disposable pinned Hunk worktrees"
+  },
+  "command": ["bun", "test", "src/app/startup.test.ts"],
+  "baselines": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "source_blob": "79c05c50e63fa4f533fbb1c7b3c3868913750386",
+      "mapped_source_interval": {"byte_start": 12850, "byte_end": 16030, "line_start": 367, "line_end": 465},
+      "test_blob": "2a346bcb5cbebd34376663bb79c832f9d25fc44f",
+      "mapped_test_interval": {"byte_start": 7912, "byte_end": 17285, "line_start": 240, "line_end": 521},
+      "suite_passed": 25,
+      "suite_failed": 0,
+      "suite_expect_calls": 58,
+      "mapped_tests": 10
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "source_blob": "672a2f7966498e616cddab940ca07757b1e393c2",
+      "test_blob": "6084991177e681b6e28b3dc328a3d0aa58ea12c2",
+      "suite_passed": 20,
+      "suite_failed": 0,
+      "suite_expect_calls": 47,
+      "pager_tests_present": 8
+    }
+  ],
+  "expected": {
+    "captured_host_requires_term_dumb": true,
+    "captured_host_markers": ["LV=-c", "non-empty GIT_PAGER", "LAZYGIT* environment key"],
+    "non_diff_normal": "plain-text-pager",
+    "non_diff_captured": "passthrough-preserve-color",
+    "non_diff_dumb": "passthrough-strip-color",
+    "diff_redirected": "passthrough",
+    "diff_dumb": "passthrough-strip-color",
+    "diff_captured": "static-diff-pager",
+    "diff_without_controlling_terminal": "static-diff-pager",
+    "diff_with_controlling_terminal": "interactive-review",
+    "static_extensions_loaded": false,
+    "static_custom_config_themes_loaded": true,
+    "interactive_pager_option": true
+  },
+  "test_mapping": [
+    {"source_test": "routes non-diff pager stdin to the plain-text pager path", "rust_test": "pager::tests::routes_non_diff_input_by_host_capability"},
+    {"source_test": "passes non-diff pager stdin through for captured pager hosts", "rust_test": "pager::tests::routes_non_diff_input_by_host_capability"},
+    {"source_test": "passes non-diff pager stdin through for a plain dumb terminal", "rust_test": "pager::tests::routes_non_diff_input_by_host_capability"},
+    {"source_test": "normalizes diff-like pager stdin into patch app startup", "rust_tests": ["pager::tests::routes_diff_input_by_stdout_host_and_controlling_terminal", "review_cli_option_tests::all_app_startups_with_piped_stdin_open_the_controlling_terminal"]},
+    {"source_test": "passes diff-like pager stdin through when stdout is not interactive", "rust_test": "pager::tests::routes_diff_input_by_stdout_host_and_controlling_terminal"},
+    {"source_test": "passes diff-like pager stdin through for a plain dumb terminal", "rust_test": "pager::tests::routes_diff_input_by_stdout_host_and_controlling_terminal"},
+    {"source_test": "routes diff-like pager stdin to static output when the host advertises a captured pager", "rust_tests": ["pager::tests::routes_diff_input_by_stdout_host_and_controlling_terminal", "review_cli_option_tests::all_app_startups_with_piped_stdin_open_the_controlling_terminal"]},
+    {"source_test": "routes diff-like pager stdin to static output when no controlling terminal is available", "rust_test": "pager::tests::routes_diff_input_by_stdout_host_and_controlling_terminal"},
+    {"source_test": "passes configured custom theme data into app bootstrap", "rust_test": "review_cli_option_tests::composed_bootstrap_carries_config_themes_and_view_preference_destination"},
+    {"source_test": "carries configured startup notices into the app bootstrap", "rust_tests": ["review_cli_option_tests::extension_configuration_flows_from_config_into_review_startup", "review_cli_option_tests::composed_bootstrap_crosses_the_core_boundary_with_exact_initial_state"]}
+  ]
+}

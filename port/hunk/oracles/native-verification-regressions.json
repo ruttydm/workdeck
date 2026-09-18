@@ -1,0 +1,90 @@
+{
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "initialGate": {
+    "command": "cargo xtask verify",
+    "exitCode": 1,
+    "failedStage": "workdeck-cli terminal_pager integration suite",
+    "passed": 94,
+    "failed": 4,
+    "seconds": 64.05
+  },
+  "regressions": [
+    {
+      "test": "notes::saved_notes_support_clickable_threaded_edit_reply_and_delete",
+      "cause": "Pointer motion outside an open note editor returned before clearing saved-card hover; actions stayed visible after saving.",
+      "fix": "Clear saved-card hover on composer mouse motion before the outside-bounds early return.",
+      "unitTest": "leaving_note_editor_retires_saved_card_hover_before_save",
+      "ptyPassed": 1,
+      "ptyFailed": 0,
+      "ptySeconds": 2.67
+    },
+    {
+      "test": "notes::draft_focus_blocks_app_hunk_shortcut_until_cancelled",
+      "cause": "An automatic cancellation status message consumed the row needed to reveal the first changed line at 104x12.",
+      "fix": "Cancellation returns focus without introducing a status message, matching useUserNoteComposer.ts:189-192.",
+      "ptyPassed": 1,
+      "ptyFailed": 0,
+      "ptySeconds": 2.43
+    },
+    {
+      "test": "extensions::bundled_note_navigator_inventories_and_reveals_the_exact_saved_note",
+      "cause": "A persistent automatic command-title caption survived the picker and duplicated its title in the review frame.",
+      "fix": "Do not manufacture command-start/success status captions. Preserve explicit extension notifications and attributed failure handling, matching useExtensionCommandRunner.ts.",
+      "ptyPassed": 1,
+      "ptyFailed": 0,
+      "ptySeconds": 17.96
+    },
+    {
+      "test": "file_views::checked_in_dependency_delta_runs_against_the_pinned_diff",
+      "cause": "An automatic file-presentation success caption consumed a row required by the raw diff. A provisional unconditional selected-hunk reveal made package coverage pass but broke the CSS gallery.",
+      "fix": "Remove automatic success captions from direct presentation selection while preserving the scroll position. The pinned DiffPane selection effect requires a new reveal request or pinned-header settle; changed bounds alone do not authorize a jump.",
+      "unitTest": "raw_presentation_change_preserves_scroll_without_a_success_caption",
+      "ptyValidation": "All three checked-in gallery PTY tests pass after removing the provisional reveal: 3 passed, 0 failed, 16.03s. See css-gallery-presentation-switch.json for frozen source frames."
+    }
+  ],
+  "unitValidation": {
+    "command": "cargo test -p workdeck-tui --lib -- --quiet",
+    "passed": 1169,
+    "failed": 0,
+    "seconds": 10.41,
+    "phase": "Final corrected implementation, executed by the fifth cargo xtask verify run"
+  },
+  "verificationRerun": "Second full run failed with 96 passing and 2 failing PTY tests in 41.65s: the queued-command test depended on an invented success caption, and the provisional presentation reveal broke CSS. Queue test now uses a subsequent rendered key as an input-order barrier and passes in 3.47s; original held-connection and eventual-result assertions remain. After removing the provisional reveal, the third full run passed all 98 PTY tests in 40.68s, then stopped at the key-routing setup failures. Fourth run reached the pane-layout failure documented below. Fifth run passes workspace tests (including 98 PTY tests in 38.85s), formatting, and strict Clippy; release build and smoke checks remain in progress.",
+  "keyRoutingFollowup": {
+    "cause": "The third full run passed all 98 PTY tests, then failed two key-routing setup assertions: 30 cursor movements did not scroll the corrected automatic split layout at 120x24.",
+    "sourcePremise": "AppHost.key-routing.test.tsx focuses an overflowing review scroll box without requiring an initial nonzero scroll offset. The native test additionally exercises modal isolation from a nonzero offset.",
+    "fix": "Render between cursor movements and stop when the nonzero-scroll precondition is established, bounded by 160 movements. Preserve the modal scroll-invariance assertions.",
+    "command": "cargo test -p workdeck-examples --test key_routing",
+    "passed": 7,
+    "failed": 0,
+    "seconds": 1.20
+  },
+  "paneLayoutFollowup": {
+    "cause": "The fourth full run passed 98 PTY and seven key-routing tests, then failed an exact pane height assertion that still reserved the removed automatic command-success footer.",
+    "fix": "Assert 23 content rows beneath the menu in a 24-row terminal, preserving the exact 28-to-38 column resize and menu-toggle checks.",
+    "command": "cargo test -p workdeck-examples --test pane_layout",
+    "passed": 4,
+    "failed": 0,
+    "seconds": 2.00
+  },
+  "strictAudit": {
+    "exitCode": 1,
+    "baselineFiles": 1257,
+    "records": 1390,
+    "unmapped": 267,
+    "cachedUpstreamPending": 11
+  },
+  "finalVerification": {
+    "command": "cargo xtask verify",
+    "exitCode": 0,
+    "run": 5,
+    "workspaceTests": "passed, with one ignored tooling test",
+    "formatting": "passed",
+    "clippyWarningsDenied": "passed",
+    "releaseBuild": "passed in 6m 20s",
+    "largeRepositorySmoke": "passed",
+    "ptyTests": 98,
+    "tuiUnitTests": 1169
+  },
+  "scope": "Native integration regressions discovered by the broad verifier. No source ledger interval is newly mapped by these fixes, and no release or complete parity claim is made."
+}

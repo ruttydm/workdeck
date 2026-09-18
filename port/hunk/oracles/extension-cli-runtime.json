@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "captured_with": "bun 1.3.5 executing the untouched pinned src/extensions/cliCommandRuntime.test.ts",
+  "baselines": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "source_blob": "e1caed86f91f0ce9239a1e5a1e83a8bb5810b828",
+      "test_blob": "2d70025fd1dd00daef3158e3699878c93dfb4a70",
+      "tests": 9,
+      "passed": 9,
+      "failed": 0,
+      "expect_calls": 24
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "status": "absent"
+    }
+  ],
+  "native_adaptation": {
+    "invocation": "owned Rust argument vectors and canonical paths replace frozen JavaScript values",
+    "stdin": "lazy request/chunk JSON-RPC lease keeps host stdin authoritative and binary safe",
+    "output": "ordered byte notifications are drained through host-owned writers before settlement",
+    "revocation": "late notifications from settled request ids are discarded before any later response decode",
+    "signals": "one revocable process-wide signal lease sends cooperative cancellation once, then restores exit status 130",
+    "delegation": "the host validates argv and refuses delegation after stdout output or any stdin read"
+  },
+  "shell_probe": {
+    "command": "printf binary bytes 0,1,2,255 into workdeck --extension <staged-cli-tools> cli-tools stdin",
+    "stdout_bytes": [0, 1, 2, 255],
+    "stderr_bytes": 0,
+    "exit_code": 7
+  },
+  "rust_commands": [
+    "cargo test -p workdeck-extension-api --lib",
+    "cargo test -p workdeck-extension-host --lib",
+    "cargo test -p workdeck-cli signal_lease_cancels_once_then_restores_default_exit_behavior --bin workdeck",
+    "cargo test -p workdeck-examples --test cli_tools"
+  ],
+  "test_mapping": [
+    {
+      "source_test": "freezes args, streams bytes, and validates exit codes",
+      "rust_tests": [
+        "compiled_extension_leases_stdin_lazily_and_tracks_host_owned_consumption",
+        "tests::cli_protocol_preserves_raw_args_bytes_and_default_exit_status"
+      ]
+    },
+    {
+      "source_test": "rejects stdout before delegation and revokes late writes",
+      "rust_tests": [
+        "tests::cli_delegation_retains_host_terminal_and_bootstrap_ownership",
+        "revoked_late_output_cannot_reach_the_terminal_or_poison_the_next_request"
+      ]
+    },
+    {
+      "source_test": "does not surface an unhandled rejection when a handler discards a revoked write",
+      "rust_tests": [
+        "revoked_late_output_cannot_reach_the_terminal_or_poison_the_next_request"
+      ]
+    },
+    {
+      "source_test": "closes output leases before draining writes accepted by the handler",
+      "rust_tests": [
+        "host_drains_all_accepted_output_before_reporting_the_first_failure",
+        "revoked_late_output_cannot_reach_the_terminal_or_poison_the_next_request"
+      ]
+    },
+    {
+      "source_test": "drains every accepted output write before reporting one failure",
+      "rust_tests": [
+        "host_drains_all_accepted_output_before_reporting_the_first_failure"
+      ]
+    },
+    {
+      "source_test": "does not claim stdin merely because the handler obtains an iterator",
+      "rust_tests": [
+        "compiled_extension_leases_stdin_lazily_and_tracks_host_owned_consumption"
+      ]
+    },
+    {
+      "source_test": "tracks a pending stdin read before delegation",
+      "rust_tests": [
+        "compiled_extension_leases_stdin_lazily_and_tracks_host_owned_consumption",
+        "tests::cli_delegation_retains_host_terminal_and_bootstrap_ownership"
+      ]
+    },
+    {
+      "source_test": "preserves expected user errors and rejects malformed results",
+      "rust_tests": [
+        "compiled_extension_reports_user_errors_and_cooperative_cancellation",
+        "tests::cli_protocol_preserves_raw_args_bytes_and_default_exit_status"
+      ]
+    },
+    {
+      "source_test": "aborts on host signals and removes listeners",
+      "rust_tests": [
+        "compiled_extension_reports_user_errors_and_cooperative_cancellation",
+        "extension_cli_commands::tests::signal_lease_cancels_once_then_restores_default_exit_behavior"
+      ]
+    }
+  ]
+}

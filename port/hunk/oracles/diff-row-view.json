@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "source": {
+    "path": "src/ui/diff/DiffRowView.tsx",
+    "baselineBlob": "1fb02a2bd4b037bd09d43ac5f247100d3f630798",
+    "baselineSha256": "69df09c7ab29bca50da04b2bf704de161cdf75db2d0f3a4f5816aa5d7675388a",
+    "baselineBytes": 6353,
+    "baselineLines": 185,
+    "stablePresent": false
+  },
+  "destinations": [
+    {
+      "path": "crates/workdeck-tui/src/diff_row_view.rs",
+      "sha256": "e37641c804dc6bd8c1d53b05628e0c02bbcda7eed6818f4f115572066fb51741"
+    },
+    {
+      "path": "crates/workdeck-tui/src/lib.rs",
+      "sha256": "df08e19b73b344bbd427c8652a41e51412587d2052c90eed829b8a883e7de13d"
+    }
+  ],
+  "baselineOracle": {
+    "runtime": "bun 1.3.5",
+    "method": "render raw-row compatibility inputs through DiffRowView with OpenTUI testRender and freeze captureSpans",
+    "code": [
+      { "text": "▌", "fg": "#244f32", "bg": "#1e2329" },
+      { "text": "+ ", "fg": "#2ea043", "bg": "#12251d" },
+      { "text": "new         ", "fg": "#e6edf3", "bg": "#12251d" },
+      { "text": "│", "fg": "#bb8009", "bg": "#000000" }
+    ],
+    "metadata": [
+      { "text": "▌", "fg": "#43484e", "bg": "#272b31" },
+      { "text": "▾ 8 unchanged lines", "fg": "#adaeb1", "bg": "#272b31" },
+      { "text": "    ", "fg": "#ffffff", "bg": "#272b31" }
+    ]
+  },
+  "stableOracle": {
+    "sourcePresent": false,
+    "reason": "The pinned stable tree predates the baseline's DiffRowView facade extraction; stable-only behavior remains covered by its owning older renderer and the enumerated stable-fix queue."
+  },
+  "nativeAdaptation": {
+    "memoization": "React reference equality becomes same_diff_row_view_inputs: data and paint objects compare by address, scalars by value, and callbacks by stable host interaction tokens.",
+    "callbacks": "Stable interaction tokens also state whether gap toggling and note creation are enabled; painted child rows return their exact hover and nested hit geometry.",
+    "unsupported": "The TypeScript defensive Unsupported row branch cannot occur through Rust's closed DiffRow enum. Non-diff PlannedReviewRow variants are rejected rather than inventing renderer output.",
+    "rawFallback": "Raw DiffRow inputs are cloned into legacy_planned_diff_row with the exact optional anchor and note-guide side before ordinary dispatch."
+  },
+  "sourceCoverage": [
+    {
+      "lines": [1, 11],
+      "bytes": [0, 688],
+      "destination": "native row facade imports and complete child painter boundary"
+    },
+    {
+      "lines": [12, 82],
+      "bytes": [688, 3125],
+      "destination": "metadata/code dispatch, copy-selected metadata rail, complete geometry and paint forwarding, callback capability forwarding, and closed-union adaptation"
+    },
+    {
+      "lines": [83, 114],
+      "bytes": [3125, 4261],
+      "destination": "all preferred planned-row and raw fallback inputs, geometry, paint state, anchors, note guides, and stable interaction identities"
+    },
+    {
+      "lines": [115, 185],
+      "bytes": [4261, 6353],
+      "destination": "planned-row precedence, legacy planning, null behavior, focused dispatch, and exhaustive memo equality predicate"
+    }
+  ],
+  "executableParityTests": [
+    "diff_row_view::tests::planned_metadata_rows_include_copy_selection_and_gap_actions",
+    "diff_row_view::tests::raw_code_fallback_carries_anchor_note_guide_and_add_note_capability",
+    "diff_row_view::tests::planned_row_takes_precedence_over_raw_fallback",
+    "diff_row_view::tests::absent_or_non_diff_planned_rows_return_no_view",
+    "diff_row_view::tests::memo_comparator_retains_referential_inputs_and_value_scalars"
+  ]
+}

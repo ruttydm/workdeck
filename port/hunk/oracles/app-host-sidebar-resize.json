@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "path": "src/ui/AppHost.sidebar-resize.test.tsx",
+    "baseline": {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "blob": "f0e905e10bd77154043f674c73c1561c94fd30ee",
+      "sha256": "2c02517fdb4beede4c215a7e4596a61cea8aa2dc08df0d62dd4a991b8a6be338",
+      "bytes": 8249,
+      "lines": 237
+    },
+    "stable": {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "blob": "808d00ab0b8ca50b0b260a77384c8c8d4d0520dc",
+      "sha256": "25193d3a93b5cb943578d8aa6be34f77a2a601b05c5841ff902a8c8b15f3e659",
+      "bytes": 6771,
+      "lines": 198
+    }
+  },
+  "oracleRuns": {
+    "baseline": {
+      "runtime": "bun 1.3.14",
+      "command": "bun test src/ui/AppHost.sidebar-resize.test.tsx",
+      "passed": 7,
+      "failed": 0,
+      "expectCalls": 14,
+      "elapsedMilliseconds": 812
+    },
+    "stable": {
+      "runtime": "bun 1.3.5",
+      "command": "bun test src/ui/AppHost.sidebar-resize.test.tsx",
+      "passed": 5,
+      "failed": 0,
+      "expectCalls": 8,
+      "elapsedMilliseconds": 731
+    }
+  },
+  "pinDeltas": [
+    {
+      "commit": "7f7d84cd1ec8d8a6858ffe89e1ef8cadb48f447a",
+      "behavior": "The main baseline adds the drag-driven 32-content-column file projection boundary and nested src/ui fixtures."
+    },
+    {
+      "commit": "15cdd7c5ef491726cf091f7b95189843fe059027",
+      "behavior": "The main baseline makes the bundled files width a clamped 16 percent response until a user drag establishes an override, and isolates the top-pane width from the files slot."
+    }
+  ],
+  "testMappings": [
+    {
+      "upstream": "resizes the default sidebar with the terminal until the user drags it",
+      "rust": "tests::mounted_sidebar_resize_tracks_responsive_geometry_until_drag_override"
+    },
+    {
+      "upstream": "dragging the divider rightward widens the sidebar",
+      "rust": "tests::mounted_sidebar_resize_tracks_responsive_geometry_until_drag_override"
+    },
+    {
+      "upstream": "resizing across the content-width threshold switches the file projection",
+      "rust": "tests::mounted_sidebar_resize_switches_projection_clamps_and_ignores_non_drags"
+    },
+    {
+      "upstream": "dragging the divider far left clamps the sidebar at its minimum width",
+      "rust": "tests::mounted_sidebar_resize_switches_projection_clamps_and_ignores_non_drags"
+    },
+    {
+      "upstream": "dragging a horizontal divider resizes a top pane on the row axis",
+      "rust": "tests::mounted_horizontal_extension_resize_uses_row_axis_and_body_gutter"
+    },
+    {
+      "upstream": "a mouse release with no active drag leaves the layout unchanged",
+      "rust": "tests::mounted_sidebar_resize_switches_projection_clamps_and_ignores_non_drags"
+    },
+    {
+      "upstream": "a non-left mouse button on the divider does not start a resize",
+      "rust": "tests::mounted_sidebar_resize_switches_projection_clamps_and_ignores_non_drags"
+    }
+  ],
+  "adaptations": [
+    "The bundled Files registration now participates in the same Ratatui pane plan, override map, divider hit area, and drag capture as native extension panes.",
+    "Non-pager review bodies reserve the pinned one-cell gutter on each side, so a 240-column terminal plans a 238-column pane canvas and places the responsive files divider at column 39.",
+    "The host-owned Files renderer receives the planned raw pane width while reserving two columns before choosing the flat or tree projection, reproducing the 31 versus 32 content-cell boundary."
+  ]
+}

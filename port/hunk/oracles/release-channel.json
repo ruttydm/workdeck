@@ -1,0 +1,239 @@
+{
+  "baselines": [
+    "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+    "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"
+  ],
+  "runtime": "Bun 1.3.14, disposable pinned checkouts",
+  "source": {
+    "path": "scripts/resolve-release-channel.ts",
+    "blob": "655e18a56916e95b0fdf4da43c5723216ea563aa"
+  },
+  "source_test": {
+    "path": "scripts/resolve-release-channel.test.ts",
+    "blob": "3a490f4cfe857b705c0d12a5891a5e8bdfa78ea4"
+  },
+  "oracle_runs": {
+    "baseline": {
+      "passed": 7,
+      "failed": 0,
+      "expect_calls": 10
+    },
+    "stable": {
+      "passed": 7,
+      "failed": 0,
+      "expect_calls": 10
+    }
+  },
+  "adaptations": [
+    "npmTag becomes native channel metadata; Workdeck never publishes npm packages.",
+    "Errors refer to release channel tags and the latest release, not npm.",
+    "The separate tag verifier reads the sole workdeck-cli package version from Cargo metadata."
+  ],
+  "native_test_file": "xtask/src/release_channel.rs",
+  "test_mapping": [
+    {
+      "source_test": "publishes a newer stable release as npm and GitHub latest",
+      "native_test": "newer_stable_release_becomes_latest"
+    },
+    {
+      "source_test": "keeps an older-series backport away from latest",
+      "native_test": "older_series_backport_stays_away_from_latest"
+    },
+    {
+      "source_test": "publishes prereleases under beta without changing latest",
+      "native_test": "prereleases_use_beta_without_changing_latest"
+    },
+    {
+      "source_test": "honors an explicit manual-dispatch tag",
+      "native_test": "explicit_manual_dispatch_tag_is_honored"
+    },
+    {
+      "source_test": "marks an explicit manual latest dispatch as latest",
+      "native_test": "explicit_manual_latest_dispatch_is_latest"
+    },
+    {
+      "source_test": "rejects republishing the current latest version",
+      "native_test": "republishing_current_latest_is_rejected"
+    },
+    {
+      "source_test": "rejects missing manual and stable-version inputs",
+      "native_test": "missing_manual_and_stable_version_inputs_are_rejected"
+    }
+  ],
+  "cases": [
+    {
+      "input": {
+        "eventName": "push",
+        "refName": "v0.19.0",
+        "currentLatestVersion": "0.18.2"
+      },
+      "result": {
+        "npmTag": "latest",
+        "makeLatest": true
+      }
+    },
+    {
+      "input": {
+        "eventName": "push",
+        "refName": "v0.17.8",
+        "currentLatestVersion": "0.18.2"
+      },
+      "result": {
+        "npmTag": "backport-0.17",
+        "makeLatest": false
+      }
+    },
+    {
+      "input": {
+        "eventName": "push",
+        "refName": "v0.19.0-alpha.1",
+        "currentLatestVersion": "0.18.2"
+      },
+      "result": {
+        "npmTag": "beta",
+        "makeLatest": false
+      }
+    },
+    {
+      "input": {
+        "eventName": "push",
+        "refName": "v0.19.0-beta.2",
+        "currentLatestVersion": "0.18.2"
+      },
+      "result": {
+        "npmTag": "beta",
+        "makeLatest": false
+      }
+    },
+    {
+      "input": {
+        "eventName": "push",
+        "refName": "v0.19.0-rc.1",
+        "currentLatestVersion": "0.18.2"
+      },
+      "result": {
+        "npmTag": "beta",
+        "makeLatest": false
+      }
+    },
+    {
+      "input": {
+        "eventName": "workflow_dispatch",
+        "refName": "main",
+        "requestedNpmTag": "backport-0.17"
+      },
+      "result": {
+        "npmTag": "backport-0.17",
+        "makeLatest": false
+      }
+    },
+    {
+      "input": {
+        "eventName": "workflow_dispatch",
+        "refName": "main",
+        "requestedNpmTag": "latest"
+      },
+      "result": {
+        "npmTag": "latest",
+        "makeLatest": true
+      }
+    },
+    {
+      "input": {
+        "eventName": "push",
+        "refName": "v0.18.2",
+        "currentLatestVersion": "0.18.2"
+      },
+      "error": "Release v0.18.2 is already npm latest."
+    },
+    {
+      "input": {
+        "eventName": "workflow_dispatch",
+        "refName": "main"
+      },
+      "error": "Manual release dispatch requires an npm tag."
+    },
+    {
+      "input": {
+        "eventName": "push",
+        "refName": "v0.19",
+        "currentLatestVersion": "0.18.2"
+      },
+      "error": "Expected a stable semantic version, received \"v0.19\"."
+    },
+    {
+      "input": {
+        "eventName": "pull_request",
+        "refName": "main"
+      },
+      "error": "Unsupported release event \"pull_request\"."
+    },
+    {
+      "input": {
+        "eventName": "push",
+        "refName": "v0.19.0"
+      },
+      "error": "Expected a stable semantic version, received \"\"."
+    },
+    {
+      "input": {
+        "eventName": "workflow_dispatch",
+        "refName": "main",
+        "requestedNpmTag": "﻿ latest ﻿"
+      },
+      "result": {
+        "npmTag": "latest",
+        "makeLatest": true
+      }
+    },
+    {
+      "input": {
+        "eventName": "workflow_dispatch",
+        "refName": "main",
+        "requestedNpmTag": "   "
+      },
+      "error": "Manual release dispatch requires an npm tag."
+    },
+    {
+      "input": {
+        "eventName": "push",
+        "refName": "v01.02.03",
+        "currentLatestVersion": "2.0.0"
+      },
+      "result": {
+        "npmTag": "backport-1.2",
+        "makeLatest": false
+      }
+    },
+    {
+      "input": {
+        "eventName": "push",
+        "refName": "v9007199254740993.0.0",
+        "currentLatestVersion": "9007199254740992.0.0"
+      },
+      "error": "Release v9007199254740993.0.0 is already npm latest."
+    },
+    {
+      "input": {
+        "eventName": "push",
+        "refName": "v1000000000000000000000.0.0",
+        "currentLatestVersion": "10000000000000000000000.0.0"
+      },
+      "result": {
+        "npmTag": "backport-1e+21.0",
+        "makeLatest": false
+      }
+    },
+    {
+      "input": {
+        "eventName": "push",
+        "refName": "v1.2.9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999",
+        "currentLatestVersion": "1.2.9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999"
+      },
+      "result": {
+        "npmTag": "backport-1.2",
+        "makeLatest": false
+      }
+    }
+  ]
+}

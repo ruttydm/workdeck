@@ -1,0 +1,138 @@
+{
+  "schemaVersion": 1,
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "source": {
+    "path": "src/ui/diff/DiffSectionBody.tsx",
+    "baselineBlob": "f52cffd4ab032d286a5da9bacd05d93a183bdce7",
+    "baselineSha256": "8526474851ede926d512bf0d12434cd4eb079ddfcedd9cc206ca039aaa22f1e2",
+    "baselineBytes": 18169,
+    "baselineLines": 492,
+    "stableBlob": "76291bc391873b082e812844660ce732a03c3f1e",
+    "stableSha256": "1859694a95ea5f01fa882607c8b8baf6d8ffaa30165e23454939efca147a6328",
+    "stableBytes": 17630,
+    "stableLines": 477
+  },
+  "destinations": [
+    {
+      "path": "crates/workdeck-tui/src/diff_section_body.rs",
+      "sha256": "49d8b1ee26f89c79b776116cb2d594be2fb405bcff7aa8ef620eb4030d5b2d6c"
+    },
+    {
+      "path": "crates/workdeck-tui/src/lib.rs",
+      "sha256": "84b6148dcd5cb14ee750892b5009af8a20eed564dc6381713a7fcf3f3e128092"
+    }
+  ],
+  "baselineTestOracle": {
+    "runtime": "bun 1.3.5",
+    "command": "bun test src/ui/components/ui-components.test.tsx --test-name-pattern DiffSectionBody",
+    "result": {
+      "passed": 10,
+      "failed": 0,
+      "filtered": 74,
+      "assertions": 36
+    },
+    "behaviors": [
+      "stack wrapping and continuation geometry",
+      "horizontal code reveal without wrapping",
+      "range-less inline-note placement with hidden headers",
+      "missing, rename-only, added, deleted, and binary messages",
+      "source-fetch capability gated expansion chevron",
+      "code-only hover add-note affordances",
+      "collapsed-gap click routing",
+      "expanded full-source syntax highlighting",
+      "split word-difference paint",
+      "highlight cache reuse after remount"
+    ]
+  },
+  "baselineCellOracle": {
+    "method": "render DiffSectionBody directly with OpenTUI testRender and captureSpans",
+    "stackWidth24": [
+      [
+        { "text": "▌", "fg": "#878c92", "bg": "#272b31" },
+        { "text": "@@ -1,1 +1,1 @@", "fg": "#adaeb1", "bg": "#272b31" },
+        { "text": "        ", "fg": "#ffffff", "bg": "#272b31" }
+      ],
+      [
+        { "text": "▌", "fg": "#f85149", "bg": "#1e2329" },
+        { "text": "- ", "fg": "#f85149", "bg": "#3c1e21" },
+        { "text": "old                  ", "fg": "#e6edf3", "bg": "#3c1e21" }
+      ],
+      [
+        { "text": "▌", "fg": "#2ea043", "bg": "#1e2329" },
+        { "text": "+ ", "fg": "#2ea043", "bg": "#12251d" },
+        { "text": "new                  ", "fg": "#e6edf3", "bg": "#12251d" }
+      ]
+    ],
+    "missingWidth12": [
+      { "text": " ", "fg": "#ffffff", "bg": "#000000" },
+      { "text": "No file s…", "fg": "#adaeb1", "bg": "#000000" },
+      { "text": " ", "fg": "#ffffff", "bg": "#000000" }
+    ]
+  },
+  "stableCellOracle": {
+    "method": "repeat the direct OpenTUI cell capture against v0.20.1",
+    "sameGeometryAndText": true,
+    "additionPaint": [
+      { "text": "▌", "fg": "#3fb950", "bg": "#1e2329" },
+      { "text": "+ ", "fg": "#3fb950", "bg": "#173322" },
+      { "text": "new                  ", "fg": "#e6edf3", "bg": "#173322" }
+    ],
+    "baselineDifference": "The baseline tree's newer default theme uses #2ea043 and #12251d for this addition vector; the baseline is the primary behavior target while stable-only fixes remain tracked separately."
+  },
+  "nativeAdaptation": {
+    "state": "React state, latest-value refs, effects, renderer blur subscription, and the 2000ms timer become DiffSectionBodyState with explicit hover, clock, signal, blur, and unmount transitions.",
+    "callbacks": "Function references become stable host interaction ids; nested painters return concrete gap and note hit geometry for Ratatui input routing.",
+    "highlightHooks": "Native highlighted-diff and highlighted-source coordinators supply immutable resolved values; the section preserves hook request policy and row-plan readiness in its result.",
+    "sourceFetcher": "The JavaScript fetch callback becomes an explicit provider capability boolean, defaulted from provider-neutral source snapshots but overridable by the owning VCS runtime.",
+    "notes": "Inline notes remain complete PlannedReviewRow values delegated to the separately ported native note renderer, matching the original AgentInlineNote component boundary.",
+    "scrollbox": "Scrollable ownership is explicit in the immutable output; measured row slicing and top/bottom panel spacers preserve the complete body geometry before Ratatui paints the viewport."
+  },
+  "sourceCoverage": [
+    {
+      "lines": [1, 74],
+      "bytes": [0, 3325],
+      "destination": "complete imports, constants, note-affordance model, target-row discrimination, and new-side-first address resolution"
+    },
+    {
+      "lines": [75, 152],
+      "bytes": [3325, 6222],
+      "destination": "complete section input contract, defaults, handler capabilities, rendering flags, highlighting policy, geometry, windowing, and scroll ownership"
+    },
+    {
+      "lines": [153, 220],
+      "bytes": [6222, 8337],
+      "destination": "hovered-row state, stable latest-handler identities, idle deadline, clear and activation transitions, focus blur, signal clearing, and unmount cleanup"
+    },
+    {
+      "lines": [221, 289],
+      "bytes": [8337, 10468],
+      "destination": "resolved diff/source highlight inputs, source-line span projection, canonical section row plan, highlight-readiness result, and paint-only extension highlight index"
+    },
+    {
+      "lines": [290, 369],
+      "bytes": [10468, 14091],
+      "destination": "stable gap and note action identities, per-row affordance index, shared hover routing, measured visible-row window, and exact spacer preservation"
+    },
+    {
+      "lines": [370, 492],
+      "bytes": [14091, 18169],
+      "destination": "missing/empty messages, visible row filtering and ids, inline-note delegation, hunk gaps, cursor/copy/selection paint dispatch, hover badge gating, and scrollable content wrapper policy"
+    }
+  ],
+  "executableParityTests": [
+    "diff_section_body::tests::note_targets_prefer_new_addresses_and_reject_metadata_rows",
+    "diff_section_body::tests::hover_lifecycle_matches_activation_timeout_signal_blur_and_unmount",
+    "diff_section_body::tests::early_messages_keep_hunk_insets_copy_and_bottom_padding",
+    "diff_section_body::tests::section_dispatches_rows_selection_cursor_and_hover_badges",
+    "diff_section_body::tests::baseline_cell_oracle_matches_direct_opentui_capture",
+    "diff_section_body::tests::measured_window_preserves_spacers_and_scroll_policy",
+    "diff_section_body::tests::source_capability_gates_gap_toggle_and_highlight_readiness",
+    "planned_row_text::tests::stack_rows_apply_horizontal_copy_offset",
+    "planned_row_text::tests::wrapping_side_projection_and_guides_use_the_planned_geometry",
+    "review_render_plan::tests::range_less_note_uses_default_new_first_line_without_guides",
+    "diff_rows::tests::highlighted_source_spans_use_syntax_and_plain_fallbacks",
+    "line_highlight_paint::tests::overrides_word_diff_background_only_inside_marked_range",
+    "highlighted_diff_runtime::tests::retryable_and_stale_completions_never_poison_shared_cache"
+  ]
+}

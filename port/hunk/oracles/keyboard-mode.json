@@ -1,0 +1,40 @@
+{
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "source": {
+    "path": "src/ui/keyboardModes/mode.ts",
+    "baselineBlob": "64b1017ca25e1c27eac31dd916b0bc513696be82",
+    "stableBlob": "64b1017ca25e1c27eac31dd916b0bc513696be82"
+  },
+  "test": {
+    "path": "src/ui/keyboardModes/mode.test.ts",
+    "baselineBlob": "965cdf5cac6da9d9d0b334bdff8dedec4ed83ad8",
+    "stableBlob": "965cdf5cac6da9d9d0b334bdff8dedec4ed83ad8"
+  },
+  "baselineOracle": {
+    "runtime": "bun 1.3.5",
+    "passed": 4,
+    "failed": 0,
+    "expectations": 12
+  },
+  "stableOracle": {
+    "runtime": "bun 1.3.5",
+    "passed": 4,
+    "failed": 0,
+    "expectations": 12
+  },
+  "invariants": [
+    "an active mode remains valid only while both registry and registration object identities remain authoritative",
+    "a closed registry immediately invalidates the active mode",
+    "mode titles and fallback owner labels are terminal sanitized",
+    "missing or invalid key results normalize to pass",
+    "throwing or asynchronous key callbacks exit with an attributed warning",
+    "absent lifecycle callbacks succeed while throwing or asynchronous callbacks fail with an attributed warning"
+  ],
+  "nativeAdaptation": {
+    "callbackBoundary": "Native subprocess requests are deadline-bounded JSON-RPC calls, while the pure Rust callback adapter executes the same return normalization and containment contract without a JavaScript promise runtime.",
+    "identity": "Arc pointer identity preserves Hunk registration and registry authority across Ratatui runtime replacement.",
+    "integration": "The Ratatui shell validates identity before routing, owns Escape, displays the persistent attributed status, and uses exact lifecycle and key failure attribution.",
+    "coverage": "Four Rust behavior tests translate all four upstream tests; one metadata test pins both executed oracle runs and blobs."
+  }
+}

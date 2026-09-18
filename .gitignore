@@ -1,5 +1,29 @@
 /target/
+/site/public/
 /dist/
 /artifacts/
 /test-results/
+
+# Native build, coverage, logs, and temporary media output.
+/out/
+*.tgz
+/coverage/
+*.lcov
+/logs/
+_.log
+report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
+.cache/
+*.tsbuildinfo
+.direnv/
+/tmp/
+/.video-work/
+/result/
+
+# Local editor and platform state.
+.idea/
 .DS_Store
+
+# Workdeck's authoritative repository state is intentionally not ignored:
+# `.agents/workdeck/` and user configuration remain visible to the store.
+
+/port/hunk/ledger.jsonl.lock

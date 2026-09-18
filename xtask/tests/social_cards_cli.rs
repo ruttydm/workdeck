@@ -1,0 +1,394 @@
+use std::{fs, process::Command};
+
+#[test]
+#[ignore = "requires explicit WORKDECK_ORACLE_DRIVER, WORKDECK_ORACLE_BROWSER and WORKDECK_ORACLE_FONT paths"]
+fn native_generator_captures_then_publishes_without_partial_capture_writes() {
+    let repo = tempfile::tempdir().unwrap();
+    let recovery = tempfile::tempdir().unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "--quiet"])
+            .arg(repo.path())
+            .status()
+            .unwrap()
+            .success()
+    );
+    fs::write(repo.path().join("cards.json"), b"[]").unwrap();
+    fs::create_dir_all(repo.path().join("site/static/changelog/og")).unwrap();
+    let stale = repo.path().join("site/static/changelog/og/old.png");
+    fs::write(&stale, b"preserve on capture failure").unwrap();
+    let font = std::env::var_os("WORKDECK_ORACLE_FONT").expect("font");
+    let browser = std::env::var_os("WORKDECK_ORACLE_BROWSER").expect("browser");
+    let driver = std::env::var_os("WORKDECK_ORACLE_DRIVER").expect("driver");
+    let backup = recovery.path().join("backup");
+    let run = |driver: &std::ffi::OsStr| {
+        Command::new(env!("CARGO_BIN_EXE_xtask"))
+            .current_dir(repo.path())
+            .args(["social-cards-generate", "cards.json"])
+            .arg(&font)
+            .arg(driver)
+            .arg(&browser)
+            .arg(&backup)
+            .output()
+            .unwrap()
+    };
+    let failed = run(std::ffi::OsStr::new("missing-driver"));
+    assert!(!failed.status.success());
+    assert!(failed.stdout.is_empty());
+    assert_eq!(fs::read(&stale).unwrap(), b"preserve on capture failure");
+    assert!(!backup.exists());
+    assert!(!repo.path().join("site/static/extensions").exists());
+    let output = run(&driver);
+    assert!(output.status.success(), "{output:?}");
+    assert!(output.stderr.is_empty());
+    assert_eq!(
+        output.stdout,
+        b"extensions.png\nRendered 1 card(s):\nsite/static/extensions/og.png\n"
+    );
+    assert!(!stale.exists());
+    assert!(!repo.path().join("site/static/changelog/og").exists());
+    let bytes = fs::read(repo.path().join("site/static/extensions/og.png")).unwrap();
+    let reader = png::Decoder::new(std::io::Cursor::new(bytes))
+        .read_info()
+        .unwrap();
+    assert_eq!((reader.info().width, reader.info().height), (1200, 630));
+    let saved: serde_json::Value =
+        serde_json::from_slice(&fs::read(backup.join("recovery.json")).unwrap()).unwrap();
+    assert_eq!(
+        saved["originals"]["site/static/changelog/og/old.png"],
+        serde_json::json!(b"preserve on capture failure".to_vec())
+    );
+    assert_eq!(fs::read(repo.path().join("cards.json")).unwrap(), b"[]");
+    assert!(!repo.path().join(".agents").exists());
+}
+
+#[test]
+fn publication_cli_applies_checks_staleness_and_preserves_targeted_images() {
+    use sha2::{Digest, Sha256};
+    let repo = tempfile::tempdir().unwrap();
+    let staging = tempfile::tempdir().unwrap();
+    let backups = tempfile::tempdir().unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "--quiet"])
+            .arg(repo.path())
+            .status()
+            .unwrap()
+            .success()
+    );
+    fs::write(repo.path().join("cards.json"), b"[]").unwrap();
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_xtask"))
+            .current_dir(repo.path())
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let targets = run(&["social-cards-plan", "cards.json", "extensions"]);
+    assert!(targets.status.success());
+    let targets: serde_json::Value = serde_json::from_slice(&targets.stdout).unwrap();
+    let mut bytes = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut bytes, 1200, 630);
+        encoder.set_color(png::ColorType::Rgb);
+        encoder.set_depth(png::BitDepth::Eight);
+        encoder
+            .write_header()
+            .unwrap()
+            .write_image_data(&vec![0; 1200 * 630 * 3])
+            .unwrap();
+    }
+    fs::write(staging.path().join("0000.png"), &bytes).unwrap();
+    let manifest = serde_json::json!({"schema":1,"stagingDirectory":staging.path().canonicalize().unwrap(),
+        "rendered":true,"published":false,"replaceChangelogDirectory":false,
+        "images":[{"stagedFile":"0000.png","target":targets["targets"][0],"bytes":bytes.len(),"sha256":format!("{:x}",Sha256::digest(&bytes))}]});
+    fs::write(
+        staging.path().join("capture.json"),
+        serde_json::to_vec(&manifest).unwrap(),
+    )
+    .unwrap();
+    fs::create_dir_all(repo.path().join("site/static/changelog/og")).unwrap();
+    let stale = repo.path().join("site/static/changelog/og/stale.png");
+    fs::write(&stale, b"untouched").unwrap();
+    let stage = staging.path().to_str().unwrap();
+    let plan = run(&[
+        "social-cards-publication-plan",
+        stage,
+        "cards.json",
+        "extensions",
+    ]);
+    assert!(plan.status.success(), "{plan:?}");
+    fs::write(repo.path().join("plan.json"), &plan.stdout).unwrap();
+    let backup = backups.path().join("first");
+    let lock = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(repo.path().join(".git/workdeck-release.lock"))
+        .unwrap();
+    lock.try_lock().unwrap();
+    let blocked = run(&[
+        "social-cards-publish",
+        "plan.json",
+        backup.to_str().unwrap(),
+        stage,
+        "cards.json",
+        "extensions",
+    ]);
+    assert!(!blocked.status.success());
+    assert!(blocked.stdout.is_empty());
+    assert!(!backup.exists());
+    assert!(!repo.path().join("site/static/extensions/og.png").exists());
+    assert_eq!(fs::read(&stale).unwrap(), b"untouched");
+    drop(lock);
+    let publish = run(&[
+        "social-cards-publish",
+        "plan.json",
+        backup.to_str().unwrap(),
+        stage,
+        "cards.json",
+        "extensions",
+    ]);
+    assert!(publish.status.success(), "{publish:?}");
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&publish.stdout).unwrap(),
+        serde_json::json!({"applied":true,"files":1})
+    );
+    assert_eq!(
+        fs::read(repo.path().join("site/static/extensions/og.png")).unwrap(),
+        bytes
+    );
+    assert_eq!(fs::read(&stale).unwrap(), b"untouched");
+    let saved: serde_json::Value =
+        serde_json::from_slice(&fs::read(backup.join("recovery.json")).unwrap()).unwrap();
+    assert_eq!(
+        saved,
+        serde_json::from_slice::<serde_json::Value>(&plan.stdout).unwrap()
+    );
+    let second_backup = backups.path().join("second");
+    let args = [
+        "social-cards-publish",
+        "plan.json",
+        second_backup.to_str().unwrap(),
+        stage,
+        "cards.json",
+        "extensions",
+    ];
+    let stale_plan = run(&args);
+    assert!(!stale_plan.status.success());
+    assert!(stale_plan.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&stale_plan.stderr).contains("stale or modified"));
+    assert!(!second_backup.exists());
+    let current = run(&[
+        "social-cards-publication-plan",
+        stage,
+        "cards.json",
+        "extensions",
+    ]);
+    assert!(current.status.success());
+    fs::write(repo.path().join("plan.json"), current.stdout).unwrap();
+    let unchanged = run(&args);
+    assert!(unchanged.status.success(), "{unchanged:?}");
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&unchanged.stdout).unwrap(),
+        serde_json::json!({"applied":false,"files":0})
+    );
+    assert!(!second_backup.exists());
+    assert_eq!(fs::read(staging.path().join("0000.png")).unwrap(), bytes);
+    let mut full_manifest = manifest;
+    full_manifest["replaceChangelogDirectory"] = true.into();
+    fs::write(
+        staging.path().join("capture.json"),
+        serde_json::to_vec(&full_manifest).unwrap(),
+    )
+    .unwrap();
+    let full_plan = run(&["social-cards-publication-plan", stage, "cards.json"]);
+    assert!(full_plan.status.success(), "{full_plan:?}");
+    fs::write(repo.path().join("plan.json"), &full_plan.stdout).unwrap();
+    let full = run(&[
+        "social-cards-publish",
+        "plan.json",
+        second_backup.to_str().unwrap(),
+        stage,
+        "cards.json",
+    ]);
+    assert!(full.status.success(), "{full:?}");
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&full.stdout).unwrap(),
+        serde_json::json!({"applied":true,"files":1})
+    );
+    assert!(!stale.exists());
+    assert!(!repo.path().join("site/static/changelog/og").exists());
+    assert_eq!(
+        fs::read(repo.path().join("site/static/extensions/og.png")).unwrap(),
+        bytes
+    );
+    let recovery: serde_json::Value =
+        serde_json::from_slice(&fs::read(second_backup.join("recovery.json")).unwrap()).unwrap();
+    assert_eq!(
+        recovery["originals"]["site/static/changelog/og/stale.png"],
+        serde_json::json!(b"untouched".to_vec())
+    );
+    assert_eq!(
+        recovery["replacements"]["site/static/changelog/og/stale.png"],
+        serde_json::Value::Null
+    );
+    assert_eq!(fs::read(repo.path().join("cards.json")).unwrap(), b"[]");
+    assert!(!repo.path().join(".agents").exists());
+}
+
+#[test]
+fn saved_capture_cli_validates_hashes_without_changing_inputs() {
+    use sha2::{Digest, Sha256};
+    let repo = tempfile::tempdir().unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "--quiet"])
+            .arg(repo.path())
+            .status()
+            .unwrap()
+            .success()
+    );
+    fs::write(repo.path().join("cards.json"), b"[]").unwrap();
+    let plan = Command::new(env!("CARGO_BIN_EXE_xtask"))
+        .current_dir(repo.path())
+        .args(["social-cards-plan", "cards.json", "extensions"])
+        .output()
+        .unwrap();
+    assert!(plan.status.success());
+    let plan: serde_json::Value = serde_json::from_slice(&plan.stdout).unwrap();
+    let staging = tempfile::tempdir().unwrap();
+    let mut bytes = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut bytes, 1200, 630);
+        encoder.set_color(png::ColorType::Rgb);
+        encoder.set_depth(png::BitDepth::Eight);
+        encoder
+            .write_header()
+            .unwrap()
+            .write_image_data(&vec![0; 1200 * 630 * 3])
+            .unwrap();
+    }
+    fs::write(staging.path().join("0000.png"), &bytes).unwrap();
+    let manifest = serde_json::json!({"schema":1,"stagingDirectory":staging.path().canonicalize().unwrap(),
+        "rendered":true,"published":false,"replaceChangelogDirectory":false,
+        "images":[{"stagedFile":"0000.png","target":plan["targets"][0],"bytes":bytes.len(),"sha256":format!("{:x}",Sha256::digest(bytes))}]});
+    let encoded = serde_json::to_vec_pretty(&manifest).unwrap();
+    fs::write(staging.path().join("capture.json"), &encoded).unwrap();
+    let check = || {
+        Command::new(env!("CARGO_BIN_EXE_xtask"))
+            .current_dir(repo.path())
+            .args([
+                "social-cards-check",
+                staging.path().to_str().unwrap(),
+                "cards.json",
+                "extensions",
+            ])
+            .output()
+            .unwrap()
+    };
+    let valid = check();
+    assert!(valid.status.success(), "{valid:?}");
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&valid.stdout).unwrap(),
+        serde_json::json!({"valid":true,"published":false,"images":1})
+    );
+    fs::write(staging.path().join("0000.png"), b"changed").unwrap();
+    let invalid = check();
+    assert!(!invalid.status.success());
+    assert!(invalid.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&invalid.stderr).contains("stale, modified"));
+    assert_eq!(
+        fs::read(staging.path().join("0000.png")).unwrap(),
+        b"changed"
+    );
+    assert_eq!(
+        fs::read(staging.path().join("capture.json")).unwrap(),
+        encoded
+    );
+    assert_eq!(fs::read(repo.path().join("cards.json")).unwrap(), b"[]");
+    assert!(!repo.path().join("site").exists());
+    assert!(!repo.path().join(".agents").exists());
+}
+
+#[test]
+fn card_planning_is_read_only_and_distinguishes_full_and_targeted_runs() {
+    let repo = tempfile::tempdir().unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "--quiet"])
+            .arg(repo.path())
+            .status()
+            .unwrap()
+            .success()
+    );
+    let input =
+        br#"[{"slug":"index","title":"Changelog","meta":"Releases","alt":"Release history"}]"#;
+    fs::write(repo.path().join("cards.json"), input).unwrap();
+    for (slugs, full, count) in [(vec![], true, 2), (vec!["extensions"], false, 1)] {
+        let output = Command::new(env!("CARGO_BIN_EXE_xtask"))
+            .current_dir(repo.path())
+            .args(["social-cards-plan", "cards.json"])
+            .args(slugs)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        let plan: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(plan["replaceChangelogDirectory"], full);
+        assert_eq!(plan["rendered"], false);
+        assert_eq!(plan["width"], 1200);
+        assert_eq!(plan["height"], 630);
+        assert_eq!(plan["targets"].as_array().unwrap().len(), count);
+    }
+    let unknown = Command::new(env!("CARGO_BIN_EXE_xtask"))
+        .current_dir(repo.path())
+        .args(["social-cards-plan", "cards.json", "unknown"])
+        .output()
+        .unwrap();
+    assert!(!unknown.status.success());
+    assert!(unknown.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&unknown.stderr).contains("Known slugs: index, extensions"));
+    assert_eq!(fs::read(repo.path().join("cards.json")).unwrap(), input);
+    assert!(!repo.path().join("site").exists());
+    assert!(!repo.path().join(".agents").exists());
+    fs::write(repo.path().join("font.woff2"), b"fixture font bytes").unwrap();
+    let html = Command::new(env!("CARGO_BIN_EXE_xtask"))
+        .current_dir(repo.path())
+        .args([
+            "social-cards-html",
+            "cards.json",
+            "font.woff2",
+            "extensions",
+        ])
+        .output()
+        .unwrap();
+    assert!(html.status.success(), "{html:?}");
+    let pages: serde_json::Value = serde_json::from_slice(&html.stdout).unwrap();
+    assert_eq!(pages.as_object().unwrap().len(), 1);
+    let document = pages["site/static/extensions/og.png"].as_str().unwrap();
+    assert!(document.contains("<!doctype html>"));
+    assert!(document.contains("width: 1200px"));
+    assert!(document.contains("workdeck.dev/extensions"));
+    assert!(!document.contains("<script"));
+    assert!(!repo.path().join("site").exists());
+    assert_eq!(
+        fs::read(repo.path().join("font.woff2")).unwrap(),
+        b"fixture font bytes"
+    );
+    let failed_capture = Command::new(env!("CARGO_BIN_EXE_xtask"))
+        .current_dir(repo.path())
+        .args([
+            "social-cards-capture",
+            "cards.json",
+            "font.woff2",
+            "missing-driver",
+            "missing-browser",
+            "extensions",
+        ])
+        .output()
+        .unwrap();
+    assert!(!failed_capture.status.success());
+    assert!(failed_capture.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&failed_capture.stderr).contains("launch WebDriver"));
+    assert!(!repo.path().join("site").exists());
+}

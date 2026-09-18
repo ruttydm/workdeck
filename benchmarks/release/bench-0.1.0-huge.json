@@ -1,0 +1,255 @@
+{
+  "version": 1,
+  "generatedAt": "2026-09-11T10:40:09.858Z",
+  "gitSha": "85d165a4abcfb3fdc1cfaff6799cf777e4ccef2d",
+  "packageVersion": "0.1.0",
+  "runtime": {
+    "platform": "darwin",
+    "arch": "arm64"
+  },
+  "samplesPerBenchmark": 1.0,
+  "results": [
+    {
+      "name": "huge-stream/files",
+      "unit": "count",
+      "samples": [
+        1001.0
+      ],
+      "median": 1001.0,
+      "p75": 1001.0,
+      "p95": 1001.0,
+      "min": 1001.0,
+      "max": 1001.0,
+      "comparable": false,
+      "source": "huge-stream"
+    },
+    {
+      "name": "huge-stream/giant_file_lines",
+      "unit": "count",
+      "samples": [
+        50000.0
+      ],
+      "median": 50000.0,
+      "p75": 50000.0,
+      "p95": 50000.0,
+      "min": 50000.0,
+      "max": 50000.0,
+      "comparable": false,
+      "source": "huge-stream"
+    },
+    {
+      "name": "huge-stream/huge_after_first_frame_malloc_in_use_bytes",
+      "unit": "bytes",
+      "samples": [
+        384022816.0
+      ],
+      "median": 384022816.0,
+      "p75": 384022816.0,
+      "p95": 384022816.0,
+      "min": 384022816.0,
+      "max": 384022816.0,
+      "comparable": false,
+      "source": "huge-stream"
+    },
+    {
+      "name": "huge-stream/huge_after_first_frame_rss_bytes",
+      "unit": "bytes",
+      "samples": [
+        870629376.0
+      ],
+      "median": 870629376.0,
+      "p75": 870629376.0,
+      "p95": 870629376.0,
+      "min": 870629376.0,
+      "max": 870629376.0,
+      "threshold": {
+        "maxRegressionRatio": 1.2,
+        "minAbsoluteRegression": 8388608.0
+      },
+      "comparable": true,
+      "source": "huge-stream"
+    },
+    {
+      "name": "huge-stream/huge_after_navigation_malloc_in_use_bytes",
+      "unit": "bytes",
+      "samples": [
+        385901056.0
+      ],
+      "median": 385901056.0,
+      "p75": 385901056.0,
+      "p95": 385901056.0,
+      "min": 385901056.0,
+      "max": 385901056.0,
+      "comparable": false,
+      "source": "huge-stream"
+    },
+    {
+      "name": "huge-stream/huge_after_navigation_rss_bytes",
+      "unit": "bytes",
+      "samples": [
+        886980608.0
+      ],
+      "median": 886980608.0,
+      "p75": 886980608.0,
+      "p95": 886980608.0,
+      "min": 886980608.0,
+      "max": 886980608.0,
+      "threshold": {
+        "maxRegressionRatio": 1.2,
+        "minAbsoluteRegression": 8388608.0
+      },
+      "comparable": true,
+      "source": "huge-stream"
+    },
+    {
+      "name": "huge-stream/huge_cold_first_frame_ms",
+      "unit": "ms",
+      "samples": [
+        35.44
+      ],
+      "median": 35.44,
+      "p75": 35.44,
+      "p95": 35.44,
+      "min": 35.44,
+      "max": 35.44,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "huge-stream"
+    },
+    {
+      "name": "huge-stream/huge_fixture_build_ms",
+      "unit": "ms",
+      "samples": [
+        620.51
+      ],
+      "median": 620.51,
+      "p75": 620.51,
+      "p95": 620.51,
+      "min": 620.51,
+      "max": 620.51,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "huge-stream"
+    },
+    {
+      "name": "huge-stream/huge_hunk_nav_press_median_ms",
+      "unit": "ms",
+      "samples": [
+        26.04
+      ],
+      "median": 26.04,
+      "p75": 26.04,
+      "p95": 26.04,
+      "min": 26.04,
+      "max": 26.04,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "huge-stream"
+    },
+    {
+      "name": "huge-stream/huge_hunk_nav_press_p95_ms",
+      "unit": "ms",
+      "samples": [
+        27.38
+      ],
+      "median": 27.38,
+      "p75": 27.38,
+      "p95": 27.38,
+      "min": 27.38,
+      "max": 27.38,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "huge-stream"
+    },
+    {
+      "name": "huge-stream/huge_scroll_tick_median_ms",
+      "unit": "ms",
+      "samples": [
+        24.82
+      ],
+      "median": 24.82,
+      "p75": 24.82,
+      "p95": 24.82,
+      "min": 24.82,
+      "max": 24.82,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "huge-stream"
+    },
+    {
+      "name": "huge-stream/huge_scroll_tick_p95_ms",
+      "unit": "ms",
+      "samples": [
+        27.86
+      ],
+      "median": 27.86,
+      "p75": 27.86,
+      "p95": 27.86,
+      "min": 27.86,
+      "max": 27.86,
+      "threshold": {
+        "maxRegressionRatio": 1.15,
+        "minAbsoluteRegression": 5.0
+      },
+      "comparable": true,
+      "source": "huge-stream"
+    },
+    {
+      "name": "huge-stream/lines_per_file",
+      "unit": "count",
+      "samples": [
+        300.0
+      ],
+      "median": 300.0,
+      "p75": 300.0,
+      "p95": 300.0,
+      "min": 300.0,
+      "max": 300.0,
+      "comparable": false,
+      "source": "huge-stream"
+    },
+    {
+      "name": "huge-stream/navigation_presses",
+      "unit": "count",
+      "samples": [
+        4.0
+      ],
+      "median": 4.0,
+      "p75": 4.0,
+      "p95": 4.0,
+      "min": 4.0,
+      "max": 4.0,
+      "comparable": false,
+      "source": "huge-stream"
+    },
+    {
+      "name": "huge-stream/scroll_ticks",
+      "unit": "count",
+      "samples": [
+        6.0
+      ],
+      "median": 6.0,
+      "p75": 6.0,
+      "p95": 6.0,
+      "min": 6.0,
+      "max": 6.0,
+      "comparable": false,
+      "source": "huge-stream"
+    }
+  ]
+}

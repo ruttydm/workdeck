@@ -1,0 +1,7 @@
+id = "coach"
+name = "Keybindings lifecycle probe"
+version = "0.1.0"
+api_version = 1
+executable = "bin/workdeck-example-keybindings-probe-extension"
+capabilities = ["commands", "configuration", "events", "review-navigation"]
+description = "Compiled fixture for command dispatch and shutdown ordering parity"

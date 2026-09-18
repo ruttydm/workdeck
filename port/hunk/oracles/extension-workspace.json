@@ -1,0 +1,53 @@
+{
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "platform": "darwin",
+  "root": "/repo",
+  "cases": {
+    "writable": {
+      "writable": true,
+      "path": "src/alpha.ts",
+      "absolutePath": "/repo/src/alpha.ts"
+    },
+    "range": {
+      "writable": false,
+      "detail": "Workspace writes are working-tree only; this session is reviewing a revision range."
+    },
+    "staged": {
+      "writable": false,
+      "detail": "Workspace writes are working-tree only; this session is reviewing staged changes."
+    },
+    "stdinContext": {
+      "writable": false,
+      "detail": "Workspace writes need a session that can reload; this one cannot, because part of its input came from stdin (--agent-context -)."
+    },
+    "missing": {
+      "writable": false,
+      "detail": "No reviewed file has the id \"missing\"."
+    },
+    "deleted": {
+      "writable": false,
+      "detail": "src/alpha.ts was deleted in this review; it has no new side."
+    },
+    "binary": {
+      "writable": false,
+      "detail": "src/alpha.ts is binary; workspace writes are text-only."
+    },
+    "large": {
+      "writable": false,
+      "detail": "src/alpha.ts was skipped as too large to load."
+    },
+    "escape": {
+      "writable": false,
+      "detail": "../outside/secret.ts resolves outside the reviewed repository."
+    },
+    "root": {
+      "writable": false,
+      "detail": ". resolves outside the reviewed repository."
+    },
+    "crlf": {
+      "writable": true,
+      "path": "src/alpha.ts",
+      "absolutePath": "/repo/src/alpha.ts"
+    }
+  }
+}

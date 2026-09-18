@@ -1,0 +1,53 @@
+diff --git a/src/retry.rs b/src/retry.rs
+index 1111111..2222222 100644
+--- a/src/retry.rs
++++ b/src/retry.rs
+@@ -1,9 +1,46 @@
+ use std::future::Future;
++use std::time::Duration;
+
+-pub async fn fetch_once<T, E, Fetch, FetchFuture>(url: &str, mut fetch: Fetch) -> Result<T, E>
++pub const DEFAULT_ATTEMPTS: usize = 3;
++
++pub async fn fetch_with_retry<T, E, Fetch, FetchFuture, Sleep, SleepFuture>(
++    url: &str,
++    attempts: usize,
++    mut fetch: Fetch,
++    mut sleep: Sleep,
++) -> Result<T, E>
+ where
+     Fetch: FnMut(&str) -> FetchFuture,
+     FetchFuture: Future<Output = Result<T, E>>,
++    Sleep: FnMut(Duration) -> SleepFuture,
++    SleepFuture: Future<Output = ()>,
+ {
+-    fetch(url).await
++    let mut delay = Duration::from_millis(100);
++    for attempt in 1..=attempts {
++        match fetch(url).await {
++            Ok(response) => return Ok(response),
++            Err(error) => {
++                if attempt == attempts {
++                    return Err(error);
++                }
++                sleep(delay).await;
++                delay = delay.saturating_mul(2);
++            }
++        }
++    }
++    unreachable!("a zero-attempt retry has no response")
++}
++
++pub async fn fetch_with_default_retry<T, E, Fetch, FetchFuture, Sleep, SleepFuture>(
++    url: &str,
++    fetch: Fetch,
++    sleep: Sleep,
++) -> Result<T, E>
++where
++    Fetch: FnMut(&str) -> FetchFuture,
++    FetchFuture: Future<Output = Result<T, E>>,
++    Sleep: FnMut(Duration) -> SleepFuture,
++    SleepFuture: Future<Output = ()>,
++{
++    fetch_with_retry(url, DEFAULT_ATTEMPTS, fetch, sleep).await
+ }

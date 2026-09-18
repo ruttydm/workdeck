@@ -1,0 +1,271 @@
+{
+  "schemaVersion": 1,
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "sources": [
+    {
+      "path": "src/ui/diff/codeRowLayout.ts",
+      "baselineBlob": "9a105f8c7d36ea5b14a9a8d89386f41f214f8f3c",
+      "baselineSha256": "da9a62889c2b05cea3b80fd2bbda97bb9ac9fc3095e041f7e1d1a462c2e9468d",
+      "baselineBytes": 6502,
+      "baselineLines": 236,
+      "stableState": "absent"
+    },
+    {
+      "path": "src/ui/diff/codeRowLayout.test.ts",
+      "baselineBlob": "5c7fd13e2ee76a28398a56dc6e84c475627ce6b1",
+      "baselineSha256": "002abbc6f364ca02628aef04abb24b57b0098472d12c9cc8d12a85b1203c5f52",
+      "baselineBytes": 7151,
+      "baselineLines": 211,
+      "stableState": "absent"
+    },
+    {
+      "path": "src/ui/diff/plannedRowText.ts",
+      "baselineBlob": "19e2c6071388d468ef26a81e824ed39de21a82fc",
+      "baselineSha256": "c9f30b51de9d57d1fc115231a3ef60fd566773b503f6811d18a0156fb4d44bec",
+      "baselineBytes": 12921,
+      "baselineLines": 414,
+      "stableState": "absent"
+    }
+  ],
+  "destinations": [
+    {
+      "path": "crates/workdeck-tui/src/code_row_layout.rs",
+      "sha256": "31cf87c3757199b1416968ff71c63f91e27a7535c3786f6fbdd0bf248d41e4d9"
+    },
+    {
+      "path": "crates/workdeck-tui/src/planned_review_row.rs",
+      "sha256": "2a54a3615c1b2b360a99264e77a424fbad60a837d46ed56d4efa68106607ed4e"
+    },
+    {
+      "path": "crates/workdeck-tui/src/planned_row_text.rs",
+      "sha256": "fa1ad9301dddd0720f15921772e7e1f156f6c072ca3ecc8ebde458a87da54fb2"
+    },
+    {
+      "path": "crates/workdeck-tui/src/lib.rs",
+      "sha256": "596043eda721e26b35c22b16c503f501525fe6109a96f79d6ddbe820d0d9d8a7"
+    }
+  ],
+  "baselineOracles": [
+    {
+      "runtime": "bun 1.3.5",
+      "command": "bun test src/ui/diff/codeRowLayout.test.ts",
+      "passed": 4,
+      "filtered": 0,
+      "failed": 0,
+      "expectations": 288
+    },
+    {
+      "runtime": "bun 1.3.5",
+      "command": "bun test src/ui/diff/diffRows.test.ts --test-name-pattern 'renders planned split rows|keeps the split separator aligned|renders planned stack rows|renders planned rows as code-only'",
+      "passed": 4,
+      "filtered": 25,
+      "failed": 0,
+      "expectations": 14,
+      "relationship": "These four tests are frozen behavioral evidence for plannedRowText.ts. The complete diffRows.test.ts blob remains unmapped until every one of its 29 tests is translated."
+    }
+  ],
+  "stableOracle": {
+    "state": "not-applicable-source-absent",
+    "relationship": "All three baseline files were introduced after v0.20.1. A path-level diff-tree check confirms that none of the five stable-only commits modifies these paths."
+  },
+  "projectionVectors": {
+    "runtime": "bun 1.3.5",
+    "source": "untouched pinned baseline plannedRowText.ts",
+    "fit": ["", "…", "abc…", "日…"],
+    "split": ["▌1 - const x =  ▌1 + const x = │"],
+    "splitRight": ["▌1 + const x = │"],
+    "contextCode": ["same line"],
+    "stackOffset": ["│  4 +  const answer = 42;"],
+    "note": ["Codex note …", "summary", "words wrap", "because safe"],
+    "messages": [
+      "No textual hunks. This change only renames the file.",
+      "Binary file skipped",
+      "File too large to render automatically.",
+      "No textual hunks. The file is marked as new.",
+      "No textual hunks. The file is marked as deleted.",
+      "No textual hunks to render for this file."
+    ]
+  },
+  "sourceCoverage": {
+    "src/ui/diff/codeRowLayout.ts": [
+      {
+        "lines": [1, 56],
+        "bytes": [0, 1759],
+        "destination": "planned-row, cell, option, and split-or-stack geometry vocabulary"
+      },
+      {
+        "lines": [57, 80],
+        "bytes": [1759, 2407],
+        "destination": "lazy and memoized cell width and wrapped-height planning"
+      },
+      {
+        "lines": [81, 182],
+        "bytes": [2407, 5096],
+        "destination": "split and stack row planning with guide and note-badge reservations"
+      },
+      {
+        "lines": [183, 200],
+        "bytes": [5096, 5490],
+        "destination": "raw-row adaptation to the provider-neutral planned-row model"
+      },
+      {
+        "lines": [201, 216],
+        "bytes": [5490, 5978],
+        "destination": "planned-row physical-height measurement"
+      },
+      {
+        "lines": [217, 236],
+        "bytes": [5978, 6502],
+        "destination": "legacy renderer-facing height adapter"
+      }
+    ],
+    "src/ui/diff/plannedRowText.ts": [
+      {
+        "lines": [1, 43],
+        "bytes": [0, 1512],
+        "destination": "projection options, side filtering, and plain-cell vocabulary"
+      },
+      {
+        "lines": [44, 61],
+        "bytes": [1512, 1923],
+        "destination": "terminal-safe ellipsis fitting"
+      },
+      {
+        "lines": [62, 91],
+        "bytes": [1923, 2835],
+        "destination": "sanitized fixed-width, flattened, and code-only span projection"
+      },
+      {
+        "lines": [92, 124],
+        "bytes": [2835, 3914],
+        "destination": "split-cell nowrap and wrapped text construction"
+      },
+      {
+        "lines": [125, 157],
+        "bytes": [3914, 4993],
+        "destination": "stack-cell nowrap and wrapped text construction"
+      },
+      {
+        "lines": [158, 163],
+        "bytes": [4993, 5274],
+        "destination": "hunk-header and collapsed-row rail projection"
+      },
+      {
+        "lines": [164, 290],
+        "bytes": [5274, 9200],
+        "destination": "decorated note, gap, split, stack, guide, and side-filter projection"
+      },
+      {
+        "lines": [291, 394],
+        "bytes": [9200, 12085],
+        "destination": "decoration-free code projection, context deduplication, wrapping, and side filters"
+      },
+      {
+        "lines": [395, 404],
+        "bytes": [12085, 12595],
+        "destination": "complete empty-diff reason wording table"
+      },
+      {
+        "lines": [405, 414],
+        "bytes": [12595, 12921],
+        "destination": "file metadata to empty-diff message projection"
+      }
+    ]
+  },
+  "testCoverage": [
+    {
+      "lines": [1, 14],
+      "bytes": [0, 544],
+      "destination": "native imports, shared boundary string, and planned-row type boundary"
+    },
+    {
+      "lines": [15, 68],
+      "bytes": [544, 1797],
+      "destination": "native split, stack, and decorated-row fixtures"
+    },
+    {
+      "lines": [69, 77],
+      "bytes": [1797, 2092],
+      "destination": "renderer and layout option coupling fixture"
+    },
+    {
+      "lines": [78, 105],
+      "bytes": [2092, 3136],
+      "destination": "split exact-wrap boundary translation"
+    },
+    {
+      "lines": [106, 132],
+      "bytes": [3136, 4134],
+      "destination": "stack exact-wrap boundary translation"
+    },
+    {
+      "lines": [133, 168],
+      "bytes": [4134, 5383],
+      "destination": "lazy memoized measurement translation"
+    },
+    {
+      "lines": [169, 211],
+      "bytes": [5383, 7151],
+      "destination": "complete split and stack guide, badge, and wrapping reservation matrix"
+    }
+  ],
+  "testMapping": [
+    {
+      "sourceTest": "split measurement and decorated rendering reserve a new-side guide at an exact wrap boundary",
+      "rustTest": "code_row_layout::tests::split_measurement_and_paint_reserve_new_guide_at_wrap_boundary"
+    },
+    {
+      "sourceTest": "stack measurement and decorated rendering reserve a new-side guide at an exact wrap boundary",
+      "rustTest": "code_row_layout::tests::stack_measurement_and_paint_reserve_new_guide_at_wrap_boundary"
+    },
+    {
+      "sourceTest": "memoizes wrapped measurement while preserving lazy plan construction",
+      "rustTest": "code_row_layout::tests::wrapped_measurement_is_lazy_and_memoized"
+    },
+    {
+      "sourceTest": "guide, badge, and wrapping policies reserve the same total width in split and stack",
+      "rustTest": "code_row_layout::tests::guide_badge_and_wrap_reservations_match_split_and_stack"
+    }
+  ],
+  "plannedTextBehaviorMapping": [
+    {
+      "sourceTest": "renders planned split rows to copyable visible text",
+      "rustTest": "planned_row_text::tests::split_rows_are_copyable_and_keep_wide_separator_aligned"
+    },
+    {
+      "sourceTest": "keeps the split separator aligned after wide characters",
+      "rustTest": "planned_row_text::tests::split_rows_are_copyable_and_keep_wide_separator_aligned"
+    },
+    {
+      "sourceTest": "renders planned stack rows with horizontal copy offset",
+      "rustTest": "planned_row_text::tests::stack_rows_apply_horizontal_copy_offset"
+    },
+    {
+      "sourceTest": "renders planned rows as code-only copy text when decorations are disabled",
+      "rustTest": "planned_row_text::tests::code_only_projection_omits_decorations_deduplicates_context_and_filters_sides"
+    }
+  ],
+  "nativeValidation": [
+    {
+      "command": "cargo test -p workdeck-tui code_row_layout::tests -- --nocapture",
+      "passed": 4,
+      "failed": 0,
+      "translatedTests": 4
+    },
+    {
+      "command": "cargo test -p workdeck-tui planned_row_text::tests -- --nocapture",
+      "passed": 7,
+      "failed": 0,
+      "sourceBehaviorTests": 4,
+      "frozenDifferentialTests": 1,
+      "additionalParityTests": 2,
+      "coverage": "decorated and code-only text, Unicode cell geometry, horizontal offsets, wrapped side filters, old/new guides, notes, gaps, headers, controls, and all six empty-diff reasons"
+    },
+    {
+      "command": "cargo test -p workdeck-tui --lib --no-fail-fast",
+      "passed": 549,
+      "failed": 0
+    }
+  ]
+}

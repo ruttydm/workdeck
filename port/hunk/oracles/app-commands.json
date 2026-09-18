@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "capture": {
+    "runtime": "Bun 1.3.5",
+    "method": "executed each pinned source tree directly from its disposable git archive",
+    "paths": ["src/ui/lib/appCommands.ts", "src/ui/lib/appCommands.test.ts"],
+    "baselineTestResult": "25 pass, 0 fail, 373 expectations",
+    "stableTestResult": "25 pass, 0 fail, 357 expectations",
+    "sourceIdentical": false
+  },
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "workdeckBrandingNormalization": "hunk command IDs, files role, and config examples renamed to workdeck",
+  "baselineProjection": {
+    "commandCount": 47,
+    "maximumCount": 10000,
+    "fastHorizontalColumns": 8,
+    "mainOnlyCapabilities": ["edit-active-note", "reply-to-active-note", "ctrl-half-page-aliases"],
+    "dispatch": "first enabled matching command owns the key",
+    "programmaticInvocation": "canonical or compatibility-alias ID, shipped first chord semantics, normalized count",
+    "observer": "notified once and only after a successful effect"
+  },
+  "stableProjection": {
+    "commandCount": 45,
+    "halfPageAliases": ["d", "u"]
+  }
+}

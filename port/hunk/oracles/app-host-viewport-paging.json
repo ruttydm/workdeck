@@ -1,0 +1,49 @@
+{
+  "sourcePath": "src/ui/AppHost.interactions.test.tsx",
+  "runtime": "Bun 1.3.14 (0d9b296a), disposable oracle only",
+  "command": "GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null bun test <pinned-checkout>/src/ui/AppHost.interactions.test.tsx -t 'Space scrolls down by viewport|PageUp scrolls up by viewport'",
+  "runs": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/main/src/ui/AppHost.interactions.test.tsx:\n(pass) App interactions > Space scrolls down by viewport [251.21ms]\n(pass) App interactions > PageUp scrolls up by viewport [54.17ms]\n\n 2 pass\n 74 filtered out\n 0 fail\n 2 expect() calls\nRan 2 tests across 1 file. [990.00ms]\n"
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "exitCode": 0,
+      "output": "bun test v1.3.14 (0d9b296a)\n\n../workdeck-conformance-oracle.vUBqwF/stable/src/ui/AppHost.interactions.test.tsx:\n(pass) App interactions > Space scrolls down by viewport [202.23ms]\n(pass) App interactions > PageUp scrolls up by viewport [52.66ms]\n\n 2 pass\n 72 filtered out\n 0 fail\n 2 expect() calls\nRan 2 tests across 1 file. [698.00ms]\n"
+    }
+  ],
+  "intervals": [
+    {
+      "byteStart": 69852,
+      "byteEnd": 71331,
+      "lineStart": 2335,
+      "lineEnd": 2389,
+      "sha256": "066767339967c167900a2d02560be6c6e086ad644a78d69b7e1fdfb527943451"
+    },
+    {
+      "byteStart": 71331,
+      "byteEnd": 72872,
+      "lineStart": 2390,
+      "lineEnd": 2448,
+      "sha256": "aae566104452c2db75bb4525c702906e33a9aae941a1219b4a4359d6ef576b63"
+    }
+  ],
+  "native": {
+    "destination": "crates/workdeck-tui/src/lib.rs",
+    "test": "tests::space_and_pageup_keep_code_visible_through_viewport_paging",
+    "command": "CARGO_INCREMENTAL=0 cargo test -p workdeck-tui --lib space_and_pageup_keep_code_visible_through_viewport_paging",
+    "passed": 1,
+    "failed": 0,
+    "ignored": 0,
+    "filteredOut": 1113,
+    "seconds": 0.81,
+    "exitCode": 0,
+    "assertions": "220x12 split fixtures named space.ts/pageup.ts, 50 numbered lines with +1000 replacement values. Source code-visible checks after Space and Space/PageUp; additional native assertions require positive scroll after Space and restored top/line01 after PageUp."
+  },
+  "limitations": [
+    "The two source tests assert only that code is visible, not exact paging distance; stronger native checks are not source differential proof.",
+    "Only these test bodies are mapped. Shared helpers, exact cell frames, cross-platform and complete AppHost corpus remain separate work."
+  ]
+}

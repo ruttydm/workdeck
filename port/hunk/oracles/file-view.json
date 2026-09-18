@@ -1,0 +1,149 @@
+{
+  "schemaVersion": 1,
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "source": {
+    "path": "src/ui/components/panes/FileView.tsx",
+    "baselineBlob": "9592556a78ffbd3fad07964994c763536f443292",
+    "baselineSha256": "9a1936828f5d584248235d80090b6b3e1d4e3513b3f69492638869a7aa8e9377",
+    "baselineBytes": 9506,
+    "baselineLines": 268,
+    "stableBlob": "39601e231f3acb2e3f4c079c554978b84b2bcbf5",
+    "stableSha256": "799ac954f95f40422b3275fcdc12145131fe5360ad38d0e0c980aff3031fe000",
+    "stableBytes": 9454,
+    "stableLines": 267,
+    "stableDifference": "v0.20.1 imports the cursor matcher from its older renderRows module and supplies the legacy note onClose callback; the pinned main baseline carries the newer shared cursor module and complete note action/thread contract."
+  },
+  "testSource": {
+    "path": "src/ui/components/panes/FileView.test.tsx",
+    "baselineAndStableBlob": "5cd4fbc6b3129ee048f7c333133e936cb1194bc2",
+    "baselineAndStableSha256": "27d9666c6f2c23133749b66ceb451380e062a92028eea4705695952939f6418d",
+    "bytes": 17465,
+    "lines": 540
+  },
+  "destinations": [
+    {
+      "path": "crates/workdeck-tui/src/file_view_view.rs",
+      "sha256": "7617f6833fc787544964e58fa75fefca321ec6a800266ea47f2ac10a1b6e33c1"
+    },
+    {
+      "path": "crates/workdeck-tui/src/file_view_view/tests.rs",
+      "sha256": "331a8d8aa28e9679b54cce28b605ac21ddce7209e1e9b510b1fe9910b55dae73"
+    },
+    {
+      "path": "crates/workdeck-tui/src/lib.rs",
+      "sha256": "43788ba55d72e951b8e96b817c59141ee8d8406887c5accd7d296f55a05db714"
+    }
+  ],
+  "baselineAndStableTestOracle": {
+    "runtime": "bun 1.3.5",
+    "command": "bun test src/ui/components/panes/FileView.test.tsx",
+    "passed": 9,
+    "failed": 0,
+    "assertions": 36
+  },
+  "baselineCellFrames": {
+    "method": "render FileView directly with OpenTUI testRender and captureCharFrame",
+    "symbolic20x4": [
+      "Heading             ",
+      "Body                ",
+      "Tail                ",
+      "                    "
+    ],
+    "noted60x6": [
+      "BOUND PRESENTATION                                          ",
+      "    ╭─ Agent note - oracle.ts R1 ──────────────────────────╮",
+      "    │                                                      │",
+      "    │ Review bound output                                  │",
+      "    ╰──────────────────────────────────────────────────────╯",
+      "                                                            "
+    ],
+    "clipped20x3": [
+      "VISIBLE CUSTOM      ",
+      "AFTER ROW           ",
+      "                    "
+    ]
+  },
+  "paintContract": {
+    "tones": {
+      "default": "theme.text",
+      "muted": "theme.muted",
+      "accent": "theme.accent",
+      "accent-muted": "theme.accentMuted",
+      "syntax": "theme.syntaxColors.default",
+      "added": "theme.fileNew",
+      "removed": "theme.fileDeleted"
+    },
+    "attributes": ["bold", "italic", "underline", "strikethrough"],
+    "unselectedBackground": "theme.panel",
+    "selectedBackground": "theme.selectedHunk",
+    "cursorBackground": "cursorLineHighlightBg(rowBackground, theme)",
+    "rowId": "reviewRowId(file-view:<row id>)",
+    "paintIdentity": "<file id>:<registration identity>:<layout generation>:<row id>"
+  },
+  "sourceCoverage": [
+    [[1, 65], [0, 2508], "imports, tone/attribute paint mapping, hunk selection, and symbolic spans"],
+    [[66, 93], [2508, 3454], "symbolic renderer and row-local error-boundary fallback contract"],
+    [[94, 143], [3454, 4803], "component inputs, public immutable theme projection, planned-row fallback, and visible window resolution"],
+    [[144, 194], [4803, 6748], "top and bottom spacers, inline-note placement, stable row ids, and exact stack note painter integration"],
+    [[195, 253], [6748, 9162], "selected/cursor row paint, fixed-height custom component props, identity, clipping, fallback, and attributed failure"],
+    [[254, 268], [9162, 9506], "complete mounted row stream, trailing spacer, and memoized component boundary adaptation"]
+  ],
+  "testCoverage": [
+    [[1, 58], [0, 2031], "fixtures, validated layout helper, note plan, geometry, ids, and theme setup"],
+    [[59, 67], [2031, 2405], "inclusive selected-hunk membership"],
+    [[68, 100], [2405, 3401], "symbolic renderer, text, stable row id, height, tones, attributes, selection, and cursor paint"],
+    [[101, 154], [3401, 5082], "host note follows the bound alternate row with its exact stable id"],
+    [[155, 223], [5082, 7258], "visible row window invokes only one bounded custom painter with public theme props"],
+    [[224, 281], [7258, 9267], "live theme repaint preserves row identity and layout generation"],
+    [[282, 362], [9267, 11961], "selection repaint preserves mount state while unmount and generation replace it"],
+    [[363, 427], [11961, 13972], "one-thousand-row layout mounts only four visible painters around an inline note"],
+    [[428, 485], [13972, 15831], "fixed host height clips custom overflow and retains row ids"],
+    [[486, 540], [15831, 17465], "custom painter failure stays inside one row, paints fallback, and reports full attribution"]
+  ],
+  "testMappings": [
+    {
+      "hunk": "FileView hunk selection > highlights every rendered row inside the selected hunk bounds",
+      "rust": "file_view_view::tests::highlights_every_rendered_row_inside_the_selected_hunk_bounds"
+    },
+    {
+      "hunk": "FileView custom rows > preserves the symbolic-only renderer",
+      "rust": "file_view_view::tests::preserves_the_symbolic_only_renderer"
+    },
+    {
+      "hunk": "FileView custom rows > renders a host-owned note immediately after its bound alternate row",
+      "rust": "file_view_view::tests::renders_a_host_owned_note_immediately_after_its_bound_alternate_row"
+    },
+    {
+      "hunk": "FileView custom rows > mounts hook-using components only inside the host row window with bounded props",
+      "rust": "file_view_view::tests::mounts_custom_components_only_inside_the_host_row_window_with_bounded_props"
+    },
+    {
+      "hunk": "FileView custom rows > repaints live semantic theme props without remounting or relayout",
+      "rust": "file_view_view::tests::repaints_live_semantic_theme_props_without_remounting_or_relayout"
+    },
+    {
+      "hunk": "FileView custom rows > retains ephemeral hook state across selection props but loses it on unmount and generation",
+      "rust": "file_view_view::tests::retains_ephemeral_state_across_selection_but_loses_it_on_unmount_and_generation"
+    },
+    {
+      "hunk": "FileView custom rows > mounts only visible painters from a 1,000-row component layout",
+      "rust": "file_view_view::tests::mounts_only_visible_painters_from_a_one_thousand_row_component_layout"
+    },
+    {
+      "hunk": "FileView custom rows > clips oversized custom output to fixed host geometry and retains stable row ids",
+      "rust": "file_view_view::tests::clips_oversized_custom_output_to_fixed_host_geometry_and_retains_stable_row_ids"
+    },
+    {
+      "hunk": "FileView custom rows > contains a component render error to its symbolic row fallback",
+      "rust": "file_view_view::tests::contains_a_component_render_error_to_its_symbolic_row_fallback"
+    }
+  ],
+  "nativeAdaptation": {
+    "components": "React callbacks become host-validated declarative ViewNode trees. The injected painter boundary preserves bounded props and row-local error fallback without executing extension code in the renderer.",
+    "state": "React keyed hook survival becomes FileViewComponentMountState keyed by file, registration identity, layout generation, and row id.",
+    "windowing": "Only rows intersecting VisibleBodyBounds are painted; exact top and bottom spacer heights preserve the complete body geometry.",
+    "notes": "AgentInlineNote is the shared exact Ratatui note painter, including source-bound placement, actions, thread depth, and stable ids.",
+    "runtime": "The live review stream calls the same painter and retains component mouse-hit geometry from painted row bounds."
+  }
+}

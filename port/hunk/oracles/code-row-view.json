@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 1,
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "source": {
+    "path": "src/ui/diff/CodeRowView.tsx",
+    "baselineBlob": "88c466349d77154cb804e8e1d1d1531978a1fa10",
+    "baselineSha256": "2e5421d98c8a79dd6d55bf15fa99fb5d20bdbdd1bbbf97257cd2369f3d9045b9",
+    "baselineBytes": 12621,
+    "baselineLines": 396,
+    "stablePresent": false
+  },
+  "test": {
+    "path": "src/ui/diff/CodeRowView.test.tsx",
+    "baselineBlob": "8091c8a1283a4b99e2c417eaa3d19b724725d07d",
+    "baselineSha256": "a20665b46b67e5e48f3ea7c8992c8afbe602307911301ed5a4609122cd82436c",
+    "baselineBytes": 2326,
+    "baselineLines": 71,
+    "stablePresent": false
+  },
+  "destinations": [
+    {
+      "path": "crates/workdeck-tui/src/code_row_view.rs",
+      "sha256": "b2cb4b2836eb4f0bf25e565eb0ee5fd2309c9ae0ac2265f420eaf12ced73478a"
+    },
+    {
+      "path": "crates/workdeck-tui/src/lib.rs",
+      "sha256": "30324168fe56d3a3791137dbe1be09a01689385276c0d6cfd6874624c85dd82d"
+    }
+  ],
+  "baselineOracle": {
+    "runtime": "bun 1.3.5",
+    "command": "bun test src/ui/diff/CodeRowView.test.tsx",
+    "passed": 1,
+    "failed": 0,
+    "expectations": 2,
+    "selectionPrecedence": {
+      "capturedTerminalText": [
+        "▌+ selected         ",
+        "                    "
+      ],
+      "baseBackground": "#12251d",
+      "paintedBackground": "#2f2b16",
+      "selectionBackground": "#2f2b16",
+      "cursorBackground": "#3c4d48"
+    }
+  },
+  "stableOracle": {
+    "sourcePresent": false,
+    "reason": "The pinned stable tree predates the baseline's CodeRowView extraction; stable-only behavior remains covered by its owning older renderer and the enumerated stable-fix queue."
+  },
+  "nativeAdaptation": {
+    "rendering": "The component returns final renderer-neutral colored lines that project directly into Ratatui cell buffers.",
+    "hover": "The React onMouseMove callback becomes the immutable row_key carried by PaintedCodeRow for host hit testing.",
+    "addNote": "The nested onMouseUp callback becomes CodeRowAddNoteHit with the exact hunk, preferred new-then-old line target, first visual row, terminal column, and badge width.",
+    "eventPropagation": "OpenTUI's markNestedRowMouseAction is represented structurally: the host identifies the nested add-note hit before dispatching the enclosing row action."
+  },
+  "sourceCoverage": [
+    {
+      "lines": [1, 48],
+      "bytes": [0, 1765],
+      "destination": "native planned-row, options, hover identity, and add-note hit vocabulary"
+    },
+    {
+      "lines": [49, 97],
+      "bytes": [1765, 3096],
+      "destination": "selection precedence plus separately styled badge and reserved-column spacer composition"
+    },
+    {
+      "lines": [98, 172],
+      "bytes": [3096, 5705],
+      "destination": "geometry-neutral extension paint, layout planning, side-specific copy selection, context cursor, and number-versus-row cursor policy"
+    },
+    {
+      "lines": [173, 289],
+      "bytes": [5705, 9369],
+      "destination": "split target precedence, rails, note guides, nowrap and wrapped composition, hover identity, badge, and continuation fill"
+    },
+    {
+      "lines": [290, 396],
+      "bytes": [9369, 12621],
+      "destination": "stack target precedence, rails, note guides, nowrap and wrapped composition, hover identity, badge, and continuation fill"
+    }
+  ],
+  "testMapping": [
+    {
+      "lines": [1, 71],
+      "bytes": [0, 2326],
+      "sourceTest": "CodeRowView gives copy selection precedence over cursor paint",
+      "rustTests": [
+        "code_row_view::tests::copy_selection_precedes_cursor_paint_like_the_frozen_baseline"
+      ],
+      "additionalExecutableCoverage": [
+        "code_row_view::tests::split_context_cursor_paints_both_halves_but_change_cursor_paints_its_side",
+        "code_row_view::tests::split_copy_side_and_number_cursor_keep_their_exact_paint_scope",
+        "code_row_view::tests::note_guides_and_add_note_hit_metadata_follow_new_then_old_target_precedence",
+        "code_row_view::tests::wrapped_rows_reserve_and_fill_the_add_note_column_on_continuations",
+        "code_row_view::tests::extension_line_highlights_are_applied_before_selection_paint",
+        "code_row_view::tests::non_code_rows_are_not_claimed_by_the_code_row_view"
+      ]
+    }
+  ]
+}

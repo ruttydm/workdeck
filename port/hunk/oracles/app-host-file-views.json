@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "path": "src/ui/AppHost.file-views.test.tsx",
+    "baseline": {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "blob": "2e032db09d81bd410ae8747b5be6a96a1bdd00dc",
+      "sha256": "6ecc43b1476b8530a434ae4978e88ceb12d5e430e85fc8c5deb40b7e8f5e0c39",
+      "bytes": 22004,
+      "lines": 581
+    },
+    "stable": {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "blob": "2e032db09d81bd410ae8747b5be6a96a1bdd00dc",
+      "sha256": "6ecc43b1476b8530a434ae4978e88ceb12d5e430e85fc8c5deb40b7e8f5e0c39",
+      "bytes": 22004,
+      "lines": 581
+    }
+  },
+  "oracleRuns": {
+    "baseline": {
+      "runtime": "bun 1.3.14",
+      "command": "bun test src/ui/AppHost.file-views.test.tsx",
+      "passed": 6,
+      "failed": 0,
+      "expectCalls": 23,
+      "elapsedMilliseconds": 1870,
+      "caseMilliseconds": [251.15, 476.35, 253.22, 214.39, 162.30, 105.05]
+    },
+    "stable": {
+      "runtime": "bun 1.3.5",
+      "command": "bun test src/ui/AppHost.file-views.test.tsx",
+      "passed": 6,
+      "failed": 0,
+      "expectCalls": 23,
+      "elapsedMilliseconds": 1820,
+      "caseMilliseconds": [249.11, 481.68, 246.38, 210.56, 165.0, 98.45]
+    }
+  },
+  "testMappings": [
+    {
+      "upstream": "attributes one synchronous row-render warning and keeps the symbolic fallback",
+      "rust": "contains_a_component_render_error_to_its_symbolic_row_fallback + deduplicates_row_warnings_within_one_generation_and_forgets_retired_generations"
+    },
+    {
+      "upstream": "re-lays out a stateful view on view-wide and file-scoped refresh, warning for an unknown view id",
+      "rust": "stateful_view_relayouts_only_for_valid_view_wide_and_file_scoped_refreshes"
+    },
+    {
+      "upstream": "honors a file-scoped refresh for a file the current filter hides",
+      "rust": "hidden_file_scoped_refresh_survives_filtering_and_reappears_marked"
+    },
+    {
+      "upstream": "applies the active presentation changeset-wide, including filter-hidden matches",
+      "rust": "bulk_view_menu_applies_to_hidden_matching_files_but_not_nonmatches"
+    },
+    {
+      "upstream": "runs the real folder TSX view with row-safe summaries, navigation, and mouse-up state",
+      "rust": "ratatui_rows_toggle_only_on_an_undragged_left_mouse_up"
+    },
+    {
+      "upstream": "steps the current line through the rows an alternate presentation renders",
+      "rust": "ratatui_steps_current_line_through_alternate_file_view_rows"
+    }
+  ],
+  "adaptations": [
+    "Hunk's in-process React row callback becomes a bounded declarative native view. The injected painter parity test exercises the same synchronous failure boundary, symbolic fallback, attribution, fixed height, and generation-scoped warning deduplication.",
+    "Stateful and bulk behavior crosses Workdeck's compiled JSON-RPC subprocess boundary and is observed through real Ratatui frames. A scoped refresh names invocation-local runtime file ids and stale ids are quiet no-ops exactly as in Hunk.",
+    "The bundled JSX example is a compiled Rust extension. Host-owned mouse capture, expansion state, current-hunk prefixes, navigation, and return to raw diff preserve Hunk's visible behavior without React or a JavaScript runtime."
+  ]
+}

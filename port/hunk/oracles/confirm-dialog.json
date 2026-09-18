@@ -1,0 +1,147 @@
+{
+  "schemaVersion": 1,
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "source": {
+    "path": "src/ui/components/chrome/ConfirmDialog.tsx",
+    "baselineAndStableBlob": "f09d6041da6ea2f9dd0d2039d5596ef0cc427833",
+    "baselineAndStableSha256": "6f37b432f5090de747ef4fe2ddafdabf4e8e54fd3ff0da60c86153e70e7de79b",
+    "bytes": 4264,
+    "lines": 124
+  },
+  "destinations": [
+    {
+      "path": "crates/workdeck-tui/src/confirm_dialog.rs",
+      "sha256": "b6c57fd4b920f1a4de866aad9fe6d332efc21d1881cd84644583d9d16d81296c"
+    },
+    {
+      "path": "crates/workdeck-tui/src/lib.rs",
+      "sha256": "dab92ca9479942ec7e4e8ca6752d4ad4d72682ea8e07a9348aa5af0a5c5d4af4"
+    },
+    {
+      "path": "crates/workdeck-tui/src/modal_frame.rs",
+      "sha256": "05937303ca91cfa76cd6cb518a3fb9ec79fc6832286eb5756875467481fccb18"
+    },
+    {
+      "path": "crates/workdeck-tui/src/ui_geometry.rs",
+      "sha256": "d3619b60d177853eeeaac3d0b5eae955194c8640e628ab14ee1f49fdf13845e1"
+    },
+    {
+      "path": "crates/workdeck-tui/src/extension_dialogs.rs",
+      "sha256": "68a75cf91f4d0640c57e86fce1c7e022732a099d48bbab5c1ca8b6531802339f"
+    }
+  ],
+  "baselineAndStableApplicationOracle": {
+    "runtime": "bun 1.3.5",
+    "commands": [
+      "bun test src/ui/AppHost.extension-dialogs.test.tsx -t confirm dialog",
+      "bun test src/ui/AppHost.extension-dialogs.test.tsx -t keeps confirm actions visible",
+      "bun test src/ui/AppHost.interactions.test.tsx -t quit prompt actions respond to mouse clicks"
+    ],
+    "eachPin": {
+      "passed": 4,
+      "failed": 0,
+      "assertions": 17
+    },
+    "tests": [
+      "extension dialogs > a confirm dialog renders with attribution and resolves true on enter",
+      "extension dialogs > keeps confirm actions visible when wrapped prose exceeds a short terminal",
+      "extension dialogs > escape resolves a confirm dialog as false",
+      "App interactions > quit prompt actions respond to mouse clicks"
+    ]
+  },
+  "directOracle": {
+    "runtime": "bun 1.3.5",
+    "temporaryTest": "src/ui/components/chrome/ConfirmDialog.oracle.test.tsx",
+    "temporarySourceCommitted": false,
+    "baseline": {
+      "passed": 4,
+      "failed": 0,
+      "assertions": 5,
+      "hoverBackground": "#392d14"
+    },
+    "stable": {
+      "passed": 4,
+      "failed": 0,
+      "assertions": 5,
+      "hoverBackground": "#3e331a"
+    },
+    "frames": [
+      {
+        "terminal": { "width": 80, "height": 20 },
+        "requestedDialog": { "width": 40, "height": 9 },
+        "frame": { "left": 20, "top": 5, "width": 40, "height": 9 },
+        "body": { "left": 22, "top": 9, "width": 36, "height": 2 },
+        "actionGap": { "left": 22, "top": 11, "width": 36, "height": 1 },
+        "actionRow": { "left": 22, "top": 12, "width": 36, "height": 1 },
+        "baselineStableAndRustSha256": "7440b4285775971f98b83b87ef89b84162e15a7d2c8a382104b0e6bef7578f22"
+      },
+      {
+        "terminal": { "width": 80, "height": 8 },
+        "clampedFrameRows": 6,
+        "showActions": true,
+        "showActionGap": false,
+        "bottomBorderOverlay": "└──enter/y─accept──·──esc/n─cancel─────┘",
+        "baselineStableAndRustSha256": "2b5937af0510829cfe1bb05a81f8b1147cbbf54aa45d24764623fc4a391b322e"
+      },
+      {
+        "terminal": { "width": 80, "height": 7 },
+        "clampedFrameRows": 5,
+        "showActions": false,
+        "showActionGap": false,
+        "bottomBorderOverlay": "└─second─body──────────────────────────┘",
+        "baselineStableAndRustSha256": "4d8adf81bd044ddd229928814ed05b94c3be4898230d243378067201d9a5df80"
+      }
+    ],
+    "pointerAssertions": [
+      "hovering the first action applies accentMuted only to that button",
+      "mouse-up inside either padded action runs exactly that action",
+      "mouse-up on the separator runs neither action and does not close",
+      "mouse-up on the backdrop invokes close exactly once"
+    ]
+  },
+  "sourceCoverage": [
+    [[1, 6], [0, 318], "mouse event, React state, modal geometry, theme, and shared frame dependencies"],
+    [[7, 16], [318, 726], "complete action key, label, and mouse-run contract"],
+    [[17, 24], [726, 1077], "two-row confirmation chrome budget and body-height helper"],
+    [[25, 34], [1077, 1358], "shared action-row component contract and local hover identity"],
+    [[35, 67], [1358, 2530], "ordered separators, padding, hover palette, mouse enter or leave, propagation stop, callback, and styled labels"],
+    [[68, 82], [2530, 3217], "keyboard ownership, reusable modal requirement, and height-sizing documentation contract"],
+    [[83, 108], [3217, 3852], "complete children, dimensions, theme, close callback, title, and responsive threshold contract"],
+    [[109, 124], [3852, 4264], "shared frame composition, arbitrary body children, conditional gap, and conditional action footer"]
+  ],
+  "testMappings": [
+    {
+      "hunk": "extension dialogs > a confirm dialog renders with attribution and resolves true on enter",
+      "rust": [
+        "tests::extension_confirm_uses_shared_footer_hover_and_separator_hit_semantics",
+        "extension_dialogs::tests::queues_one_visible_dialog_fifo_across_extensions_and_resets_promoted_state"
+      ]
+    },
+    {
+      "hunk": "extension dialogs > keeps confirm actions visible when wrapped prose exceeds a short terminal",
+      "rust": "confirm_dialog::tests::clamped_frames_match_action_and_body_overflow_thresholds"
+    },
+    {
+      "hunk": "extension dialogs > escape resolves a confirm dialog as false",
+      "rust": "extension_dialogs::tests::each_kind_has_its_exact_accept_and_cancel_value"
+    },
+    {
+      "hunk": "App interactions > quit prompt actions respond to mouse clicks",
+      "rust": [
+        "confirm_dialog::tests::hover_changes_only_the_named_button_and_hit_testing_uses_padding",
+        "tests::extension_confirm_uses_shared_footer_hover_and_separator_hit_semantics"
+      ]
+    }
+  ],
+  "additionalRustTests": [
+    "confirm_dialog::tests::height_helper_reserves_frame_gap_and_action_rows",
+    "confirm_dialog::tests::roomy_frame_matches_the_frozen_opentui_geometry_and_content"
+  ],
+  "nativeAdaptation": {
+    "rendering": "Ratatui owns cells; the three frozen character buffers are byte-identical to both OpenTUI pins.",
+    "overflow": "A grapheme-aware transparent painter preserves underlying bottom-border cells wherever OpenTUI transparent spaces overflow cramped frames.",
+    "input": "The reusable hit map includes each action's horizontal padding, excludes separators, and lets the host retain keyboard and callback ownership.",
+    "consumer": "Native extension confirms now use the shared renderer, exact key legends, attribution/body windowing, hover state, action clicks, close affordance, and backdrop cancellation."
+  }
+}

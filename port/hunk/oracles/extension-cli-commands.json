@@ -1,0 +1,35 @@
+{
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "source": {
+    "path": "src/extensions/cliCommands.ts",
+    "blob": "945c21148a14e06b986c279d98659b4cce4babcd"
+  },
+  "test": {
+    "path": "src/extensions/cliCommands.test.ts",
+    "blob": "7689b8e20f6886bf357559cb544ce4f727a2d0bd"
+  },
+  "baselineOracle": {
+    "runtime": "bun 1.3.5",
+    "passed": 3,
+    "failed": 0,
+    "expectations": 6
+  },
+  "stableOracle": {
+    "status": "absent",
+    "source": false,
+    "test": false
+  },
+  "invariants": [
+    "the first exact command name wins in registry order and lookup is case-sensitive",
+    "collisions retain winner and rejected extension identities",
+    "collision issues retain rejected source path and origin",
+    "descriptions are sorted by command name and include optional usage",
+    "extension metadata is stripped of terminal controls, newlines, and tabs",
+    "stored public command metadata is an owned copy"
+  ],
+  "nativeAdaptation": {
+    "branding": "Usage lines begin with workdeck instead of hunk.",
+    "source": "Native collision provenance points to workdeck-extension.toml rather than a TypeScript module."
+  }
+}

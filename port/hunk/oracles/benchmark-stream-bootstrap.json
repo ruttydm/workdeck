@@ -1,0 +1,11 @@
+{
+  "baselines": ["2c00f4358b89cfc0a6b04459ffc538ba601aa3c2", "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd"],
+  "runtime": "Bun 1.3.14 in disposable pinned checkouts; both outputs identical",
+  "source": "benchmarks/large-stream-fixture.ts",
+  "blob": "c55366de30dfe0d468b0d1e5009b109faacc9333",
+  "normal": {"id":"changeset:large-split-stream:180:120:ascii","sourceLabel":"repo","title":"repo working tree","files":180,"additions":8640,"deletions":8640,"lastFile":"stream:180","initialMode":"split","initialTheme":"midnight","initialShowAgentNotes":false},
+  "nonAscii": {"id":"changeset:large-split-stream:2:120:non-ascii","sourceLabel":"repo","title":"repo working tree","files":2,"additions":96,"deletions":96,"lastFile":"stream:2","initialMode":"split","initialTheme":"midnight","initialShowAgentNotes":false},
+  "huge": {"id":"changeset:huge-stream:1000:300:50000","sourceLabel":"repo","title":"repo working tree","files":1001,"additions":92001,"deletions":92001,"lastFile":"stream:1001","initialMode":"split","initialTheme":"midnight","initialShowAgentNotes":false},
+  "giant": {"id":"stream:1001","stats":{"additions":44001,"deletions":44001},"isPartial":true,"hunks":1,"additionLines":44007,"deletionLines":44007},
+  "performance_gate": "Structural fixture evidence only; no latency or memory acceptance claim."
+}

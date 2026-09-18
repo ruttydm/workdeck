@@ -1,0 +1,59 @@
+{
+  "diagnosticOnly": true,
+  "host": "Darwin arm64",
+  "runtime": "Bun 1.3.14 (disposable source oracle only)",
+  "probeSha256": "b1a2f2f535dbd1b3f689ca8dc95b5ad499765eb07ff83f06de720b0ef4f75644",
+  "temporaryProbePath": "/tmp/workdeck-huge-setup-probe.ZRtYnY/probe.ts",
+  "command": "/usr/bin/time -l /tmp/workdeck-source-oracle.GjUnAl/bun-darwin-aarch64/bun /tmp/workdeck-huge-setup-probe.ZRtYnY/probe.ts <disposable-checkout>",
+  "sharedSourceBlobs": {
+    "benchmarks/large-stream-fixture.ts": "c55366de30dfe0d468b0d1e5009b109faacc9333",
+    "benchmarks/lib/interaction.ts": "f74d2e1017f4b301787d7df94ff503205003890b"
+  },
+  "probeSequence": "Import pinned AppHost/fixture/interaction helpers and installed React test renderer; construct huge fixture; sample memory; time testRender; sample memory; time one renderPass; sample memory; two settle passes; six source-helper scroll ticks; four source-helper navigation presses; sample memory; destroyRenderer in finally.",
+  "gcForced": false,
+  "files": 1001,
+  "viewport": {"width": 240, "height": 28},
+  "runs": [
+    {
+      "commit": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+      "appHostBlob": "9e6fd2e78cd18bd028049a9ca2050fa79a26dc95",
+      "reactRendererVersion": "0.5.6",
+      "testUtilsSha256": "26a731f9004f18b74da4cabde57bf3cf43cdc466190cb8def75ecbeaa5487180",
+      "exitCode": 0,
+      "fixtureBuildMs": 972.0110410000001,
+      "rendererSetupMs": 1099.3038749999998,
+      "firstFrameMs": 6.530624999999873,
+      "beforeRenderer": {"rss":390135808,"heapTotal":105756672,"heapUsed":64417806,"external":42351889,"arrayBuffers":2436},
+      "afterRenderer": {"rss":748240896,"heapTotal":270304256,"heapUsed":179991033,"external":63695255,"arrayBuffers":556786},
+      "afterFirstFrame": {"rss":749174784,"heapTotal":270772224,"heapUsed":179991033,"external":5949650,"arrayBuffers":556786},
+      "afterNavigation": {"rss":911048704,"heapTotal":251067392,"heapUsed":290626996,"external":111822890,"arrayBuffers":18791570},
+      "scrollTickMs": [34.73625000000038,164.12316699999974,62.4079999999999,10.888042000000041,1.9573330000002898,1.5663340000000971],
+      "navigationPressMs": [199.94866699999966,14.765124999999898,55.05362500000001,76.4516249999997],
+      "externalProcessCounters": {"realSeconds":3.16,"userSeconds":4.21,"systemSeconds":0.29,"maximumResidentSetBytes":911802368,"peakMemoryFootprintBytes":786695872}
+    },
+    {
+      "commit": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+      "appHostBlob": "e2359fc8c0f8fc62213d554dd15d67272bc9a67a",
+      "reactRendererVersion": "0.5.1",
+      "testUtilsSha256": "b9e924f28aa94aa402be6a75d4f5b892abed1071cd302a784eb031bf48e81717",
+      "exitCode": 0,
+      "fixtureBuildMs": 983.0924579999999,
+      "rendererSetupMs": 1095.560041,
+      "firstFrameMs": 28.778708999999708,
+      "beforeRenderer": {"rss":381124608,"heapTotal":104753152,"heapUsed":63972295,"external":42274999,"arrayBuffers":2186},
+      "afterRenderer": {"rss":724959232,"heapTotal":265888768,"heapUsed":176966463,"external":63398045,"arrayBuffers":555096},
+      "afterFirstFrame": {"rss":750747648,"heapTotal":266415104,"heapUsed":211449730,"external":17075364,"arrayBuffers":555096},
+      "afterNavigation": {"rss":883802112,"heapTotal":239459328,"heapUsed":288673872,"external":110981056,"arrayBuffers":18511984},
+      "scrollTickMs": [73.92245900000034,13.127208999999766,2.2659159999998337,1.4576250000000073,1.4355839999998352,1.5099169999998594],
+      "navigationPressMs": [132.22416599999997,75.77683300000035,80.4335000000001,81.76450000000023],
+      "externalProcessCounters": {"realSeconds":3.17,"userSeconds":4.19,"systemSeconds":0.34,"maximumResidentSetBytes":885358592,"peakMemoryFootprintBytes":759760576}
+    }
+  ],
+  "limitations": [
+    "Supplemental instrumented probe, not execution of the unmodified huge-stream script; original frozen benchmark captures remain authoritative for their own workload.",
+    "Memory samples do not force GC, unlike the original source benchmark's printMemoryMetrics calls.",
+    "Single run per pin, no interleaving or controlled host load, and no asserted cell-buffer or flush equivalence.",
+    "The disposable probe is not a tracked reproducible Rust oracle generator; its path may expire. External counters retain selected fields, not the complete time transcript.",
+    "Only named source blobs and test-utils files were checked here; this is not a new whole-checkout or dependency-lock audit."
+  ]
+}

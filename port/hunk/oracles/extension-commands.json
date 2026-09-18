@@ -1,0 +1,39 @@
+{
+  "baseline": "2c00f4358b89cfc0a6b04459ffc538ba601aa3c2",
+  "stable": "4ae6f8f6c8afbdbabcc037e0e0e7fff85d41d6fd",
+  "source": {
+    "path": "src/ui/lib/extensionCommands.ts",
+    "baselineBlob": "0c0306ade48817c299cda1d93fc1efb05cc139c3",
+    "stableBlob": "2208c532eb83ccc47248d9d92f35f4ad6afebfb4",
+    "stableDelta": "import relocation only"
+  },
+  "test": {
+    "path": "src/ui/lib/extensionCommands.test.ts",
+    "baselineBlob": "4f3caef362d43e07b86f55faa47ed8aa1a76e7b5",
+    "stableBlob": "bca4672436919eb6d6f38f34e29e4f28e27ffe6e"
+  },
+  "baselineOracle": {
+    "runtime": "bun 1.3.5",
+    "passed": 7,
+    "failed": 0,
+    "expectations": 26
+  },
+  "stableOracle": {
+    "runtime": "bun 1.3.5",
+    "passed": 7,
+    "failed": 0,
+    "expectations": 26
+  },
+  "invariants": [
+    "every registered command remains menu-visible even without an accepted chord",
+    "built-in shortcuts win conflicts and extension registration order breaks extension ties",
+    "conflict refusal is per chord rather than per command",
+    "resolved user chords replace extension declarations",
+    "a chord released by a remapped built-in becomes available to an extension",
+    "accepted chords drive dispatch and user-facing key labels from the same table"
+  ],
+  "nativeAdaptation": {
+    "branding": "Built-in conflict identities use the workdeck namespace.",
+    "dispatch": "The Rust table returns an owned native registration to the Ratatui command runner instead of closing over a JavaScript callback."
+  }
+}
